@@ -195,5 +195,24 @@ const mergedScan=await page.evaluate(async entries=>{settings.archiveLore.keywor
 for(const member of arc.archiveLore.members)assert(mergedScan.find(e=>String(e.uid)===member.uid).disable);
 assert(!mergedScan.find(e=>e.uid===arc.uid).disable);
 assert.deepEqual(runtimeErrors,[]);assert.deepEqual(await page.evaluate(()=>window.errors),[]);
-console.log(JSON.stringify({passed:true,bookEntries:Object.keys(book.entries).length,mobile:overflow,runtimeErrors}));
+// Reproduce the reported bulk conversion with the real dashboard and server facade.
+await page.locator('.al-dialog [data-action="close"]').click();
+const bulk=await page.evaluate(async()=>{
+    const base='/scripts/extensions/third-party/archive-lore/';
+    const {createLoreUI}=await import(base+'lore-ui.js'),{createLoreController}=await import(base+'lore-controller.js'),{createServerController,serverVectorStore}=await import(base+'lore-server.js');
+    const book={entries:Object.fromEntries(Array.from({length:105},(_,i)=>[i,{uid:i,comment:'기존 기억 '+i,content:'Saved memory '+i,constant:false}]))};
+    const before=JSON.stringify(book),context=()=>({key:'bulk-chat',name:'일괄 변경 확인',messages:[{mes:'hello',is_user:true}]}),settings=()=>({serverEnabled:true,cacheNamespace:'bulk'});let checks=0,ui;
+    const call=async(route,body)=>{if(route==='/jobs/list')return [];if(route==='/vectors/has'){checks++;if(checks===1)await new Promise(r=>setTimeout(r,2700));return {present:body.keys.map(()=>false)};}throw Error('Unexpected '+route);};
+    const store=serverVectorStore({local:{get:async()=>null},enabled:()=>true,call});
+    const local=createLoreController({settings,context,books:()=>['Bulk'],target:()=> 'Bulk',initialStart:()=>0,loadBook:async()=>structuredClone(book),store});
+    const controller=createServerController({local,enabled:()=>true,settings,context,call,changed:()=>void ui.refresh()});
+    ui=createLoreUI({settings,context,controller,error:e=>{throw e;},books:()=>['Bulk'],target:()=> 'Bulk',bookNames:()=>['Bulk'],diagnostics:{list:async()=>[]}});
+    const opening=ui.open();await new Promise(r=>setTimeout(r,20));
+    const loading=document.querySelector('[data-counts]').textContent,heading=document.querySelector('[data-chat]').textContent;
+    const refreshes=Array.from({length:105},()=>ui.refresh());await Promise.all([opening,...refreshes]);
+    return {loading,heading,counts:document.querySelector('[data-counts]').textContent,records:document.querySelectorAll('[data-records] [data-record]').length,page:document.querySelector('[data-page]').textContent,checks,unchanged:before===JSON.stringify(book)};
+});
+assert(bulk.loading.includes('불러오는 중'));assert.equal(bulk.heading,'일괄 변경 확인');assert(bulk.counts.includes('대기 105'));assert(bulk.page.includes('105항목'));assert.equal(bulk.records,12);assert.equal(bulk.checks,4);assert(bulk.unchanged);
+await page.screenshot({path:path.join(os.tmpdir(),'archive-lore-bulk-105.png'),fullPage:true});
+console.log(JSON.stringify({passed:true,bookEntries:Object.keys(book.entries).length,mobile:overflow,runtimeErrors,bulk}));
 await browser.close();server.close();

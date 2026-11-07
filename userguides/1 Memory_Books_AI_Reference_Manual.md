@@ -1,4 +1,4 @@
-# Archive Lore 0.3.1 — fork runtime
+# Archive Lore 0.3.2 — fork runtime
 
 This repository is an AGPL-3.0-only fork of Aiko Hanasaki's Memory Books. The manifest now loads `archive-lore.js` and `lore-style.css` directly. The upstream `index.js`, bundles, and other features remain as historical fork source; they are not loaded by this runtime. No Archive or Charm extension code is imported or copied. Upstream connection-profile routing, chat message fingerprints, lorebook naming, and the default compaction prompt are reused. Settings, IndexedDB storage, chat metadata, prompt slots, menu IDs, and slash commands use independent Archive Lore namespaces.
 
@@ -47,6 +47,14 @@ Data is stored under the authenticated user's `archive-lore-server/`: `jobs/`, `
 **Lifecycle limits:** the ST/Termux server must remain running. On server restart, in-flight jobs become **interrupted**, not silently replayed paid API calls; collection/indexing can be restarted using existing receipts/vectors. Automatic collection triggers originate from the browser's completed-RP events; this plugin is not an unattended chat-file watcher. It continues already submitted Archive Lore tasks. It does **not** keep the main RP answer generation or other extensions alive, and does not automatically install a completed old recall result into a new turn. The server initially budgets retrieval by estimated tokens; the browser re-fits selected original units with ST's real tokenizer before prompt installation and rejects results after a chat/source change.
 
 Server runtime interfaces were checked against the official [ST plugin loader](https://github.com/SillyTavern/SillyTavern/blob/release/src/plugin-loader.js), [provider backend](https://github.com/SillyTavern/SillyTavern/blob/release/src/endpoints/backends/chat-completions.js), [World Info endpoints](https://github.com/SillyTavern/SillyTavern/blob/release/src/endpoints/worldinfo.js), and [connection profile service](https://github.com/SillyTavern/SillyTavern/blob/release/public/scripts/extensions/shared.js). Live provider credentials and the user's specific installed ST version still need live verification.
+
+## Large-book dashboard refresh (0.3.2)
+
+Dashboard reads no longer trigger their own refresh notification through server-job restoration. Repeated UI refreshes share one active render and at most one pending refresh; completed views are not invalidated merely because another refresh was requested. The character name and loading status appear before embedding lookups complete; failures are visible in the status field. Chat changes and closed/reopened dialogs reject stale views.
+
+The server vector adapter checks presence via authenticated `/vectors/has`, in batches of at most 64 keys, returning booleans rather than complete vectors. Missing local vectors are checked with at most eight concurrent reads; existing local vectors still migrate without embedding API calls. Older plugins lacking the route fall back to at most eight concurrent single-key requests. Missing vectors are not negatively cached, so newly completed server embeddings become visible. Update both extension and plugin for the batch optimization. This does not rewrite lorebook content or trigger recollection. A zero-target index reports that core/disabled entries are excluded instead of claiming a successful zero-item embedding.
+
+Regression tests include 105 imported entries changed from constant to searchable, a delayed server response longer than the restore refresh interval, 105 overlapping refresh requests, correct pending counts and pagination, no content changes, and provider-free vector status checks.
 
 ## Automatic collection, catch-up and hiding
 

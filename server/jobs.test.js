@@ -91,3 +91,12 @@ test('private job persistence excludes API keys and proxy passwords',async t=>{
     const f=fixture(t);f.replies.push(memory());const input=f.input();input.templates.collection.proxy_password='private-proxy-password';const job=await f.service.submit(f.user,'collect',input,randomUUID());await done(f.service,f.user,job.id);
     const disk=fs.readFileSync(path.join(f.root,'archive-lore-server','jobs',job.id+'.json'),'utf8');assert(!disk.includes('private-embedding-key'));assert(!disk.includes('private-proxy-password'));
 });
+
+test('batch vector presence returns only booleans, validates limits and isolates users',async t=>{
+    const f=fixture(t);await f.service.vectors(f.user).put('saved',[1,2,3]);
+    const {registerRoutes}=await import('./index.js'),handlers=new Map();registerRoutes({post:(route,fn)=>handlers.set(route,fn)},f.service);
+    const response=()=>({status(n){this.code=n;return this;},json(data){this.data=data;return this;}});
+    let res=response();await handlers.get('/vectors/has')({user:f.user,body:{keys:['saved','missing']}},res);assert.deepEqual(res.data,{present:[true,false]});
+    res=response();await handlers.get('/vectors/has')({user:f.user,body:{keys:Array(65).fill('saved')}},res);assert.equal(res.code,400);
+    res=response();await handlers.get('/vectors/has')({body:{keys:['saved']}},res);assert.equal(res.code,401);
+});

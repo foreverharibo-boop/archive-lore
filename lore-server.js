@@ -17,8 +17,8 @@ export async function profileTemplate(context,profileId,proxies=[]) {
 }
 export function createServerClient({headers,request=fetch}) {
     return async function call(route,body={}) {
-        let response;try{response=await request('/api/plugins/archive-lore-server'+route,{method:'POST',headers:headers(),body:JSON.stringify(body)});}catch{throw Error('실리 서버 연결이 끊겼어. 접속 후 서버 작업 내역을 확인해 줘. 이미 접수된 작업은 서버에서 계속돼.');}
-        if(response.status===404)throw Error('아카이브 로어 서버 플러그인이 없어. 설치하고 실리 서버를 재시작해 줘.');
+        let response;try{response=await request('/api/plugins/archive-lore-server'+route,{method:'POST',headers:headers(),body:JSON.stringify(body),signal:AbortSignal.timeout(route.startsWith('/embedding')?70000:30000)});}catch{throw Error('실리 서버 연결이 끊겼어. 접속 후 서버 작업 내역을 확인해 줘. 이미 접수된 작업은 서버에서 계속돼.');}
+        if(response.status===404)throw Object.assign(Error('서버 기능을 찾을 수 없어. 아카이브 로어 서버 플러그인을 설치·업데이트하고 실리 서버를 재시작해 줘.'),{status:404});
         let data;try{data=await response.json();}catch{throw Error('서버 플러그인 응답을 읽을 수 없어. 서버 버전과 로그인 상태를 확인해 줘.');}
         if(!response.ok||data.error)throw Error(data.error || `서버 오류 (${response.status})`);return data;
     };
@@ -29,6 +29,25 @@ export function serverVectorStore({local,call,enabled}) {
         async get(key){if(!enabled())return local.get(key);if(cache.has(key))return cache.get(key);let vector=(await call('/vectors/get',{key})).vector;
             if(!vector){vector=await local.get(key);if(vector)await call('/vectors/put',{key,vector});}
             if(vector)cache.set(key,vector);return vector;},
+        async hasMany(keys){
+            if(!enabled())return Promise.all(keys.map(async key=>!!await local.get(key)));
+            const found=[];
+            for(let start=0;start<keys.length;start+=64){
+                const batch=keys.slice(start,start+64);let present;
+                try{present=(await call('/vectors/has',{keys:batch})).present;}
+                catch(error){if(error.status!==404)throw error;present=null;}
+                if(present && (present.length!==batch.length||!present.every(v=>typeof v==='boolean')))throw Error('임베딩 상태 응답이 올바르지 않아. 서버 플러그인을 업데이트해 줘.');
+                for(let offset=0;offset<batch.length;offset+=8){
+                    const values=await Promise.all(batch.slice(offset,offset+8).map(async(key,i)=>{
+                        if(!present)return !!await this.get(key);
+                        if(present[offset+i])return true;
+                        const vector=await local.get(key);if(!vector)return false;
+                        await this.put(key,vector);return true;
+                    }));found.push(...values);
+                }
+            }
+            return found;
+        },
         async put(key,vector){if(!enabled())return local.put(key,vector);await call('/vectors/put',{key,vector});cache.set(key,vector);},
     };
 }
@@ -37,12 +56,12 @@ export function createServerController({local,enabled,settings,context,input,cal
     const applied=new Set(),pendingDrafts=new Map();
     const active=job=>['queued','running'].includes(job.status);
     async function finish(job){if(job.status!=='completed'||applied.has(job.id))return;await sync(job);applied.add(job.id);}
-    async function restore(force=false){if(!enabled())return [];if(!force&&Date.now()-lastList<2500)return view;
+    async function restore(force=false,notify=true){if(!enabled())return [];if(!force&&Date.now()-lastList<2500)return view;
         const key=context().key;const jobs=await call('/jobs/list',{chatKey:key});if(key!==context().key)return view;
         view=jobs;lastList=Date.now();current=jobs.find(active)||null;
         for(const job of jobs.filter(j=>j.status==='completed'&&['collect','index','applyMaintenance'].includes(j.kind)&&!applied.has(j.id)).slice(-1)){const fresh=await call('/jobs/get',{id:job.id});if(key!==context().key)break;await finish(fresh);}
         if(current){status=current.message;scheduleRestore();}else status=jobs.at(-1)?.message || status;
-        changed?.();return view;
+        if(notify)changed?.();return view;
     }
     function scheduleRestore(){clearTimeout(poll);poll=setTimeout(()=>void restore(true).catch(error=>{status=error.message;changed?.();}),1500);}
     async function run(kind,options={},externalTrace=null) {
@@ -88,7 +107,7 @@ export function createServerController({local,enabled,settings,context,input,cal
         cancel:()=>{if(!enabled())return local.cancel();if(current?.id)void call('/jobs/cancel',{id:current.id}).then(()=>restore(true)).catch(error=>{status=error.message;changed?.();});},
         detach:()=>{detached++;clearTimeout(poll);current=null;view=[];lastList=0;lastRecall=null;local.cancel();},
         state:()=>enabled()?{busy:!!current&&active(current),status:status||'서버 모드 · 준비됨',lastRecall}:local.state(),
-        async dashboard(){if(enabled())await restore();return local.dashboard();},
+        async dashboard(){if(enabled())await restore(false,false);return local.dashboard();},
         async maybeAutoCollect(){if(!enabled())return local.maybeAutoCollect();if(!normalizeSettings(settings()).enabled||current||generating())return false;const key=context().key;const dashboard=await local.dashboard();if(key!==context().key||generating())return false;if(automaticReady(normalizeSettings(settings()),context().messages,dashboard.next)){await run('collect');return true;}return false;},
         restore,jobs:()=>view,
         async getDraft(id){const job=await call('/jobs/get',{id});if(job.kind!=='prepareMaintenance'||job.status!=='completed'||job.draftAvailable===false||job.chatKey!==context().key)throw Error('이 채팅방에서 사용할 수 있는 초안이 아니야.');return job.result;},

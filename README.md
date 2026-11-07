@@ -24,9 +24,11 @@
 
 [설치·동작·제한 사항](userguides/1%20Memory_Books_AI_Reference_Manual.md) · [기본 프롬프트](prompts/archive-lore-defaults.json)
 
-**0.3.1:** 자동화·브라우저 모의 검사는 완료했으며, 실제 모델의 기억 수집 품질과 사용자 SillyTavern 환경에서의 검증은 아직 필요합니다.
+**0.3.2:** 자동화·브라우저 모의 검사는 완료했으며, 실제 모델의 기억 수집 품질과 사용자 SillyTavern 환경에서의 검증은 아직 필요합니다.
 
 서버 플러그인은 같은 저장소를 SillyTavern의 `plugins/archive-lore-server`에도 설치합니다. 확장과 서버 복사본을 함께 업데이트해 주세요. [설치 명령·서버 모드 안내](userguides/1%20Memory_Books_AI_Reference_Manual.md#server-plugin-installation-and-lifecycle)
+
+**0.3.2:** 많은 기존 기억을 한꺼번에 코어에서 해제한 뒤 목록이 비는 문제를 수정했습니다. 임베딩 상태를 묶어서 확인하고 중복 새로고침을 합칩니다. 서버 플러그인도 업데이트하면 일괄 조회를 사용합니다.
 
 **0.3.1 정정:** Vertex 임베딩을 일괄 차단한 0.3.0 처리를 제거했습니다. AI Studio는 API 키, Vertex는 API 키·Google Cloud 프로젝트 ID·리전(기본 `global`)으로 요청합니다. 기존 아카이브의 요청 경로를 확인해 Archive Lore 안에 독립적으로 구현했습니다. 기억 작성·검색 프로필과 임베딩 설정도 구분했습니다. 두 제공자의 요청·응답 모의 검사를 통과했으며 실제 키 권한·한도는 연결 확인으로 점검해 주세요.
 

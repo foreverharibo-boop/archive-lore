@@ -1,5 +1,21 @@
 @import url('./style.build.css');
 @import url('./lore-style.css');
+/* Explanations are UI-only. Scope visibility to marked guidance, never statuses. */
+.al-help-label,.al-help-radio-group {flex-wrap:wrap;}
+.al-setting-help {
+    display:block;box-sizing:border-box;flex:1 0 100%;grid-column:1 / -1;
+    width:100%;min-width:0;max-width:100%;margin:7px 0 10px;
+    font-size:.85em!important;font-weight:400!important;line-height:1.65;
+    text-align:left;white-space:normal;word-break:keep-all;overflow-wrap:anywhere;
+    color:var(--SmartThemeBodyColor,inherit);opacity:.78;cursor:text;
+}
+.al-help-switch {margin:8px 0 18px;padding:12px 0;border-bottom:1px solid var(--SmartThemeBorderColor);text-align:left;font-size:.9em;}
+.al-help-switch>label {display:flex;align-items:center;gap:8px;cursor:pointer;}
+.al-help-switch input {width:auto!important;flex:0 0 auto;}
+.al-help-switch>small {display:block;font-size:.85em;line-height:1.5;opacity:.7;margin-top:6px;}
+.al-detailed-help-off :is(.al-setting-help,.al-optional-help) {display:none!important;}
+.al-help-replaced {display:none!important;}
+:is(input,select,textarea):is(.displayNone,[hidden],[style*="display: none"],[style*="display:none"]) + .al-setting-help {display:none!important;}
 /* Host themes may size .menu_button to min-content. Keep action labels horizontal. */
 :is(.al-fork-surface,.al-search-tools,.al-fork-settings,.al-feature-home) .menu_button {
     display:inline-flex;align-items:center;justify-content:center;gap:6px;

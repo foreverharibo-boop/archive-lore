@@ -13,11 +13,12 @@ import {settingsTemplate} from '/templates.js';
 import {FEATURE_GROUPS,organizeMemoryBooks,restoreFeatureButtons} from '/lore-fork-layout.js';
 import {createConnectionPicker} from '/lore-native-connection.js';
 import {createHomeContext} from '/lore-native-home.js';
+import {installSettingsHelp} from '/lore-help.js';
 window.collectionSettings={defaultProfile:0,profiles:[{name:'기본 수집',connection:{model:'old'}},{name:'다른 수집',connection:{model:'other'}}]};
 const root=document.querySelector('#content');root.innerHTML=settingsTemplate({profiles:[{name:'기본 수집',isDefault:true}],selectedProfile:{connection:{api:'현재 프로필',model:'연결 모델'},effectivePrompt:'Preserve established facts.'},currentLorebookName:'기존 기억',highestMemoryProcessed:2105,hasHighestMemoryProcessed:true});
 window.clicks=[];
 function populate(){for(const [, ,features] of FEATURE_GROUPS)for(const [id] of features)if(id.startsWith('stmb-')){const b=document.createElement('div');b.id=id;b.textContent=id;b.onclick=()=>clicks.push(id);root.querySelector('#stmb-prompt-manager-buttons').append(b);}}
-window.paint=()=>{restoreFeatureButtons(root);root.querySelector('#stmb-prompt-manager-buttons').replaceChildren();populate();const actions=Object.fromEntries(FEATURE_GROUPS.flatMap(g=>g[2]).filter(f=>f[0].startsWith('al-')).map(f=>[f[0],()=>clicks.push(f[0])]));actions['al-context-panel']=()=>createHomeContext({settings:collectionSettings,markers:{highestMemoryProcessed:2105},length:2120,book:'현재 연결된 테스트 로어북 이름',books:['현재 연결된 테스트 로어북 이름'],changeBook:()=>clicks.push('book'),changeProfile:index=>{collectionSettings.defaultProfile=index;paint();},editProfile:()=>clicks.push('edit-profile'),newProfile:()=>clicks.push('new-profile'),connection:createConnectionPicker({settings:collectionSettings,profiles:[{id:'saved',name:'저장된 제미나이'}],service:{getProfile:id=>({id,model:'stored-model'}),validateProfile:()=>({selected:'openai',source:'makersuite'}),sendRequest(){}},save:()=>window.savedConnection=true,compact:true})});actions['al-migrate']=async()=> '이관 완료';organizeMemoryBooks(root,actions,root);};paint();window.ready=true;
+window.paint=()=>{restoreFeatureButtons(root);root.querySelector('#stmb-prompt-manager-buttons').replaceChildren();populate();const actions=Object.fromEntries(FEATURE_GROUPS.flatMap(g=>g[2]).filter(f=>f[0].startsWith('al-')).map(f=>[f[0],()=>clicks.push(f[0])]));actions['al-context-panel']=()=>createHomeContext({settings:collectionSettings,markers:{highestMemoryProcessed:2105},length:2120,book:'현재 연결된 테스트 로어북 이름',books:['현재 연결된 테스트 로어북 이름'],changeBook:()=>clicks.push('book'),changeProfile:index=>{collectionSettings.defaultProfile=index;paint();},editProfile:()=>clicks.push('edit-profile'),newProfile:()=>clicks.push('new-profile'),connection:createConnectionPicker({settings:collectionSettings,profiles:[{id:'saved',name:'저장된 제미나이'}],service:{getProfile:id=>({id,model:'stored-model'}),validateProfile:()=>({selected:'openai',source:'makersuite'}),sendRequest(){}},save:()=>window.savedConnection=true,compact:true})});actions['al-migrate']=async()=> '이관 완료';organizeMemoryBooks(root,actions,root);};paint();installSettingsHelp({read:()=>true,write:()=>{}});window.ready=true;
 </script>`;
 const server=http.createServer(async(req,res)=>{try{
     const pathname=new URL(req.url,'http://local').pathname;
@@ -53,6 +54,7 @@ try{
         await page.getByRole('button',{name:'기억 압축',exact:true}).focus();await page.keyboard.press('Enter');assert.equal(await page.evaluate(()=>clicks.length),2);
         await page.locator('[data-home-tab=settings]').click();
         assert(await page.locator('#al-home-connection').isVisible());
+        assert(await page.locator('.al-home-pane[data-home-pane=settings] [data-al-help-toggle]').isVisible());
         await page.locator('#al-home-connection').selectOption('saved');
         assert.equal(await page.evaluate(()=>collectionSettings.profiles[0].archiveLoreConnectionProfileId),'saved');
         assert.equal(await page.evaluate(()=>collectionSettings.profiles[0].connection.model),'old');

@@ -2945,3 +2945,30 @@ The six migrated side templates use readable English records, not the original s
 Relationship uses a short label and preserves supported phase dates. Other categories use factual bullets. Unchanged facts are retained without a no-change scene report; categories without established facts use `Not established.` (relationship: `Undefined`). The next run is instructed to render facts from existing JSON records into readable text. Existing lorebook contents are not rewritten on extension update. The output guard rejects JSON/code fences and recognized no-change commentary before saving, without an extra AI retry. This validates format, not factual accuracy. Explicitly customized response formats do not use the plain-record guard.
 
 Hidden messages: ordinary range collection excludes hidden messages unless **General Settings → Token Saving → Unhide hidden messages for memory generation** is enabled. This existing option executes `/unhide X-Y` before collecting; it changes visibility, rather than reading hidden messages invisibly. Subsequent hiding follows the existing automatic-hide configuration.
+
+
+### Archive Lore: detailed setting explanations
+
+Archive Lore adds Korean, UI-only explanations for the native collection/profile,
+automation/hiding/rollback, prompt, side-record, consolidation/compaction/clip,
+context, and search/embedding settings. Dynamic side set rows and range inputs are
+covered too. The descriptions explain the role, effect and important distinctions;
+they never enter generation prompts or alter a setting's value.
+
+- **Location:** Archive Lore home → Settings → **자세한 설명 표시**. The same
+  switch is available in the extension drawer and search settings dialog.
+- **Default:** on. The preference is saved as
+  `STMemoryBooks.moduleSettings.archiveLoreDetailedHelp` and applies to newly opened
+  panels. Visible copies of the switch stay synchronized.
+- Off hides optional setting/feature guidance only. Errors, progress, warning
+  blocks and destructive-action confirmations remain visible. Native guidance
+  carrying warning text/tooltips is retained.
+- Native controls and their event listeners are preserved. A single child-list
+  observer handles newly mounted/rebuilt setting panels; it ignores chat content,
+  its own helper nodes and text-only streaming mutations. There are no timers or
+  network requests for help.
+- `npm run test:fork` checks static native-control guidance coverage; run
+  `npm run test:fork:help` with the same Playwright runtime variables as
+  `test:fork:browser` for native template/profile and search-dialog checks at
+  320px, 390px and desktop widths. These check persistence, synchronized toggles,
+  input preservation, warning visibility and duplicate-free dynamic updates.

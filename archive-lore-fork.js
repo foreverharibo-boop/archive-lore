@@ -9,6 +9,7 @@ import { SlashCommandArgument, ARGUMENT_TYPE } from '../../../slash-commands/Sla
 import { migrateLegacyChat, migrationSideTemplates } from './lore-migration.js';
 import { embeddingKey } from './lore-api.js';
 import { embeddingChunks, entryId } from './lore-core.js';
+import { shouldIndexBookUpdate } from './lore-automation.js';
 
 globalThis.archiveLoreFork=true;
 await import('./index.build.js');
@@ -25,7 +26,7 @@ let migrating=false,generating=false,indexPending=false,indexTimer;
 async function openMigration(){
     const node=document.createElement('div');node.className='al-search-tools';
     const h=document.createElement('h3');h.textContent='기존 아카이브 로어 기억 가져오기';
-    const p=document.createElement('p');p.textContent='현재 채팅의 기존 아카이브 로어 기억을 새 형식으로 복사합니다. 원본은 보관하며 저장을 확인한 뒤 연결을 변경합니다. 별도 확장인 아카이브의 데이터는 지원하지 않습니다.';
+    const p=document.createElement('p');p.textContent='먼저 원본 백업 파일을 다운로드한 뒤 기억을 새 형식으로 복사합니다. 다운로드된 파일을 다시 업로드할 필요는 없습니다. 이 화면에 이관 완료가 표시될 때까지 기다려 주세요. 원본은 보관됩니다. 별도 확장인 아카이브의 데이터는 지원하지 않습니다.';
     const button=document.createElement('button');button.type='button';button.className='menu_button';button.textContent='백업하고 기억 가져오기';
     const status=document.createElement('p');status.setAttribute('role','status');
     button.onclick=async()=>{button.disabled=true;status.textContent='백업·이관 중…';try{status.textContent=await globalThis.archiveLoreMigration(message=>{status.textContent=message;});}catch(e){status.textContent=e.message;}finally{button.disabled=false;}};
@@ -66,7 +67,7 @@ async function openTools(){
     add('지금 검색 미리보기',async()=>{const r=await search().controller.recall();output.textContent=[r.core,r.text].filter(Boolean).join('\n\n') || '선택된 기억 없음';});
     add('최근 주입',()=>{const r=search().controller.state().lastRecall;output.textContent=r?JSON.stringify(r,null,2):'아직 검색한 기억 없음';});
     add('진단 TXT 다운로드',async()=>download(await search().diagnostics.export(search().context().key,'all'),'archive-lore-diagnostics.txt'));
-    add('서버 작업 내역',async()=>{output.textContent=JSON.stringify(await search().controller.jobs(),null,2);});
+    add('서버 작업 내역',async()=>{await search().controller.restore(true);output.textContent=JSON.stringify(search().controller.jobs(),null,2);});
     add('중지',()=>search().controller.cancel());
     await new Popup(node,POPUP_TYPE.TEXT,'',{wide:true,large:true,allowVerticalScrolling:true,okButton:false,cancelButton:'닫기'}).show();
 }
@@ -74,11 +75,18 @@ async function openTools(){
 globalThis.archiveLoreMigration=async(report=()=>{})=>{
     if(migrating || search().controller.state().busy || generating || native.busy())throw Error('진행 중인 작업이 끝난 뒤 이관해 주세요.');
     migrating=true;globalThis.archiveLoreMigrating=true;search().controller.cancel();
+    indexPending=false;clearTimeout(indexTimer);
     const c=getContext(),config=structuredClone(search().settings()),oldMeta=structuredClone(c.chatMetadata);
     const oldNativeSettings=structuredClone(extension_settings.STMemoryBooks);
     const originKey=search().context().key;
     const setKey='archive-lore-imported-sides';
-    try{return await migrateLegacyChat({
+    try{
+        if(config.serverEnabled){
+            report('서버 작업 상태 확인 중…');
+            await search().controller.restore(true,false);
+            if(search().controller.state().busy)throw Error('서버 작업이 진행 중입니다. 검색·주입 확인 → 서버 작업 내역에서 완료 또는 중지를 확인한 뒤 이관해 주세요.');
+        }
+        return await migrateLegacyChat({
         snapshot:()=>({key:search().context().key,chatId:String(c.getCurrentChatId?.() || c.chatId || ''),messages:structuredClone(c.chat),books:search().books(),target:search().target(),metadata:oldMeta,initialStart:oldMeta.archiveLore?.initialStart || 0,config,completed:oldMeta.archiveLore?.nativeFormat}),
         assertCurrent:key=>{if(search().context().key!==key)throw Error('채팅이 변경되어 이관을 중단했습니다. 원본 책은 유지됩니다.');},
         load:search().loadBook,save:search().saveBook,report,
@@ -145,7 +153,7 @@ function setup(){
     for(const button of [...drawer.querySelectorAll('button')])actions.append(button);drawer.append(actions);
     container.querySelector('[data-home]').onclick=()=>native.open().catch(fail);container.querySelector('[data-search]').onclick=()=>search().openSettings();document.querySelector('#extensions_settings2')?.append(container);
     SlashCommandParser.addCommandObject(SlashCommand.fromProps({name:'al-migrate',helpString:'기존 아카이브 로어 기억 가져오기 화면',callback:async()=>{await openMigration();return '';}}));
-    eventSource.on(event_types.WORLDINFO_UPDATED,name=>{if(search().books().includes(name)){indexPending=true;queueIndex();}});
+    eventSource.on(event_types.WORLDINFO_UPDATED,(name,_data,metadata)=>{if(shouldIndexBookUpdate(name,search().books(),metadata,migrating)){indexPending=true;queueIndex();}});
     eventSource.on(event_types.GENERATION_STARTED,(_type,_options,dryRun)=>{if(!dryRun)generating=true;});
     for(const event of [event_types.GENERATION_ENDED,event_types.GENERATION_STOPPED])eventSource.on(event,()=>{generating=false;queueIndex();});
     eventSource.on(event_types.CHAT_CHANGED,()=>{indexPending=false;clearTimeout(indexTimer);});

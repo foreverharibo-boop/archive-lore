@@ -50,6 +50,7 @@ export function createJobService({sanitize,ask,embedRequest=embed}) {
         const diagnosticStore=privateStore(s.root,'diagnostics');
         const diagnostics=createDiagnostics({store:{put:run=>diagnosticStore.put(run.id,run)},secrets:()=>secrets,warning:message=>{job.diagnosticWarning=message;}});
         const host={
+            contextKey:()=>input.context.key,yieldControl:()=>new Promise(resolve=>setImmediate(resolve)),
             settings:()=>config,context:()=>({...input.context,messages:readChat(s,input).messages}),books:()=>input.books,target:()=>input.target,initialStart:()=>input.initialStart||0,
             ensureBook:async()=>input.target,
             loadBook:async name=>{const file=bookFile(s,name),raw=fs.readFileSync(file,'utf8');expected.set(file,raw);return JSON.parse(raw);},
@@ -82,7 +83,16 @@ export function createJobService({sanitize,ask,embedRequest=embed}) {
             input=structuredClone(input);validate(s,input,kind);
             const job={id:randomUUID(),requestId,kind,status:'queued',message:'서버 작업 대기 중',input,hidden:[],created:new Date().toISOString()};s.jobs.set(job.id,job);save(s,job);setImmediate(()=>void drain(s));return publicJob(job);},
         list(user,key){return [...state(user).jobs.values()].filter(j=>!key||j.input.context.key===key).map(job=>{const {result,hidden,...summary}=publicJob(job);return summary;});},
-        get(user,id){const s=state(user),job=s.jobs.get(id);if(!job)throw Error('서버 작업을 찾을 수 없어.');const result=publicJob(job),messages=readChat(s,job.input).messages;result.hidden=messages.length?[{...sourceRange(messages,0,messages.length-1),indices:messages.map((m,i)=>m.is_system?i:-1).filter(i=>i>=0)}]:[];return result;},
+        get(user,id){
+            const s=state(user),job=s.jobs.get(id);if(!job)throw Error('서버 작업을 찾을 수 없어.');
+            const result=publicJob(job);
+            // Polling active jobs must not synchronously parse and hash the whole chat.
+            // Only completed collection/index results need current hide flags for client sync.
+            if(job.status!=='completed'||!['collect','index'].includes(job.kind)){result.hidden=[];return result;}
+            const messages=readChat(s,job.input).messages;
+            result.hidden=messages.length?[{...sourceRange(messages,0,messages.length-1),indices:messages.map((m,i)=>m.is_system?i:-1).filter(i=>i>=0)}]:[];
+            return result;
+        },
         cancel(user,id){const s=state(user),job=s.jobs.get(id);if(!job)throw Error('서버 작업을 찾을 수 없어.');job.cancelRequested=true;s.controllers.get(id)?.cancel();if(job.status==='queued'){job.status='canceled';job.message='취소됨';}save(s,job);return publicJob(job);},
         vectors(user){return state(user).vectors;},
         async logs(user,key){const s=state(user),dir=inside(s.root,'diagnostics');if(!fs.existsSync(dir))return [];return fs.readdirSync(dir).filter(f=>f.endsWith('.json')).map(f=>json(inside(dir,f))).filter(r=>!key||r.chatKey===key).sort((a,b)=>a.started.localeCompare(b.started));},

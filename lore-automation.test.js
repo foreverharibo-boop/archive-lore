@@ -42,3 +42,20 @@ test('promoting an original member to core invalidates its parent and keeps the 
     const a={uid:0,content:'A',constant:true},b={uid:1,content:'B'},arc={uid:2,content:'AB',[NS]:{tier:1,members:[{uid:0,content:'A'},{uid:1,content:'B'}]}};
     assert.deepEqual(consolidationView([a,b,arc],messages).map(e=>entryAvailable(e,messages)),[true,true,false]);
 });
+
+test('server completion notifications do not enqueue another automatic index',async()=>{
+    const {syncServerBooks,shouldIndexBookUpdate}=await import('./lore-automation.js');
+    let indexes=0,loads=0,events=0;const cache=new Map(),books=['Book'];
+    const host={cache,loadBook:async()=>{loads++;return {entries:{0:{uid:0,content:'Fact'}}};},
+        emit:async(name,_data,metadata)=>{events++;if(shouldIndexBookUpdate(name,books,metadata))indexes++;}};
+    // A real edit is the initial trigger. Completion must not feed itself back into the queue.
+    if(shouldIndexBookUpdate('Book',books))indexes++;
+    await syncServerBooks({kind:'index',books},host);
+    assert.equal(indexes,1);assert.equal(loads,0);assert.equal(events,0);
+    await syncServerBooks({kind:'collect',books},host);
+    await syncServerBooks({kind:'applyMaintenance',books},host);
+    assert.equal(indexes,1);assert.equal(loads,2);assert.equal(events,2);assert(cache.has('Book'));
+    assert(!shouldIndexBookUpdate('Book',books,undefined,true));
+    assert(!shouldIndexBookUpdate('Unrelated',books));
+    assert(shouldIndexBookUpdate('Book',books));
+});

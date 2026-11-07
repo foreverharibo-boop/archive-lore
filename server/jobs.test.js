@@ -112,3 +112,31 @@ test('plain vector recall on server works without completion templates and prese
     const context=logs.flatMap(r=>r.events).find(e=>e.stage==='dialogue.context').data;
     assert.equal(context.excludedTail,1);assert.equal(context.sourceMessages.length,1);
 });
+
+test('polling queued/running and completed recall jobs does not read the chat file',async t=>{
+    const f=fixture(t),s=f.service.state(f.user),id=randomUUID();
+    const job={id,kind:'index',status:'running',input:f.input(),hidden:[],message:'indexing'};
+    s.jobs.set(id,job);
+    fs.renameSync(f.file,f.file+'.held');
+    try{
+        for(const status of ['queued','running','error','interrupted']){job.status=status;assert.equal(f.service.get(f.user,id).status,status);}
+        job.status='completed';job.kind='recall';job.result={text:'Fact'};
+        assert.equal(f.service.get(f.user,id).result.text,'Fact');
+    }finally{fs.renameSync(f.file+'.held',f.file);}
+    job.kind='collect';const messages=jsonLines(f.file);messages[1].is_system=true;fs.writeFileSync(f.file,messages.map(m=>JSON.stringify(m)).join('\n')+'\n');
+    assert.deepEqual(f.service.get(f.user,id).hidden[0].indices,[0]);
+});
+
+test('indexing 105 memories with a long chat yields and avoids per-chunk chat reads',async t=>{
+    const f=fixture(t),messages=Array.from({length:2100},(_,i)=>({name:'A',mes:`Message ${i} `+'x'.repeat(500),is_user:i%2===0}));
+    f.writeChat(messages);atomic(f.book,{entries:Object.fromEntries(Array.from({length:105},(_,uid)=>[uid,{uid,content:'Remember fact '+uid}]))});
+    const input=f.input();input.context.messages=messages;input.templates={};
+    let reads=0,ticks=0;const original=fs.readFileSync;
+    fs.readFileSync=function(file,...args){if(file===f.file)reads++;return original.call(this,file,...args);};
+    const tick=setInterval(()=>ticks++,1);
+    try{
+        const job=await f.service.submit(f.user,'index',input,randomUUID());
+        assert.equal((await done(f.service,f.user,job.id)).status,'completed');
+        assert(reads<20,`chat read ${reads} times`);assert(ticks>0,'other event-loop work must run while indexing');
+    }finally{clearInterval(tick);fs.readFileSync=original;}
+});

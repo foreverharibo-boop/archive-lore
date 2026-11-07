@@ -98,6 +98,11 @@ function getCustomConnectionProfileOptions(selectedProfileId = '') {
  * Profile edit template
  */
 const profileEditTemplate = Handlebars.compile(`
+    {{#if archiveLoreFork}}<label>수집·사이드 AI 연결 프로필
+    <select id="al-native-connection" class="text_pole"><option value="">메모리북의 아래 API 설정 사용</option>
+    {{#each archiveLoreConnections}}<option value="{{id}}" {{#if selected}}selected{{/if}}>{{name}}</option>{{/each}}</select>
+    <small>선택하면 이 프로필의 모델·연결을 사용해. 비워 두면 원본 메모리북 설정을 사용해.</small></label>{{/if}}
+
 <div class="popup-content">
     <div class="world_entry_form_control marginTop5">
         <label for="stmb-profile-name">
@@ -418,6 +423,8 @@ export async function editProfile(settings, profileIndex, refreshCallback) {
             useGroupSpecificPrompts: Boolean(profile.useGroupSpecificPrompts),
             isNameLocked: isBuiltinCurrentST,
             isProviderLocked: isBuiltinCurrentST,
+            archiveLoreFork:!!globalThis.archiveLoreFork,
+            archiveLoreConnections:(extension_settings.connectionManager?.profiles || []).map(p=>({id:p.id,name:p.name,selected:p.id===profile.archiveLoreConnectionProfileId})),
             // Pass title format data to the template
             titleFormat: profileTitleFormat,
             titleFormats: allTitleFormats.map(format => ({
@@ -1329,7 +1336,9 @@ function buildProfileFromForm(popupElement, fallbackName, existingProfile = {}) 
     if (data.position === '7' || data.position === 7) {
         data.outletName = popupElement.querySelector('#stmb-profile-outlet-name')?.value?.trim() || '';
     }
-    return createProfileObject(data);
+    const result=createProfileObject(data);
+    if(globalThis.archiveLoreFork)result.archiveLoreConnectionProfileId=popupElement.querySelector('#al-native-connection')?.value || '';
+    return result;
 }
 
 /**

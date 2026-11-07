@@ -1142,7 +1142,7 @@ export async function listEnabledByType(type) {
         return all.filter(p => p.enabled && p.triggers?.onInterval && Number(p.triggers.onInterval.visibleMessages) >= 1);
     }
     if (t === 'plotpoints') {
-        return all.filter(p => p.enabled && p.triggers?.onAfterMemory?.enabled);
+        return all.filter(p => !p.settings?.archiveLoreSetOnly && p.enabled && p.triggers?.onAfterMemory?.enabled);
     }
     if (t === 'scoreboard') {
         // enabled scoreboard historically was either manual or auto-with-memories
@@ -1164,7 +1164,7 @@ export async function listByTrigger(kind) {
         return all.filter(p => p.enabled && p.triggers?.onInterval && Number(p.triggers.onInterval.visibleMessages) >= 1 && !hasTemplateRuntimeMacros(p));
     }
     if (kind === 'onAfterMemory') {
-        return all.filter(p => p.enabled && p.triggers?.onAfterMemory?.enabled && !hasTemplateRuntimeMacros(p));
+        return all.filter(p => !p.settings?.archiveLoreSetOnly && p.enabled && p.triggers?.onAfterMemory?.enabled && !hasTemplateRuntimeMacros(p));
     }
     if (kind && kind.startsWith('command:')) {
         const cmd = kind.slice('command:'.length).trim();

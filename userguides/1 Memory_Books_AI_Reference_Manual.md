@@ -1,4 +1,42 @@
-# Archive Lore 0.4.1 — fork runtime
+# Archive Lore 0.5.0 — Memory Books fork
+
+The active browser entry is `archive-lore-fork.js`. It loads the original Memory Books bundle (`index.build.js`) for collection, clips, side prompts, consolidation, compaction, regeneration, profiles, automatic collection, hiding and recovery. The grouped Korean home reorganizes existing controls and adds short explanations; the original profile/detail controls remain available. `archive-lore.js` runs as a search/embedding companion, with its former collection scheduler and dashboard disabled. Rebuild native changes with `npm install --ignore-scripts` and `npm run build:fork`.
+
+## Installation and feature groups
+
+Update the Archive Lore extension and reload SillyTavern. Do not enable a separate original Memory Books installation alongside this fork: both use native `STMemoryBooks` settings, commands, events and UI identifiers. Disable that separate extension before enabling this one. Existing Memory Books books and settings remain native; standalone Archive Lore data needs the temporary importer below.
+
+Open **magic wand → Archive Lore** or `/al`:
+
+| Group | Features |
+| --- | --- |
+| 수집·자동화 | Collect selected scenes, explicit message ranges, catch-up, automatic message/token triggers, pending work |
+| 기억 관리 | Consolidation/arcs and higher tiers, individual compaction, saved records, native regeneration, recovery |
+| 클립·사이드 기록 | Topical clips, editable side prompts and sets, suggestions; plain clips retain the original text-selection controls |
+| 검색·주입 | Independent embedding credentials, dialogue/question/vector retrieval, diagnostics and preview |
+| 프롬프트·고급 설정 | Original memory/consolidation prompts, additional context, general settings and profiles |
+
+The native memory UI controls collection and side prompts. Search settings control only retrieval/embedding. The search activation checkbox does not disable native automatic collection; use native automatic settings for that. Selected connection profiles for collection/sides are editable in the native profile editor. Search has a separate profile. Original `/stmb-*` and `/scenememory` commands are retained. `/al-collect` uses native collection, `/al-collect 0-19` supplies an explicit range, and `/al-catchup 0-245 40` invokes native catch-up. `/al-embed` embeds missing/changed chunks; `/al-recall` runs retrieval preview; `/al-stop` cancels native in-flight tasks and search. Preview and diagnostic downloads are also available from the search-tools button.
+
+After a selected book is saved/edited, optional automatic embedding waits for current work/generation to finish and indexes pending chunks. Existing matching cached vectors are reused. The server plugin remains optional and handles Archive Lore retrieval, selection and embedding. **Native Memory Books collection, side prompts and maintenance run in the browser in this version; closing the browser is not supported for those jobs.** Do not assume old standalone server collection controls apply to the new native actions.
+
+## Temporary standalone-data migration
+
+In each existing chat, open **테스트용 · 기존 아카이브 로어 이관 → 백업 후 새 형식으로 이관**. The importer downloads a backup without embedding credentials, copies each selected book to a separate `· AL` book, writes native memory fields and native side-prompt titles/templates, reads the copies back to verify the writes, and then changes this chat's target/search books. Original books are retained. This chat excludes retained source books from native World Info activation so source and copy cannot inject twice; other chats keep their original bindings. Do not delete them while checking the result. Allocation is saved before writes so a failed retry reuses destinations. Collection checkpoints are calculated only from matching contiguous source receipts. Existing uncollected external lore entries do not invent a collection checkpoint.
+
+Migration snapshots the current branch's materialized content; incompatible source records remain disabled. Old branch/history data stays in the original books and backup. Native regeneration can only recover original dialogue where valid source message ranges exist. Side prompts are converted into native complete-record updates and an explicit after-memory set; they do not auto-run in unrelated chats. The old collection prompt becomes a native preset with the required single-memory JSON response contract.
+
+Embeddings are copied only for identical chunk text with the same provider/model settings; changed chunk text remains pending. No AI reclassification or re-summarization is performed during migration. Converted book entries have no `archiveLore` metadata dependency: the one-time importer can later be removed without a special legacy entry reader. Normal native book loading and the new search/embedding layer remain. Current source books are never overwritten.
+
+## Validation limits
+
+Automated tests cover native units, retrieval/server behavior, source conversion and retry handling. Browser fixtures exercise the real native template, grouped controls, refresh, keyboard and mobile/desktop layout. These are mocked host tests, not an end-to-end installed SillyTavern session or paid RP/API validation.
+
+The following 0.4.x section is retained only to describe old data and server internals. Its standalone collection/dashboard instructions are not the active 0.5.0 UI. The original Memory Books reference below it describes the active native workflows.
+
+---
+
+# Legacy standalone runtime (0.4.x; migration reference only)
 
 This repository is an AGPL-3.0-only fork of Aiko Hanasaki's Memory Books. The manifest now loads `archive-lore.js` and `lore-style.css` directly. The upstream `index.js`, bundles, and other features remain as historical fork source; they are not loaded by this runtime. No Archive or Charm extension code is imported or copied. Upstream connection-profile routing, chat message fingerprints, lorebook naming, and the default compaction prompt are reused. Settings, IndexedDB storage, chat metadata, prompt slots, menu IDs, and slash commands use independent Archive Lore namespaces.
 
@@ -121,7 +159,7 @@ Run `npm run test:archive-lore` and `npm run test:archive-lore:server`. The serv
 
 ---
 
-# Upstream Memory Books technical reference (historical; not the active fork UI)
+# Active Memory Books technical reference
 
 <!--
 Copyright (C) 2024–2026 Aiko Hanasaki

@@ -13,6 +13,7 @@ function jobsHarness() {
     const deps = {
         POPUP_RESULT: { CUSTOM1: 1001 }, structuredClone, console, setTimeout, clearTimeout, AbortController,
         translate: fallback => fallback,
+        createViewSort: () => ({}),
         guardPendingProgress: () => state.blocked,
         isProgressChatLoaded: () => state.loaded,
         document: { getElementById: () => ({}) },

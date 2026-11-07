@@ -1463,6 +1463,7 @@ export function createProfileObject(data = {}) {
     };
 
     // Preserve builtin marker for the STMB-required "Current SillyTavern Settings" profile.
+    if(data.archiveLoreConnectionProfileId)profile.archiveLoreConnectionProfileId=String(data.archiveLoreConnectionProfileId).trim();
     if (data.isBuiltinCurrentST) {
         profile.isBuiltinCurrentST = true;
     }

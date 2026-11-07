@@ -40,11 +40,12 @@ function chatContext() {
 function chatSettings() { return getContext().chatMetadata?.[NS] || {}; }
 function primaryBook() {
     const c = getContext();
-    return c.characters?.[c.characterId]?.data?.extensions?.world || c.chatMetadata?.[METADATA_KEY] || '';
+    return (globalThis.archiveLoreFork ? c.chatMetadata?.[METADATA_KEY] : '') || c.characters?.[c.characterId]?.data?.extensions?.world || c.chatMetadata?.[METADATA_KEY] || '';
 }
 function target() { const s=chatSettings(); return Object.hasOwn(s,'target') ? s.target : primaryBook(); }
 function books() {
-    const selected = chatSettings().books;
+    let selected = globalThis.archiveLoreFork && (chatSettings().nativeFormat || !chatSettings().target) ? [...new Set([...(globalThis.archiveLoreMemoryBooks?.books() || []),...(chatSettings().books || [])])] : chatSettings().books;
+    if(globalThis.archiveLoreFork && !selected?.length)selected=[target()].filter(Boolean);
     return [...new Set(Array.isArray(selected) ? selected : [target()].filter(Boolean))].filter(n => world_names.includes(n));
 }
 async function saveChatSettings(patch) {
@@ -161,6 +162,7 @@ const diagnosticView={
     async export(key,mode){const original=await diagnostics.export(key,mode);if(!settings()?.serverEnabled)return original;const runs=(await serverCall('/logs',{chatKey:key})).filter(r=>mode==='all'||r.mode===mode);return original+'\n\n===== SERVER JOB DIAGNOSTICS =====\n'+JSON.stringify(runs,null,2);},
 };
 function scheduleAutomatic() {
+    if(globalThis.archiveLoreFork)return;
     autoPending=true;
     clearTimeout(autoTimer);
     autoTimer=setTimeout(async()=>{
@@ -223,6 +225,7 @@ async function intercept(_chat,_contextSize,abort,type) {
     if(pendingGeneration)await pendingGeneration.trace.finish('superseded',{nextAttempt:trace.id});
     pendingGeneration=null;
     try {
+        if(globalThis.archiveLoreMigrating)throw new Error('기억 이관이 끝난 뒤 다시 전송해 줘.');
         if(writing)throw new Error('기억 저장이 끝난 뒤 다시 전송해 줘.');
         const result=await controller.recall({kind:'generation',generationType:type,trace});
         activeBooks=result.books;recalled=result.selected;
@@ -234,6 +237,11 @@ async function intercept(_chat,_contextSize,abort,type) {
     } catch(e){await trace.finish('error',{message:e.message});if(chatContext().key===context.key){generationInFlight=false;clearPrompts();abort(true);error(e);}}
 }
 function nativePolicy(lists) {
+    // Per-chat source exclusions prevent copied books and retained originals firing together.
+    const excluded=new Set(chatSettings().nativeExcludedBooks || []);
+    if(excluded.size)for(const list of Object.values(lists))if(Array.isArray(list))for(let i=0;i<list.length;i++){
+        if(excluded.has(list[i].world))list[i]={...list[i],disable:true};
+    }
     if(!settings().enabled)return;
     const selectedBooks=books(), messages=chatContext().messages;
     // Modify transient WI scan copies only. Stored keys and entry enabled state are untouched.
@@ -252,6 +260,7 @@ function nativePolicy(lists) {
 function init() {
     saveSettings();
     ui=createLoreUI({settings,saveSettings,controller,context:chatContext,error,diagnostics:diagnosticView,
+        retrievalOnly:!!globalThis.archiveLoreFork,openHome:globalThis.archiveLoreFork?()=>globalThis.archiveLoreMemoryBooks.open():null,
         serverCheck:()=>serverCall('/status'),serverJobs:()=>controller.jobs(),
         embeddingTest:async()=>{const config=normalizeSettings(settings());return config.serverEnabled?serverCall('/embedding-test',{settings:config}):{dimensions:(await embed(config,'Archive Lore connection test.',false)).length,model:config.embeddingModel};},
         translation:(book,entry)=>linkedTranslation(extension_settings,book,entry),
@@ -263,6 +272,7 @@ function init() {
         saveRecord,
     });
     if(settings().serverEnabled)void controller.restore(true).catch(error);
+    if(!globalThis.archiveLoreFork){
     const settingsNode=document.createElement('div'); settingsNode.id='archive-lore-settings';settingsNode.className='extension_container';
     settingsNode.innerHTML='<div class="inline-drawer"><div class="inline-drawer-toggle inline-drawer-header"><b class="al-brand">'+loreIcon('book')+'Archive Lore</b><div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div></div><div class="inline-drawer-content" data-al-settings></div></div>';
     document.querySelector('#extensions_settings2')?.append(settingsNode);
@@ -271,6 +281,8 @@ function init() {
     menu.innerHTML=`${loreIcon('book')}<span>아카이브 로어</span>`;
     menu.addEventListener('click',()=>void ui.open().catch(error));menu.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();void ui.open().catch(error);}});
     document.querySelector('#extensionsMenu')?.append(menu);
+    }
+    globalThis.archiveLoreSearch={openSettings:()=>ui.openSettings(),controller,settings,saveSettings,books,target,loadBook,saveBook,store:vectorStore,diagnostics:diagnosticView,context:chatContext,clearPrompts};
     globalThis.archiveLoreInterceptor=intercept;
     eventSource.on(event_types.WORLDINFO_ENTRIES_LOADED,nativePolicy);
     eventSource.on(event_types.CHAT_CHANGED,()=>{clearTimeout(autoTimer);autoPending=false;autoAttempt='';generationInFlight=false;controller.detach();controller.discardDraft();if(pendingGeneration)void pendingGeneration.trace.event('generation.chat-changed');pendingGeneration=null;controller.clearRecall();clearPrompts();void ui.refresh().catch(error);});
@@ -289,7 +301,7 @@ function init() {
         await run.trace.event(name==='GENERATION_STOPPED'?'rp.stopped':'rp.ended',{sameChat:context.key===run.key,messageCount:context.messages.length,latestAssistant:context.key===run.key?context.messages.map((m,index)=>({index,name:m.name,text:m.mes,is_user:m.is_user,is_system:m.is_system})).filter(m=>!m.is_user&&!m.is_system).slice(-1):[]});
         await run.trace.finish(name==='GENERATION_STOPPED'?'stopped':'completed');void ui.refresh().catch(error);
     });
-    for(const [name,callback,help] of [
+    if(!globalThis.archiveLoreFork)for(const [name,callback,help] of [
         ['al','open','아카이브 로어 열기'],['al-collect','collect','마지막 수집 다음부터 수집. 선택 범위: /al-collect 0-19'],
         ['al-catchup','catchup','지난 대화를 나눠 수집: /al-catchup 0-245 40'],
         ['al-embed','index','남은 기억 임베딩'],['al-recall','recall','기억 검색 미리보기'],['al-stop','cancel','아카이브 로어 작업 중지'],

@@ -7,10 +7,17 @@
     "test:archive-lore": "node --test lore-retrieval.test.js lore-core.test.js lore-server.test.js lore-automation.test.js lore-diagnostics.test.js lore-relationship.test.js lore-controller.test.js chatSelection.test.js connectionProfileRequest.test.js",
     "test:archive-lore:browser": "node tests/archive-lore-browser.mjs",
     "test:archive-lore:server": "node --test server/*.test.js",
-    "test:archive-lore:server-browser": "node tests/archive-lore-server-browser.mjs"
+    "test:archive-lore:server-browser": "node tests/archive-lore-server-browser.mjs",
+    "build:fork": "node build-fork.mjs",
+    "test:fork": "node --test *.test.js",
+    "test:fork:browser": "node tests/archive-lore-fork-layout.mjs"
   },
   "dependencies": {
     "dirty-json": "^0.9.2"
   },
-  "main": "server/index.js"
+  "main": "server/index.js",
+  "devDependencies": {
+    "esbuild": "0.28.2",
+    "handlebars": "^4.7.8"
+  }
 }

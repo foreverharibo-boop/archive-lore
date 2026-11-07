@@ -32,6 +32,20 @@ test('questions contribute reserved candidates and one long record cannot monopo
     assert.deepEqual(rankFocusedChunks([{id:'bad',index:0,vector:[1,2]}],{focus:[[1]]}),[]);
 });
 
+test('question mode preserves its top half even when fusion buries an event or it spans many chunks',()=>{
+    const ranked=Array.from({length:100},(_,i)=>({id:'background-'+i,index:0,focusRank:i+1,questionsRank:i+9}));
+    const event=Array.from({length:8},(_,i)=>({id:'event',index:i,focusRank:101+i,questionsRank:i+1}));
+    ranked.push(...event);
+    const chosen=chooseCandidates(ranked,16,'questions');
+    assert.equal(chosen.length,16);
+    assert.deepEqual(chosen.slice(0,8),event);
+    assert.equal(new Set(chosen.map(c=>JSON.stringify([c.id,c.index]))).size,16);
+    assert.deepEqual(chooseCandidates(ranked,1,'questions'),[event[0]]);
+    assert.deepEqual(chooseCandidates(ranked,0,'questions'),[]);
+    const noQuestions=ranked.map(({questionsRank,...row})=>row);
+    assert.deepEqual(chooseCandidates(noQuestions,16,'questions'),chooseCandidates(noQuestions,16));
+});
+
 test('review preserves times, decimals, initials, titles, quotes and exact source text',()=>{
     const text='Dr. Lee met A. Smith at 9 a.m. They watched the No. 1 singer. At 7:30 p.m. he paid 12.50 dollars. “Not today!” she said.\n다음 날이었다.';
     const units=textUnits(text);

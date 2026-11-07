@@ -1,3 +1,4 @@
+import { captureSettingsForm, acknowledgeSettingsControl, changedSettingsForm } from './lore-native-settings.js';
 import { titleFormatLabel } from './lore-native-title.js';
 import { createHomeContext } from './lore-native-home.js';
 import { advanceCollectionCheckpoint, nextCollectionRange } from './lore-native-progress.js';
@@ -11308,6 +11309,7 @@ async function showSettingsPopup() {
     setupSettingsEventListeners(currentPopupInstance);
     populateInlineButtons();
     initializeSettingsPopupSelect2(currentPopupInstance);
+    captureSettingsForm(currentPopupInstance.dlg);
     await currentPopupInstance.show();
   } catch (error) {
     console.error("STMemoryBooks: Error showing settings popup:", error);
@@ -11362,6 +11364,7 @@ async function showAutomaticMemoriesSettingsPopup() {
     markStmbPopup(popup);
     setupSettingsEventListeners(popup);
     initializeSettingsPopupSelect2(popup);
+    captureSettingsForm(popup.dlg);
     await popup.show();
   } catch (error) {
     console.error("STMemoryBooks: Error showing automatic memories settings popup:", error);
@@ -11399,6 +11402,12 @@ function setupSettingsEventListeners(popupInstance = currentPopupInstance) {
 
   const popupElement = popupInstance.dlg;
   syncGroupSettingsControls(popupElement);
+  captureSettingsForm(popupElement);
+  // Flush an unblurred edit before opening a nested editor or changing profile.
+  popupElement.addEventListener("click", (event) => {
+    if (event.target.closest('input, select, textarea, label')) return;
+    if (event.target.closest('button, .menu_button, a')) persistMainPopupSettings(popupElement);
+  }, true);
 
   // Use full event delegation for all interactions
   popupElement.addEventListener("click", async (e) => {
@@ -11426,6 +11435,7 @@ function setupSettingsEventListeners(popupInstance = currentPopupInstance) {
 
   // Handle change events using delegation
   popupElement.addEventListener("change", async (e) => {
+    try {
     const settings = initializeSettings();
 
     if (e.target.matches("#stmb-narrator-mode-enabled")) {
@@ -11870,7 +11880,8 @@ function setupSettingsEventListeners(popupInstance = currentPopupInstance) {
     }
 
     if (e.target.matches('[data-memory-reminder]')) {
-      if (persistMemoryReminderControls(popupElement, settings.moduleSettings)) saveSettingsDebounced();
+      if (persistMemoryReminderControls(changedSettingsForm(popupElement), settings.moduleSettings)) saveSettingsDebounced();
+      for (const control of popupElement.querySelectorAll('[data-memory-reminder]')) acknowledgeSettingsControl(popupElement, control);
       getMemoryReminderController().check();
       return;
     }
@@ -11995,7 +12006,7 @@ function setupSettingsEventListeners(popupInstance = currentPopupInstance) {
 
     if (e.target.matches("#stmb-custom-title-format")) {
       const value = e.target.value.trim();
-      if (value && value.includes("000")) {
+      if (value) {
         setDefaultProfileTitleFormat(settings, value);
         saveSettingsDebounced();
 
@@ -12010,6 +12021,13 @@ function setupSettingsEventListeners(popupInstance = currentPopupInstance) {
         }
       }
     }
+    } finally {
+      // Selecting Custom only reveals the input; its value is committed on edit
+      // or close, so keep that selection dirty until then.
+      if (!(e.target.matches('#stmb-title-format-select') && e.target.value === 'custom')) {
+        acknowledgeSettingsControl(popupElement, e.target);
+      }
+    }
   });
 
   popupElement.addEventListener("input", (e) => {
@@ -12018,7 +12036,7 @@ function setupSettingsEventListeners(popupInstance = currentPopupInstance) {
     }
 
     const value = e.target.value.trim();
-    if (!value || !value.includes("000")) {
+    if (!value) {
       return;
     }
 
@@ -12054,6 +12072,8 @@ function persistMainPopupSettings(popupElement) {
     return false;
   }
 
+  const sourceElement = popupElement;
+  popupElement = changedSettingsForm(sourceElement);
   const settings = initializeSettings();
   let hasChanges = persistMemoryReminderControls(popupElement, settings.moduleSettings);
   for (const [key, selector] of [
@@ -12397,7 +12417,7 @@ function persistMainPopupSettings(popupElement) {
     ?.value?.trim();
   let nextTitleFormat = getDefaultProfileTitleFormat(settings);
   if (titleFormatSelect?.value === "custom") {
-    if (customTitleFormat && customTitleFormat.includes("000")) {
+    if (customTitleFormat) {
       nextTitleFormat = customTitleFormat;
     }
   } else if (titleFormatSelect?.value) {
@@ -12416,6 +12436,7 @@ function persistMainPopupSettings(popupElement) {
     saveSettingsDebounced();
   }
 
+  captureSettingsForm(sourceElement);
   getMemoryReminderController().check();
   return hasChanges;
 }
@@ -12463,6 +12484,8 @@ async function refreshPopupContent() {
     // Update the popup content directly
     currentPopupInstance.content.innerHTML = newHtml;
 
+    captureSettingsForm(currentPopupInstance.dlg);
+
     // After updating content, refresh the profile dropdown selection
     const profileSelect = currentPopupInstance.content.querySelector(
       "#stmb-profile-select",
@@ -12485,6 +12508,7 @@ async function refreshPopupContent() {
     // Repopulate profile buttons after content refresh
     populateInlineButtons();
     initializeSettingsPopupSelect2(currentPopupInstance);
+    captureSettingsForm(currentPopupInstance.dlg);
   } catch (error) {
     console.error("STMemoryBooks: Error refreshing popup content:", error);
   }

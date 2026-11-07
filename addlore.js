@@ -22,6 +22,7 @@ import { i18n } from './i18nHelpers.js';
 import {
     applyFixedSequenceNumber,
     hasSequenceNumberPlaceholder,
+    withoutTitleDates,
 } from './memoryRegeneration.js';
 import { getRequestHeaders, eventSource, event_types } from '../../../../script.js';
 import { SIDE_PROMPT_HISTORY_KEY, formatSidePromptVersionTitle, resolveSidePromptHistory, validateSidePromptHistoryRequest } from './sidePromptHistory.js';
@@ -878,51 +879,32 @@ function extractNumberUsingFormat(title, titleFormat) {
         return null;
     }
 
-    // Find all numbering patterns in the format
-    const allNumberingPatterns = [
-        /\[0+\]/g,   // [000]
-        /\(0+\)/g,   // (000)
-        /\{0+\}/g,   // {000}
-        /#0+/g       // #000
+    // Match the rendered form, including the native convention where [000]
+    // becomes 001 but [[000]] becomes [001]. Macros can contain story dates.
+    const patterns = [
+        [/\[\[(0+)\]\]/g, '[__STMB_SEQUENCE__]'],
+        [/\(\[(0+)\]\)/g, '(__STMB_SEQUENCE__)'],
+        [/\{\[(0+)\]\}/g, '{__STMB_SEQUENCE__}'],
+        [/#\[(0+)\]/g, '#__STMB_SEQUENCE__'],
+        [/\[(0+)\]/g, '__STMB_SEQUENCE__'],
+        [/\((0+)\)/g, '(__STMB_SEQUENCE__)'],
+        [/\{(0+)\}/g, '{__STMB_SEQUENCE__}'],
+        [/#(0+)/g, '#__STMB_SEQUENCE__'],
     ];
-
-    let formatMatches = [];
-    let patternType = null;
-
-    // Find which pattern type is used and where
-    for (const pattern of allNumberingPatterns) {
-        const matches = [...titleFormat.matchAll(pattern)];
-        if (matches.length > 0) {
-            formatMatches = matches;
-            patternType = pattern;
-            break;
-        }
+    let rendered = titleFormat;
+    for (const [pattern, replacement] of patterns) {
+        if (!pattern.test(titleFormat)) continue;
+        pattern.lastIndex = 0;
+        rendered = titleFormat.replace(pattern, replacement);
+        break;
     }
-
-    // If no numbering pattern found in format, fall back to original method
-    if (formatMatches.length === 0) {
-        return extractNumberFromTitle(title);
-    }
-
-    // Create a regex from the format that captures the number position
-    let regexPattern = escapeRegex(titleFormat);
-
-    // Replace template variables with non-greedy wildcards
-    regexPattern = regexPattern.replace(/\\\{\\\{[^}]+\\\}\\\}/g, '.*?');
-
-    // Replace numbering patterns with capture groups
-    if (patternType.source.includes('\\[')) {
-        regexPattern = regexPattern.replace(/\\\[0+\\\]/g, '(\\d+)');
-    } else if (patternType.source.includes('\\(')) {
-        regexPattern = regexPattern.replace(/\\\(0+\\\)/g, '(\\d+)');
-    } else if (patternType.source.includes('\\{')) {
-        regexPattern = regexPattern.replace(/\\\{0+\\\}/g, '(\\d+)');
-    } else if (patternType.source.includes('#')) {
-        regexPattern = regexPattern.replace(/#0+/g, '(\\d+)');
-    }
+    if (rendered === titleFormat) return extractNumberFromTitle(title);
+    const regexPattern = '^' + escapeRegex(rendered)
+        .replace(/\\\{\\\{[^}]+\\\}\\\}/g, '.*?')
+        .replaceAll('__STMB_SEQUENCE__', '(\\d+)') + '$';
 
     try {
-        const match = title.match(new RegExp(regexPattern));
+        const match = withoutTitleDates(title).match(new RegExp(regexPattern));
         if (match && match[1]) {
             const number = parseInt(match[1], 10);
             return isNaN(number) ? null : number;
@@ -962,6 +944,7 @@ function extractNumberFromTitle(title) {
     if (!title || typeof title !== 'string') {
         return null;
     }
+    title = withoutTitleDates(title);
     
     // Pattern 1: Square brackets [001], [01], [1]
     const bracketMatch = title.match(/\[(\d+)\]/);

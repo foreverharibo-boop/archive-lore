@@ -2972,3 +2972,39 @@ they never enter generation prompts or alter a setting's value.
   `test:fork:browser` for native template/profile and search-dialog checks at
   320px, 390px and desktop widths. These check persistence, synchronized toggles,
   input preservation, warning visibility and duplicate-free dynamic updates.
+
+### Archive Lore: settings persistence and post-save embedding
+
+Native main/general/automatic dialogs now remember their last displayed/handled
+control values. Refreshing or closing an old parent submits only edits made in
+that dialog, preserving settings saved by a nested profile/settings editor. Live
+native change handlers still own validation and saving; an unblurred edit is
+flushed before opening another editor. Title controls are treated as a pair.
+Custom titles accept the same nonempty formats as the native profile editor,
+including `[0]` and `[00]`. Switching the active collection profile retains its own
+title format instead of copying the preceding profile's form value.
+
+Number discovery recognizes the rendered native numbering forms (`[000]` →
+`001`, `[[000]]` → `[001]`, parentheses, braces and hash prefixes). Full numeric
+story dates and times are excluded from fallback number discovery and regeneration
+number extraction. A date-only imported title does not advance the counter to the
+next year. Existing titles are not renamed; explicit numbering still determines
+the next number, or 1 when no numbered memories exist.
+
+**Search/embedding settings → 검색·주입 → 기억 저장·수정 후 자동 임베딩** defaults
+on, and explicitly disabling it survives reloads. It requires search to be enabled
+and valid embedding credentials (and the server plugin when server mode is on).
+A connected book's save/update event schedules indexing after native work and RP
+generation finish. Consecutive side-record saves coalesce. Only changed/missing
+chunks of active nonconstant entries require embedding calls; constant entries
+are already included directly. Failed requests leave saved memories intact and
+can be retried with **남은 임베딩**. Enabling the switch alone does not backfill old
+missing vectors. After native migration, search follows current native book
+bindings instead of unioning an obsolete migration book snapshot.
+
+Validation: `npm run test:fork`; `node tests/archive-lore-settings-save.mjs` uses
+real native templates and change/save handlers with a stubbed ST host to test
+nested saves, profile switches, custom titles and general/automatic setting
+serialization. It uses the same Playwright runtime variables as the layout tests.
+These are regression checks, not a live provider/Termux or every-feature parity
+certification.

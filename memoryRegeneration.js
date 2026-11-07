@@ -166,7 +166,7 @@ export function extractEntrySequenceNumber(entry) {
         return Math.trunc(direct);
     }
 
-    const title = String(entry?.comment || '');
+    const title = withoutTitleDates(entry?.comment);
     const nested = title.match(/\[[^\]]*?\[(\d+)\][^\]]*?\]/);
     if (nested) return Number(nested[1]);
     const bracket = title.match(/\[[^\]]*?(\d+)[^\]]*?\]/);
@@ -180,6 +180,13 @@ export function extractEntrySequenceNumber(entry) {
     const leading = title.match(/^(\d+)(?:\s|[-–—])/);
     if (leading) return Number(leading[1]);
     return null;
+}
+
+/** Dates and times in imported titles are story metadata, not memory numbers. */
+export function withoutTitleDates(title) {
+    return String(title || '')
+        .replace(/\b\d{4}[-./]\d{1,2}[-./]\d{1,2}\b/g, match => ' '.repeat(match.length))
+        .replace(/\b\d{1,2}:\d{2}(?::\d{2})?\b/g, match => ' '.repeat(match.length));
 }
 
 export function applyFixedSequenceNumber(titleFormat, sequenceNumber) {

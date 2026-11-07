@@ -268,3 +268,17 @@ test('cached server indexing yields to other requests and does not reread contex
     assert(yields>=7);assert(reads<10,`context read ${reads} times`);
     assert(!f.calls.includes('document'));
 });
+
+test('native Memory Books entries index without legacy metadata; cache skips unchanged and constant records',async()=>{
+    const f=fixture();
+    f.book={entries:{
+        0:{uid:0,stmemorybooks:true,comment:'[001] First',content:'An established event.',constant:false},
+        1:{uid:1,stmemorybooks:true,comment:'Relationship',content:'Married.',constant:false},
+        2:{uid:2,stmemorybooks:true,content:'Always included core fact.',constant:true},
+        3:{uid:3,stmemorybooks:true,content:'Disabled fact.',disable:true},
+    }};
+    await f.controller.index();assert.equal(f.calls.filter(x=>x==='document').length,2);
+    await f.controller.index();assert.equal(f.calls.filter(x=>x==='document').length,2);
+    f.book.entries[1].content='Married; moved into a new home.';
+    await f.controller.index();assert.equal(f.calls.filter(x=>x==='document').length,3);
+});

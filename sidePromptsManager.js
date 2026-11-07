@@ -1,3 +1,4 @@
+import { migrateArchiveSideTemplates } from './lore-native-side.js';
 import { englishPrompt, migrateUneditedSideDefaults } from './lore-native-defaults.js';
 // Copyright (C) 2024–2026 Aiko Hanasaki
 // SPDX-License-Identifier: AGPL-3.0-only
@@ -528,6 +529,8 @@ export async function loadSidePrompts() {
     if(globalThis.archiveLoreFork){
         const migrated=migrateUneditedSideDefaults(data,getBuiltinTemplates(true),getBuiltinTemplates(false));
         if(migrated){await saveDoc(migrated);data=migrated;}
+        const plain=migrateArchiveSideTemplates(data);
+        if(plain){await saveDoc(plain);data=plain;}
     }
     cachedDoc = data;
     return cachedDoc;

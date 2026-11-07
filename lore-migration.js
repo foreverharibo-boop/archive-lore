@@ -1,3 +1,4 @@
+import { adaptArchiveSideTemplate } from './lore-native-side.js';
 // Temporary pre-release importer. The converted books require no legacy reader.
 // SPDX-License-Identifier: AGPL-3.0-only
 import { NS, materializeEntry, matchesRange, nextStart } from './lore-core.js';
@@ -38,7 +39,7 @@ export function convertLegacyBook(original, messages, chatId, config, initialSta
 }
 
 export function migrationSideTemplates(config, prefix) {
-    return normalizeSides(config.sideTemplates).map(side=>({
+    return normalizeSides(config.sideTemplates).map(side=>adaptArchiveSideTemplate({
         key:`${prefix}-${side.id}`,name:side.title,enabled:config.sideEnabled!==false && side.enabled,
         prompt:`${config.sidePrompt || ''}\n\n${side.prompt}\n\nUpdate this ONE side record using the supplied dialogue and its previous saved content. Preserve unchanged supported facts. Output the COMPLETE updated record in English, not a JSON change list. Do not return memories or other categories. Preserve known relationship start dates; never invent a date. If nothing changes, return the previous record. These output rules override legacy JSON/delta instructions.`,
         responseFormat:'',triggers:{commands:['sideprompt'],onAfterMemory:{enabled:true}},

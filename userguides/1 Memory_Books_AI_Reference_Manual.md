@@ -2937,3 +2937,11 @@ The fork-only “기본 통합 프롬프트 복원” shortcut has been removed 
 
 
 Archive Lore collection confirmation (including advanced profile changes) displays the explicitly bound SillyTavern connection profile name and its saved model. It no longer labels such a binding as the current RP model. Unavailable bindings are shown as requiring attention, not as an automatic fallback. This change affects the display only; explicit binding requests still use their saved model and fail without falling back to the RP connection. Temperature remains governed by the existing collection/current-ST temperature setting.
+
+### Archive Lore migrated side-record output
+
+The six migrated side templates use readable English records, not the original standalone extension's JSON delta schema. On load, the fork adapts imported templates marked `archiveLoreSetOnly` when they have no custom response format: exact stock JSON instructions and the obsolete migration adapter are removed, and a complete-record response format is installed. Custom category instructions and explicitly customized response formats are retained. Native Memory Books templates are unaffected.
+
+Relationship uses a short label and preserves supported phase dates. Other categories use factual bullets. Unchanged facts are retained without a no-change scene report; categories without established facts use `Not established.` (relationship: `Undefined`). The next run is instructed to render facts from existing JSON records into readable text. Existing lorebook contents are not rewritten on extension update. The output guard rejects JSON/code fences and recognized no-change commentary before saving, without an extra AI retry. This validates format, not factual accuracy. Explicitly customized response formats do not use the plain-record guard.
+
+Hidden messages: ordinary range collection excludes hidden messages unless **General Settings → Token Saving → Unhide hidden messages for memory generation** is enabled. This existing option executes `/unhide X-Y` before collecting; it changes visibility, rather than reading hidden messages invisibly. Subsequent hiding follows the existing automatic-hide configuration.

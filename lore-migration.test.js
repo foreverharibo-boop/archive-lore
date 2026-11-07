@@ -24,7 +24,7 @@ test('other branch memories remain disabled and cannot advance the collection ch
 test('side templates use native complete-record responses and stay scoped to an explicit set',()=>{
     const rows=migrationSideTemplates(config,'imported');assert.equal(rows.length,6);
     assert(rows.every(t=>t.settings.archiveLoreSetOnly && t.triggers.onAfterMemory.enabled));
-    assert(rows.every(t=>t.prompt.includes('COMPLETE updated record')));
+    assert(rows.every(t=>t.responseFormat.includes('complete, readable English record') && t.settings.archiveLorePlainRecord));
     assert.equal(migrationSideTemplates({...config,sideEnabled:false},'x').filter(t=>t.enabled).length,0);
 });
 test('failed verification never switches bindings; retry reuses a destination and completed imports do nothing',async()=>{

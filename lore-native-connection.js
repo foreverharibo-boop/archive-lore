@@ -40,3 +40,17 @@ export function createConnectionPicker({settings, profiles, service, save, compa
     });
     box.append(label);if(!compact)box.append(help);box.append(status);return box;
 }
+
+// Mirror the explicit saved-profile route used by sendRawCompletionRequest.
+// Never present the active RP model as fallback for an unavailable explicit binding.
+export function boundConnectionDisplay(profile, service) {
+    const id = String(profile?.archiveLoreConnectionProfileId || '');
+    if (!id) return {};
+    try {
+        const saved = service?.getProfile?.(id);
+        if (!saved?.model) return {profileModel:'연결 프로필을 확인해 주세요 · 모델을 불러올 수 없습니다'};
+        return {profileModel:`${saved.name || id} · ${saved.model}`};
+    } catch {
+        return {profileModel:'연결 프로필을 확인해 주세요 · 모델을 불러올 수 없습니다'};
+    }
+}

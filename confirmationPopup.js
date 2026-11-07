@@ -1,3 +1,5 @@
+import { boundConnectionDisplay } from './lore-native-connection.js';
+import { getContext } from '../../../extensions.js';
 // Copyright (C) 2024–2026 Aiko Hanasaki
 // SPDX-License-Identifier: AGPL-3.0-only
 
@@ -69,6 +71,7 @@ export async function showConfirmationPopup(sceneData, settings, currentModelSet
     profileTemperature: (selectedProfile.useDynamicSTSettings || (selectedProfile?.connection?.api === 'current_st')) ?
       translate('Current SillyTavern temperature', 'STMemoryBooks_Label_CurrentSTTemperature') : (selectedProfile.connection?.temperature !== undefined ?
         selectedProfile.connection.temperature : translate('Current SillyTavern temperature', 'STMemoryBooks_Label_CurrentSTTemperature')),
+    ...(globalThis.archiveLoreFork ? boundConnectionDisplay(selectedProfile, getContext().ConnectionManagerRequestService) : {}),
     currentModel: currentModelSettings?.model || translate('Unknown', 'common.unknown'),
     currentTemperature: currentModelSettings?.temperature ?? 0.7,
     currentApi: currentApiInfo?.api || translate('Unknown', 'common.unknown'),
@@ -165,6 +168,7 @@ export async function showAdvancedOptionsPopup(sceneData, settings, selectedProf
     defaultMemoryCount: settings.moduleSettings.defaultMemoryCount ?? 0,
     profileModel: profileModel,
     profileTemperature: profileTemperature,
+    ...(globalThis.archiveLoreFork ? boundConnectionDisplay(selectedProfile, getContext().ConnectionManagerRequestService) : {}),
     currentModel: currentModelSettings?.model || translate('Unknown', 'common.unknown'),
     currentTemperature: currentModelSettings?.temperature ?? 0.7,
     currentApi: currentApiInfo?.api || translate('Unknown', 'common.unknown'),
@@ -364,7 +368,8 @@ function setupAdvancedOptionsListeners(popup, sceneData, settings, selectedProfi
     const profileTempDisplay = popupElement.querySelector('#stmb-profile-temp-display');
 
     if (profileModelDisplay) {
-      profileModelDisplay.textContent = newProfile.connection?.model || translate('Current SillyTavern model', 'STMemoryBooks_Label_CurrentSTModel');
+      const bound = globalThis.archiveLoreFork ? boundConnectionDisplay(newProfile, getContext().ConnectionManagerRequestService) : {};
+      profileModelDisplay.textContent = bound.profileModel || newProfile.connection?.model || translate('Current SillyTavern model', 'STMemoryBooks_Label_CurrentSTModel');
     }
     if (profileTempDisplay) {
       profileTempDisplay.textContent = newProfile.connection?.temperature !== undefined ?

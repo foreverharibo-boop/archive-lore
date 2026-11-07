@@ -12,7 +12,7 @@ export function createHomeContext({settings,markers,length,book,books=[],changeB
     const others=books.filter(name=>name!==book);
     if(others.length){const extra=document.createElement('small');extra.className='al-connected-books';extra.textContent='함께 연결됨 · '+others.join(', ');box.append(extra);}
     const row=document.createElement('div');row.className='al-context-profile';
-    const profileLabel=document.createElement('label');profileLabel.textContent='수집 프로필';
+    const profileLabel=document.createElement('label'),heading=document.createElement('span');heading.className='al-profile-heading';heading.textContent='수집 프로필';profileLabel.append(heading);
     const select=document.createElement('select');select.className='text_pole';select.id='al-quick-profile';
     for(const [index,p] of (settings.profiles || []).entries())select.append(new Option(p.isBuiltinCurrentST?'기본 수집':p.name,String(index)));
     select.value=String(settings.defaultProfile ?? 0);profileLabel.append(select);

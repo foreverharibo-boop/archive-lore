@@ -282,3 +282,12 @@ test('native Memory Books entries index without legacy metadata; cache skips unc
     f.book.entries[1].content='Married; moved into a new home.';
     await f.controller.index();assert.equal(f.calls.filter(x=>x==='document').length,3);
 });
+
+test('dashboard counts whole entries, leaving partially embedded long entries pending',async()=>{
+    const f=fixture();f.book={entries:{0:{uid:0,content:'Short fact.'},1:{uid:1,content:'A long fact with a distinct ending. '.repeat(800)},2:{uid:2,content:'Always present',constant:true},3:{uid:3,content:'Disabled',disable:true}}};
+    let documents=0;f.host.embed=async()=>{if(++documents===3)throw Error('partial failure');return [1,0];};
+    await assert.rejects(f.controller.index(),/partial failure/);
+    let view=await f.controller.dashboard();assert.equal(view.embedded,1);assert.equal(view.pending,1);
+    f.host.embed=async()=>[1,0];await f.controller.index();view=await f.controller.dashboard();assert.equal(view.embedded,2);assert.equal(view.pending,0);
+    f.book.entries[0].content='Changed fact.';view=await f.controller.dashboard();assert.equal(view.embedded,1);assert.equal(view.pending,1);
+});

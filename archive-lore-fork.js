@@ -11,6 +11,7 @@ import { embeddingKey } from './lore-api.js';
 import { embeddingChunks, entryId } from './lore-core.js';
 import { nextCollectionRange } from './lore-native-progress.js';
 import { shouldIndexBookUpdate } from './lore-automation.js';
+import { createSearchToolsPanel } from './lore-native-tools.js';
 import { installSettingsHelp } from './lore-help.js';
 
 globalThis.archiveLoreFork=true;
@@ -68,18 +69,11 @@ async function openRecords(){
 }
 
 async function openTools(){
-    const node=document.createElement('div');node.className='al-search-tools';
-    node.innerHTML='<h3>검색·주입 확인</h3><p>임베딩은 저장된 기억을 검색할 준비를 하는 작업입니다. 미리보기는 다음 답변에 넣을 기억을 선별합니다.</p><div class="al-tool-buttons"></div><p role="status"></p><pre></pre>';
-    const state=node.querySelector('[role=status]'),output=node.querySelector('pre');
-    const run=async(action)=>{try{state.textContent='처리 중…';await action();state.textContent=search().controller.state().status || '완료';}catch(e){state.textContent=e.message;}};
-    const add=(label,action)=>{const b=document.createElement('button');b.type='button';b.className='menu_button';b.textContent=label;b.onclick=()=>run(action);node.querySelector('.al-tool-buttons').append(b);};
-    add('남은 임베딩',()=>search().controller.index());
-    add('지금 검색 미리보기',async()=>{const r=await search().controller.recall();output.textContent=[r.core,r.text].filter(Boolean).join('\n\n') || '선택된 기억 없음';});
-    add('최근 주입',()=>{const r=search().controller.state().lastRecall;output.textContent=r?JSON.stringify(r,null,2):'아직 검색한 기억 없음';});
-    add('진단 TXT 다운로드',async()=>download(await search().diagnostics.export(search().context().key,'all'),'archive-lore-diagnostics.txt'));
-    add('서버 작업 내역',async()=>{await search().controller.restore(true);output.textContent=JSON.stringify(search().controller.jobs(),null,2);});
-    add('중지',()=>search().controller.cancel());
-    await new Popup(node,POPUP_TYPE.TEXT,'',{wide:true,large:true,allowVerticalScrolling:true,okButton:false,cancelButton:'닫기'}).show();
+    const panel=createSearchToolsPanel({search:search(),download});
+    const updated=name=>{if(search().books().includes(name))void panel.refresh();};
+    eventSource.on(event_types.WORLDINFO_UPDATED,updated);
+    try{await new Popup(panel.node,POPUP_TYPE.TEXT,'',{wide:true,large:true,allowVerticalScrolling:true,okButton:false,cancelButton:'닫기'}).show();}
+    finally{panel.dispose();eventSource.removeListener(event_types.WORLDINFO_UPDATED,updated);}
 }
 
 globalThis.archiveLoreMigration=async(report=()=>{})=>{

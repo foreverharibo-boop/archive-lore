@@ -25,6 +25,7 @@ import {
     removeSet,
 } from './sidePromptsManager.js';
 import { sidePromptsTableTemplate } from './templatesSidePrompts.js';
+import { mountSideAutoToggle } from './lore-native-side-toggle.js';
 import { getPopupSort, mountTableSort } from './viewSort.js';
 import { translate, applyLocale } from '../../../i18n.js';
 import { tr } from './i18nHelpers.js';
@@ -646,6 +647,7 @@ async function refreshSetControls(popup) {
     if (!container) return;
     const sets = await listSets();
     container.innerHTML = DOMPurify.sanitize(renderAfterMemorySetMode(sets) + renderSetsList(sets));
+    if (globalThis.archiveLoreFork) mountSideAutoToggle(container, {markers:getSceneMarkers(), save:saveMetadataForCurrentContext});
     try { applyLocale(container); } catch (e) { /* no-op */ }
     mountTableSort(container.querySelector('table'), getPopupSort(popup, 'sets'),
         ['name', 'items', null], {

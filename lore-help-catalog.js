@@ -2,7 +2,7 @@
 export const HELP = {};
 const add = (keys, text) => { for (const key of keys.split(' ')) HELP[key] = text; };
 add('stmb-profile-select stmb-profile-select-advanced al-quick-profile', '기억 수집에 사용할 설정 묶음을 선택합니다. 수집 프롬프트·제목 양식·AI 연결 등이 함께 바뀝니다. 실리태번의 RP용 AI 연결 프로필과는 별개입니다.');
-add('al-native-connection al-home-connection', '실리태번에 저장한 AI 연결 프로필을 고릅니다. 이 프로필에 저장된 모델로 기억을 작성하며, RP 대화의 활성 연결을 바꾸지 않습니다. 별도 AI를 지정한 사이드 항목은 그 설정을 따릅니다.');
+add('al-native-connection al-home-connection', '현재 수집 프로필에 사용할 AI 연결입니다. 홈 화면과 수집 프로필 편집창은 같은 설정을 바꾸며, 선택한 값은 현재 수집 프로필에 저장됩니다. RP용 연결은 바꾸지 않으며, 별도 AI를 지정한 사이드는 해당 설정을 따릅니다.');
 add('stmb-profile-name stmb-new-profile-name-advanced', '여러 수집 설정을 구분할 이름입니다. 예: 짧은 사건 요약, 자세한 요약. 이름만 바꿔도 저장된 기억 내용이나 AI 모델이 바뀌지는 않습니다.');
 add('stmb-profile-preset', '대화를 어떤 기준과 양식으로 기억에 남길지 정하는 프롬프트입니다. AI 연결 프로필은 누가 작성할지, 이 설정은 어떻게 작성할지를 정합니다.');
 add('stmb-profile-temperature', 'AI가 표현과 내용 선택을 얼마나 다양하게 할지 조절합니다. 낮으면 비교적 일정하고 높으면 다양해지는 경향이 있지만, 낮춘다고 사실 오류가 없어지지는 않습니다.');

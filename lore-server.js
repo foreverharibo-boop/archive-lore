@@ -17,7 +17,7 @@ export async function profileTemplate(context,profileId,proxies=[]) {
 }
 export function createServerClient({headers,request=fetch}) {
     return async function call(route,body={}) {
-        const timeoutMs=route.startsWith('/embedding')?70000:30000;
+        const timeoutMs=route.startsWith('/embedding')?70000:route==='/jobs/get'?60000:30000;
         const signal=AbortSignal.timeout(timeoutMs);
         let response;
         try{response=await request('/api/plugins/archive-lore-server'+route,{method:'POST',headers:headers(),body:JSON.stringify(body),signal});}
@@ -59,11 +59,23 @@ export function serverVectorStore({local,call,enabled}) {
         async put(key,vector){if(!enabled())return local.put(key,vector);await call('/vectors/put',{key,vector});cache.set(key,vector);},
     };
 }
-export function createServerController({local,enabled,settings,context,input,call,sync,changed,countTokens,generating=()=>false}) {
+export function createServerController({local,enabled,settings,context,input,call,sync,changed,countTokens,generating=()=>false,wait=ms=>new Promise(resolve=>setTimeout(resolve,ms))}) {
     let current=null,view=[],status='',lastRecall=null,poll=null,detached=0,lastList=0;
     const applied=new Set(),pendingDrafts=new Map(),applying=new Map();
     let pollingRun=false,restoring=null;
     const active=job=>['queued','running'].includes(job.status);
+    async function getJob(id){
+        const epoch=detached,key=context().key;
+        for(let attempt=0;;attempt++){
+            if(epoch!==detached||key!==context().key)throw new DOMException('채팅방 변경 · 서버 작업은 유지됩니다.','AbortError');
+            try{return await call('/jobs/get',{id});}
+            catch(error){
+                if(!['SERVER_TIMEOUT','SERVER_NETWORK'].includes(error.code)||attempt>=2)throw error;
+                status=`서버 상태 확인 재시도 중 · ${attempt+1}/2`;changed?.();
+                await wait(1000*(attempt+1));
+            }
+        }
+    }
     async function finish(job){
         if(job.status!=='completed'||applied.has(job.id))return;
         if(applying.has(job.id))return applying.get(job.id);
@@ -82,7 +94,7 @@ export function createServerController({local,enabled,settings,context,input,cal
     async function restoreOnce(force,notify){if(!force&&Date.now()-lastList<2500)return view;
         const key=context().key;const jobs=await call('/jobs/list',{chatKey:key});if(key!==context().key)return view;
         view=jobs;lastList=Date.now();current=jobs.find(active)||null;
-        for(const job of jobs.filter(j=>j.status==='completed'&&['collect','index','applyMaintenance'].includes(j.kind)&&!applied.has(j.id)).slice(-1)){const fresh=await call('/jobs/get',{id:job.id});if(key!==context().key)break;await finish(fresh);}
+        for(const job of jobs.filter(j=>j.status==='completed'&&['collect','index','applyMaintenance'].includes(j.kind)&&!applied.has(j.id)).slice(-1)){const fresh=await getJob(job.id);if(key!==context().key)break;await finish(fresh);}
         if(current){status=current.message;scheduleRestore();}else status=jobs.at(-1)?.message || status;
         if(notify)changed?.();return view;
     }
@@ -101,7 +113,7 @@ export function createServerController({local,enabled,settings,context,input,cal
             await externalTrace?.event('server.accepted',{id:job.id,kind});
             while(true){
                 if(epoch!==detached||key!==context().key)throw new DOMException('다른 채팅방으로 이동했어. 서버 작업은 계속돼.','AbortError');
-                const value=await call('/jobs/get',{id:job.id});
+                const value=await getJob(job.id);
                 if(epoch!==detached||key!==context().key)throw new DOMException('채팅방 변경 · 서버 작업은 유지됨','AbortError');
                 current=value;status=value.message;changed?.();
                 if(!active(value)){
@@ -120,7 +132,18 @@ export function createServerController({local,enabled,settings,context,input,cal
                 }
                 await new Promise(resolve=>setTimeout(resolve,900));
             }
-        }finally{if(epoch===detached){current=null;pollingRun=false;}changed?.();}
+        }catch(error){
+            if(epoch===detached&&key===context().key)status=error.message;
+            throw error;
+        }finally{
+            if(epoch===detached){
+                pollingRun=false;
+                // Keep the accepted job cancellable after a lost status response.
+                // Never automatically submit a replacement job or loop retries forever.
+                if(!current?.id||!active(current))current=null;
+            }
+            changed?.();
+        }
     }
     return {
         markInjected:elapsedMs=>{if(!enabled())return local.markInjected(elapsedMs);if(lastRecall){lastRecall.timings={...lastRecall.timings,injectionMs:elapsedMs};changed?.();}},

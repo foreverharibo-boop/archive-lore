@@ -86,3 +86,34 @@ test('concurrent restores share requests and apply a completed job exactly once'
     assert.equal(lists,1);assert.equal(gets,1);assert.equal(syncs,1);
     await controller.restore(true);assert.equal(gets,1);assert.equal(syncs,1);
 });
+
+test('transient status failures retry the same accepted job, without submitting twice',async()=>{
+    let submissions=0,gets=0,syncs=0;const ids=[],delays=[];
+    const controller=createServerController({local:{},enabled:()=>true,context:()=>({key:'chat'}),input:async()=>({}),sync:async()=>syncs++,wait:async ms=>delays.push(ms),call:async(route,body)=>{
+        if(route==='/jobs/list')return [];
+        if(route==='/jobs'){submissions++;return {id:'accepted',kind:'index',status:'queued'};}
+        if(route==='/jobs/get'){ids.push(body.id);if(++gets<3)throw Object.assign(Error('temporary'),{code:'SERVER_TIMEOUT'});return {id:'accepted',kind:'index',status:'completed',result:7};}
+    }});
+    assert.equal(await controller.index(),7);assert.equal(submissions,1);assert.equal(syncs,1);
+    assert.deepEqual(ids,['accepted','accepted','accepted']);assert.deepEqual(delays,[1000,2000]);assert.equal(controller.state().busy,false);
+});
+test('exhausted status retries retain a cancellable job; chat change prevents stale retry',async()=>{
+    let key='chat',gets=0,canceled=null,change=false;
+    const controller=createServerController({local:{cancel(){}},enabled:()=>true,context:()=>({key}),input:async()=>({}),wait:async()=>{if(change)key='other';},call:async(route,body)=>{
+        if(route==='/jobs/list')return [];
+        if(route==='/jobs')return {id:'accepted',status:'queued'};
+        if(route==='/jobs/get'){gets++;throw Object.assign(Error('temporary'),{code:'SERVER_NETWORK'});}
+        if(route==='/jobs/cancel'){canceled=body.id;return {};}
+    }});
+    await assert.rejects(controller.index(),/temporary/);assert.equal(gets,3);assert.equal(controller.state().busy,true);
+    controller.cancel();await new Promise(r=>setImmediate(r));assert.equal(canceled,'accepted');
+    controller.detach();change=true;gets=0;await assert.rejects(controller.index(),e=>e.name==='AbortError');assert.equal(gets,1);
+    controller.detach();
+});
+test('permanent status errors are not retried',async()=>{
+    let gets=0;const controller=createServerController({local:{},enabled:()=>true,context:()=>({key:'chat'}),input:async()=>({}),wait:async()=>assert.fail('no retry'),call:async route=>{
+        if(route==='/jobs/list')return [];if(route==='/jobs')return {id:'id',status:'queued'};
+        if(route==='/jobs/get'){gets++;throw Error('missing job');}
+    }});
+    await assert.rejects(controller.index(),/missing job/);assert.equal(gets,1);
+});

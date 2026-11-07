@@ -16,7 +16,7 @@ function queueFixture(config={}) {
         event_types:{WORLDINFO_UPDATED:'save',GENERATION_STARTED:'start',GENERATION_ENDED:'end',GENERATION_STOPPED:'stop',CHAT_CHANGED:'chat'},
         eventSource:{on:(event,listener)=>listeners.set(event,listener)}};
     vm.runInNewContext('let migrating=false,generating=false,indexPending=false,indexTimer;\n'+source.slice(start,end),scope);
-    const eventsStart=source.indexOf('    eventSource.on(event_types.WORLDINFO_UPDATED');
+    const eventsStart=source.indexOf('    eventSource.on(event_types.WORLDINFO_UPDATED',source.indexOf('function setup()'));
     const eventsEnd=source.indexOf('\n    for(const [name,fn,help]',eventsStart);
     vm.runInNewContext(source.slice(eventsStart,eventsEnd),scope);
     return {settings,failures,state,get indexes(){return indexes;},set busy(value){busy=value;},set error(value){error=value;},

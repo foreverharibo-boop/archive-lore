@@ -1,3 +1,53 @@
+# Archive Lore 0.1.0 — fork runtime
+
+This repository is an AGPL-3.0-only fork of Aiko Hanasaki's Memory Books. The manifest now loads `archive-lore.js` and `lore-style.css` directly. The upstream `index.js`, bundles, and other features remain as historical fork source; they are not loaded by this runtime. No Archive or Charm extension code is imported or copied. Upstream connection-profile routing, chat message fingerprints, and lorebook naming are reused. Settings, IndexedDB storage, chat metadata, prompt slots, menu IDs, and slash commands use independent Archive Lore namespaces.
+
+## Setup and operation
+
+Install `https://github.com/foreverharibo-boop/archive-lore` as a SillyTavern extension. Requires the host APIs `ConnectionManagerRequestService`, `WORLDINFO_ENTRIES_LOADED`, generation interceptors, and asynchronous token counting (tested against the current release source interfaces). Configure the collection connection profile and a separate embedding key/model in Extensions → Archive Lore. Collection/search profiles must use Chat Completion. Gemini and OpenAI-compatible embedding endpoints are supported. Custom endpoints need browser CORS support; this release does not include a server plugin.
+
+Open the magic wand → 아카이브 로어, or use `/al`. The dashboard shows collected message-number ranges, the next range, core/memory/side records, and entry-level embedding completion. Message numbers are zero-based. `기억 수집` resumes at the next contiguous saved range. Choose a custom starting position or explicit range in the collapsed range controls. The default batch contains at most 20 messages and is reduced for long content; no collection source is silently truncated. Oversized single-message/record inputs stop with an error.
+
+If no book is connected, collection creates one and links it to the current character's primary World Info; group chats bind the created book to chat World Info instead. Existing connected books are used without replacement. A different target and the books searched can be selected explicitly. Selecting a storage target also adds it to this chat's search selection; manually choosing an existing target does not replace an existing character primary link.
+
+- `/al-collect`: collect the next range, or `/al-collect 0-19` for an explicit range.
+- `/al-embed`: embed pending or changed content only.
+- `/al-recall`: run retrieval preview (does not itself install a prompt).
+- `/al-stop`: stop the current operation.
+
+Quick Replies can call these commands. Memory entries and range receipts are saved atomically in the same World Info write before automatic embedding starts. An embedding failure leaves saved memories intact. Repeating collection after such a failure retries pending embedding without recollecting committed ranges. No automatic hiding or deletion of chat messages is performed.
+
+## Change-based side records
+
+The editable default side prompt covers six categories: relationship definition; promises/agreements/refusals; preferences/habits; confirmed emotions and reasons; relationship changes/turning points; unresolved issues/future plans. It is included in the same collection request, not a separate additional AI call. The output is a list of `add`/`update` operations, not a replacement summary. Stable fact IDs constrain updates to existing items in the correct category. Each operation must cite an exact quote and message number from the current collection range. Format and quote validation do not prove semantic accuracy; users can review and edit records.
+
+No-change output leaves side records unchanged. Unmentioned facts stay intact. Completion, withdrawal, resolution, cancellation, and changed conditions are recorded rather than silently deleting historical facts. Each changed category retains previous content/facts/source evidence in its `archiveLore.history`. The dashboard exposes that history. Source fingerprints scope newly collected records to compatible chat/branch content; a branch can see the most recent compatible side version. Hidden-message flag changes alone do not invalidate previously collected evidence. Imported ordinary entries with no Archive Lore source metadata remain available to the explicitly selected books.
+
+Collection, side-update, question-generation and selection prompts are editable. Custom prompts survive initialization/update. Import/export files contain prompts only, never API keys. `prompts/archive-lore-defaults.json` is the importable default preset. Response-format requirements are appended by code and are not editable.
+
+## Retrieval and injection
+
+Both modes use the configured independent embedding service and indexed content:
+
+1. **대화로 검색**: code formats recent dialogue → embeds its chunks → vector search → AI selects original text unit IDs.
+2. **질문으로 검색**: AI produces up to four questions from recent dialogue → embeds those questions → vector search → AI selects original text unit IDs.
+
+Default recent-message count is 10 (1–200); default final retrieved-memory injection cap is 3,000 tokens (256–32,000). The recent-dialogue review context is limited to roughly 9,000 estimated tokens and each message to 3,000; clipping retains head/tail with an omission marker. These are internal review limits, separate from final injection. The preview notes when dialogue is shortened. Embedding/retrieval chunks are around 1,000 estimated tokens. The default search returns 16 candidate chunks (configurable 1–40). Long candidate sets are reviewed in multiple requests, each with roughly 10,000 tokens of numbered memory units plus the recent dialogue. There is no promise of exactly one selector call for every large candidate set.
+
+Only offered original units can be selected; unknown IDs and AI rewrites cannot become injected memory. Final recalled text, titles and wrappers are counted with the host tokenizer and kept within the configured cap. Entries marked constant (blue-dot/core) are excluded from embeddings and supplied through a separate always-on core prompt, outside the retrieved-memory cap. Disabled entries are excluded. Selected books' native scan copies are suppressed to avoid duplicate insertion; stored keywords/enable flags are not rewritten. The optional keyword setting allows other native keyword matches, while suppressing a second insertion of the selected records. Existing custom character-filter/trigger rules are not independently reproduced for explicit Archive Lore book searches; select only books intended for the current chat.
+
+Vector cache keys include a per-settings namespace, provider, model, endpoint, record ID and exact chunk content. Changing any of these invalidates reuse. Vectors are stored in this browser's IndexedDB; another browser/device must embed again. The API key is saved in SillyTavern extension settings and is not included in the prompt export. API request bodies/responses and keys are not logged. Removing browser site data removes the local vector cache. Saved lorebook text is independent of that cache.
+
+Collection stops on invalid JSON, invalid side evidence, changed source dialogue, changed lorebook data, canceled work or switched chats. Before saving, the book is re-read and compared, but the World Info API has no cross-client atomic compare-and-swap; simultaneous external writes remain a host limitation. Retrieval failures abort that answer generation visibly rather than silently reusing a previous turn's prompt. Missing embeddings are reported in the preview and can be resumed with the pending-embedding button.
+
+## Verification
+
+Run `npm run test:archive-lore`. The browser harness is `npm run test:archive-lore:browser` (requires Playwright and an installed Chromium; optional environment variables `PLAYWRIGHT_MODULE`, `CHROMIUM_EXECUTABLE_PATH`, `CHROMIUM_ARGS_MODULE`, and `KOREAN_FONT_ROOT` support externally installed dependencies). Tests cover source/branch safety, no-op side updates/history, original-text selection, exact token-budget fitting, independent embedding request construction, atomic save receipts, retry after failed embedding, and both retrieval sequences. A local browser harness with simulated SillyTavern APIs and model replies additionally exercises the manifest entrypoint, collection → embedding → prompt installation, duplicate native scan suppression, disabling, and 390px/1280px layouts. Actual paid model calls and a live user SillyTavern installation still require user testing; this release does not claim model-output quality has been validated.
+
+---
+
+# Upstream Memory Books technical reference (historical; not the active fork UI)
+
 <!--
 Copyright (C) 2024–2026 Aiko Hanasaki
 SPDX-License-Identifier: AGPL-3.0-only

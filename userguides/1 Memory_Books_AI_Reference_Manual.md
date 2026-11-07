@@ -36,6 +36,10 @@ The following 0.4.x section is retained only to describe old data and server int
 
 ---
 
+Fork UI descriptions use polite Korean. Buttons in native fork popups, migration/search tools, and the extension drawer retain horizontal labels; action rows wrap whole buttons on narrow screens. The native popup marker scopes these rules to Archive Lore.
+
+Migration reports each phase (source read, backup, destination allocation/write/verification, vector copy, prompt save, chat binding) and includes the failing phase in errors. Transport errors distinguish timeout from network failure and show the plugin route; they no longer claim that synchronous migration continues on the server. Source books remain preserved. Prompt/token-count dry runs do not set the fork's generation-busy flags. These messages improve diagnosis; they do not guarantee server availability or repair unrelated chat integrity metadata.
+
 # Legacy standalone runtime (0.4.x; migration reference only)
 
 This repository is an AGPL-3.0-only fork of Aiko Hanasaki's Memory Books. The manifest now loads `archive-lore.js` and `lore-style.css` directly. The upstream `index.js`, bundles, and other features remain as historical fork source; they are not loaded by this runtime. No Archive or Charm extension code is imported or copied. Upstream connection-profile routing, chat message fingerprints, lorebook naming, and the default compaction prompt are reused. Settings, IndexedDB storage, chat metadata, prompt slots, menu IDs, and slash commands use independent Archive Lore namespaces.

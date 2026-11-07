@@ -48,3 +48,16 @@ test('converted arcs retain native source links while consolidated originals rem
     assert.equal(result.entries[0].disable,true);
     assert.equal(result.entries[2].disable,undefined);
 });
+
+
+test('vector copy failure reports its stage, preserves originals and does not switch the chat',async()=>{
+    const original=fixture(),before=structuredClone(original),reports=[];let saved,committed=false;
+    const host={snapshot:()=>({key:'chat',chatId:'chat',books:['old'],messages,config}),assertCurrent(){},
+        report:message=>reports.push(message),load:async name=>name==='old'?original:saved,
+        backup:async()=>{},destination:async()=> 'new',save:async(_name,data)=>{saved=data;},
+        copyVectors:async()=>{throw Error('서버 응답 대기 시간(30초)을 초과했습니다. [/vectors/put]');},
+        savePrompts:async()=>{throw Error('must not reach prompts');},commit:async()=>{committed=true;}};
+    await assert.rejects(migrateLegacyChat(host),/이관 중단 — 기존 임베딩 복사 · new:.*vectors\/put/);
+    assert.equal(committed,false);assert.deepEqual(original,before);
+    assert.equal(reports.at(-1),'기존 임베딩 복사 · new');
+});

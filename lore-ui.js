@@ -114,7 +114,7 @@ export function createLoreUI(api) {
             const pane=container.querySelector('[data-settings-pane="collection"]');
             const heading=pane.querySelector('summary');if(heading)heading.textContent='검색·주입 설정';
             const auto=document.createElement('div');auto.innerHTML=check('autoEmbed','기억 저장·수정 후 자동 임베딩',api.settings().autoEmbed!==false);pane.append(auto);
-            const note=document.createElement('p');note.textContent='서버 실행은 검색·선별·임베딩에 적용돼. 메모리북 수집·사이드 작업은 브라우저에서 실행돼.';container.querySelector('[data-settings-pane="server"]').append(note);
+            const note=document.createElement('p');note.textContent='서버 실행은 검색·선별·임베딩에 적용됩니다. 메모리북 수집·사이드 작업은 브라우저에서 실행됩니다.';container.querySelector('[data-settings-pane="server"]').append(note);
             const top=container.querySelector('[data-action="open"]');if(top)top.textContent='메모리북 열기';
         }
 

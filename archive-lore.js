@@ -287,7 +287,7 @@ function init() {
     eventSource.on(event_types.WORLDINFO_ENTRIES_LOADED,nativePolicy);
     eventSource.on(event_types.CHAT_CHANGED,()=>{clearTimeout(autoTimer);autoPending=false;autoAttempt='';generationInFlight=false;controller.detach();controller.discardDraft();if(pendingGeneration)void pendingGeneration.trace.event('generation.chat-changed');pendingGeneration=null;controller.clearRecall();clearPrompts();void ui.refresh().catch(error);});
     for(const event of [event_types.MESSAGE_EDITED,event_types.MESSAGE_DELETED,event_types.MESSAGE_SWIPED])if(event)eventSource.on(event,()=>{controller.cancel();clearPrompts();});
-    if(event_types.GENERATION_STARTED)eventSource.on(event_types.GENERATION_STARTED,()=>{generationInFlight=true;clearTimeout(autoTimer);});
+    if(event_types.GENERATION_STARTED)eventSource.on(event_types.GENERATION_STARTED,(_type,_options,dryRun)=>{if(dryRun)return;generationInFlight=true;clearTimeout(autoTimer);});
     if(event_types.MESSAGE_RECEIVED)eventSource.on(event_types.MESSAGE_RECEIVED,async index=>{
         scheduleAutomatic();
         const run=pendingGeneration,context=chatContext();if(!run || context.key!==run.key)return;

@@ -6,7 +6,7 @@ import {fileURLToPath} from 'node:url';
 const {chromium}=await import(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const extra=process.env.CHROMIUM_ARGS_MODULE?(await import(process.env.CHROMIUM_ARGS_MODULE)).default.args:[];
 const root=fileURLToPath(new URL('../',import.meta.url));
-const fixture=`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">${process.env.KOREAN_FONT_ROOT ? '<link rel="stylesheet" href="/fonts/400.css">' : ''}<link rel="stylesheet" href="/lore-fork.css"><style>:root{--SmartThemeBlurTintColor:#f8f9fb;--SmartThemeBodyColor:#303740;--SmartThemeBorderColor:#d5dbe3;--mainFontSize:16px}body{background:#edf0f4;color:#303740;font:14px "Noto Sans KR",Arial;margin:12px}#content{background:#f8f9fb;padding:16px;max-width:850px;margin:auto;border-radius:12px}.menu_button{background:#edf0f5;color:inherit;padding:9px;border:1px solid #d5dbe3;border-radius:6px;cursor:pointer}.text_pole{max-width:100%;box-sizing:border-box}h2{font-size:18px}</style><div id="content"></div><script src="/handlebars.js"></script><script type="module">
+const fixture=`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">${process.env.KOREAN_FONT_ROOT ? '<link rel="stylesheet" href="/fonts/400.css">' : ''}<link rel="stylesheet" href="/lore-fork.css"><style>:root{--SmartThemeBlurTintColor:#f8f9fb;--SmartThemeBodyColor:#303740;--SmartThemeBorderColor:#d5dbe3;--mainFontSize:16px}body{background:#edf0f4;color:#303740;font:14px "Noto Sans KR",Arial;margin:12px}#content{background:#f8f9fb;padding:16px;max-width:850px;margin:auto;border-radius:12px}.menu_button{width:min-content;white-space:normal;overflow-wrap:anywhere;background:#edf0f5;color:inherit;padding:9px;border:1px solid #d5dbe3;border-radius:6px;cursor:pointer}.text_pole{max-width:100%;box-sizing:border-box}h2{font-size:18px}</style><div id="content" class="al-fork-surface"></div><script src="/handlebars.js"></script><script type="module">
 import {settingsTemplate} from '/templates.js';
 import {FEATURE_GROUPS,organizeMemoryBooks,restoreFeatureButtons} from '/lore-fork-layout.js';
 const root=document.querySelector('#content');root.innerHTML=settingsTemplate({profiles:[{name:'기본 수집',isDefault:true}],selectedProfile:{connection:{api:'현재 프로필',model:'연결 모델'},effectivePrompt:'Preserve established facts.'},currentLorebookName:'기존 기억',highestMemoryProcessed:2105,hasHighestMemoryProcessed:true});
@@ -26,7 +26,7 @@ await new Promise(r=>server.listen(0,'127.0.0.1',r));
 const browser=await chromium.launch({headless:true,executablePath:process.env.CHROMIUM_EXECUTABLE_PATH || undefined,args:extra});
 try{
     const page=await browser.newPage();const errors=[];page.on('pageerror',e=>errors.push(e.message));
-    for(const width of [390,1000]){
+    for(const width of [320,390,1000]){
         await page.setViewportSize({width,height:900});await page.goto('http://127.0.0.1:'+server.address().port);await page.waitForFunction(()=>window.ready);
         assert.equal(await page.locator('.al-home-tabs button').count(),3);
         assert.equal(await page.locator('.al-home-pane:not([hidden]) .al-feature-card').count(),3);
@@ -45,6 +45,19 @@ try{
         await page.getByRole('button',{name:'기존 기억 가져오기',exact:true}).click();await page.getByRole('status').filter({hasText:'이관 완료'}).waitFor();
         await page.evaluate(()=>document.fonts.ready);
         assert(await page.locator('.al-feature-button').evaluateAll(items=>items.every(el=>el.getBoundingClientRect().right<=el.parentElement.getBoundingClientRect().right)));
+        const migration=page.getByRole('button',{name:'기존 기억 가져오기',exact:true});
+        assert(await migration.evaluate(el=>el.getBoundingClientRect().width>el.getBoundingClientRect().height*2));
+        // Match the host's narrow button default in independent tool and extension surfaces too.
+        await page.evaluate(()=>{
+            const fixture=document.createElement('div');fixture.id='tool-fixture';
+            fixture.innerHTML='<div class="al-search-tools"><div class="al-tool-buttons"><button class="menu_button">백업하고 기억 가져오기</button><button class="menu_button">검색 미리보기</button><button class="menu_button">진단 TXT 다운로드</button></div></div><div class="al-fork-settings"><div class="al-extension-actions"><button class="menu_button">아카이브 로어 열기</button><button class="menu_button">검색·임베딩 설정</button></div></div>';
+            document.querySelector('#content').append(fixture);
+        });
+        assert(await page.locator('#tool-fixture button').evaluateAll(items=>items.every(el=>{
+            const r=el.getBoundingClientRect();return r.width>r.height*2 && r.right<=innerWidth;
+        })));
+        assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+        await page.locator('#tool-fixture').evaluate(el=>el.remove());
         await page.screenshot({path:'/tmp/archive-lore-fork-'+width+'.png',fullPage:true});
     }
     assert.deepEqual(errors,[]);console.log('Fork home: three tabs, visible migration, host without popup-content class, actions, refresh and mobile/desktop passed.');

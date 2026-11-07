@@ -40,3 +40,21 @@
 .al-pagination { justify-content: center; }
 .al-settings { padding: 10px 3px; }
 @media (max-width: 480px) { .al-scroll { padding: 12px; } .al-dialog > header { padding: 16px; } .al-root .al-field { grid-template-columns: minmax(95px,.8fr) minmax(0,1.2fr); gap: 8px; } .al-range .al-field { grid-template-columns: 1fr; } }
+/* Compact settings retain touchable controls and clear prompt action spacing. */
+#archive-lore-settings .al-root { font-size: 12px !important; }
+#archive-lore-settings .al-root summary, #archive-lore-settings .al-root label { font-size: 12px !important; }
+.al-settings .al-fields { gap: 2px; padding: 3px 0; }
+.al-settings .al-field { margin: 5px 0; gap: 8px; }
+.al-settings .text_pole { padding: 6px 8px; border-radius: 7px; }
+.al-settings .al-prompt { min-height: 140px; height: 140px; }
+.al-root .al-prompt-actions { margin: 16px 0 22px; gap: 10px; }
+.al-editor { width: calc(100vw - 16px); height: calc(100dvh - 16px); max-width: none; max-height: none; margin: auto; padding: 12px; border: 1px solid var(--al-border); border-radius: 12px; background: var(--al-bg); color: var(--al-fg); }
+.al-editor[open] { display: flex; flex-direction: column; gap: 12px; }
+.al-editor::backdrop { background: #0009; }
+.al-editor header { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; }
+.al-editor header .al-actions { margin: 0; }
+.al-editor textarea { flex: 1; min-height: 0; resize: none; line-height: 1.7; }
+.al-translation { border-left: 2px solid var(--al-border); padding-left: 10px; }
+.al-root [data-log-list] pre { max-height: 350px; overflow: auto; }
+.al-root [data-log-list] summary { overflow-wrap: anywhere; }
+.al-root [name="logMode"] { flex: 1; width: auto; }

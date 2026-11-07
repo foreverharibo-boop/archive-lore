@@ -40,12 +40,18 @@ export async function ask(context, profileId, system, data, signal, maxTokens = 
     return completionText(await prepareConnectionProfileRequest(connection, body, combined)());
 }
 export function embeddingRequest(settings, text, query = false) {
-    if (!settings.embeddingKey?.trim()) throw new Error('확장 설정에 임베딩 API 키를 입력해 줘.');
+    const key = (settings.embeddingKeys?.[settings.embeddingProvider] ?? settings.embeddingKey ?? '').trim();
+    if (!key) throw new Error('확장 설정에 임베딩 API 키를 입력해 줘.');
     const model = String(settings.embeddingModel || '').replace(/^models\//, '').trim();
     if (!model) throw new Error('임베딩 모델을 입력해 줘.');
+    if (settings.embeddingProvider === 'vertex') return {
+        url: `https://aiplatform.googleapis.com/v1/publishers/google/models/${encodeURIComponent(model)}:predict`,
+        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
+        body: { instances: [{ content: text, task_type: query ? 'RETRIEVAL_QUERY' : 'RETRIEVAL_DOCUMENT' }], parameters: { autoTruncate: false } },
+    };
     if (settings.embeddingProvider === 'gemini') return {
         url: `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:embedContent`,
-        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': settings.embeddingKey.trim() },
+        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
         body: { model: `models/${model}`, content: { parts: [{ text }] }, taskType: query ? 'RETRIEVAL_QUERY' : 'RETRIEVAL_DOCUMENT' },
     };
     let base;
@@ -54,7 +60,7 @@ export function embeddingRequest(settings, text, query = false) {
         || (base.protocol !== 'https:' && !(base.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(base.hostname))))
         throw new Error('임베딩 주소는 HTTPS 또는 로컬 서버 주소로 입력해 줘.');
     return { url: `${base.href.replace(/\/$/, '').replace(/\/embeddings$/, '')}/embeddings`,
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${settings.embeddingKey.trim()}` },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
         body: { model, input: text, encoding_format: 'float' } };
 }
 export async function embed(settings, text, query, signal, request = fetch) {
@@ -68,9 +74,13 @@ export async function embed(settings, text, query, signal, request = fetch) {
         if (signal?.aborted) throw error;
         throw new Error('임베딩 연결 실패: API 주소·네트워크·브라우저 CORS 지원을 확인해 줘.');
     }
-    if (!response.ok) throw new Error(`임베딩 API 오류 (${response.status}). 키·모델·사용 한도를 확인해 줘.`);
+    if (!response.ok) {
+        const details = typeof response.text === 'function' ? await response.text() : '';
+        throw Object.assign(new Error(`임베딩 API 오류 (${response.status}). 키·모델·사용 한도를 확인해 줘.`), { details });
+    }
     const data = await response.json();
-    const vector = settings.embeddingProvider === 'gemini' ? data?.embedding?.values : data?.data?.[0]?.embedding;
+    const vector = settings.embeddingProvider === 'vertex' ? data?.predictions?.[0]?.embeddings?.values
+        : settings.embeddingProvider === 'gemini' ? data?.embedding?.values : data?.data?.[0]?.embedding;
     if (!Array.isArray(vector) || !vector.length || !vector.every(Number.isFinite) || vector.every(x => x === 0))
         throw new Error('임베딩 API가 유효한 벡터를 반환하지 않았어.');
     return vector;

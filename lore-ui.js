@@ -4,10 +4,12 @@ import { DEFAULT_PROMPTS, SIDE_PROMPT, NS, normalizeSettings, isCore } from './l
 
 import { normalizeSides, DEFAULT_SIDES, SIDE_COMMON } from './lore-side-config.js';
 import { tierLabel } from './lore-maintenance.js';
+import { loreIcon } from './lore-icons.js';
 import { makeId } from './lore-api.js';
 
 const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
 const button = (action, label, extra = '') => `<button type="button" class="menu_button al-button" data-action="${action}" ${extra}>${label}</button>`;
+const iconButton = (action, icon, label, extra = '') => button(action,loreIcon(icon),`data-icon-button aria-label="${label}" title="${label}" ${extra}`);
 const field = (label, control) => `<label class="al-field"><span>${label}</span>${control}</label>`;
 const input = (name, value, type = 'text', extra = '') => `<input class="text_pole" name="${name}" type="${type}" value="${escape(value)}" ${extra}>`;
 const options = (items, value) => items.map(([id,label]) => `<option value="${escape(id)}" ${id === value ? 'selected' : ''}>${escape(label)}</option>`).join('');
@@ -27,15 +29,18 @@ export function coalesceRefresh(render) {
 }
 
 export function createLoreUI(api) {
-    let dialog = null, page = 0, redraw = 0, filter = '', selected=new Set();
+    let dialog = null, page = 0, redraw = 0, filter = '', selected=new Set(), viewTab='memory';
+    const settingsContainers=new Set();
     const safe = callback => async event => { try { await callback(event); } catch(error) { api.error(error); } };
     function settingsHtml() {
         const s = normalizeSettings(api.settings());
         const profiles = [['', '현재 연결 프로필'], ...api.profiles().map(p => [p.id, p.name])];
         return `<div class="al-root al-settings">
-            ${check('enabled','아카이브 로어 활성화',s.enabled)}
+            <div class="al-settings-top">${check('enabled','아카이브 로어 활성화',s.enabled)}${button('open',loreIcon('book')+'열기')}</div>
+            <nav class="al-tabs al-settings-tabs" aria-label="설정 분류">${[['connection','연결'],['collection','수집·검색'],['prompts','프롬프트'],['server','서버']].map(([id,label])=>button('settings-tab',label,`data-settings-tab="${id}" aria-pressed="${id==='connection'}"`)).join('')}</nav>
+            <section data-settings-pane="server" hidden>
             <details><summary>서버 실행</summary>${check('serverEnabled','서버에서 실행 · 플러그인 필요',s.serverEnabled)}${button('server-check','서버 연결 확인')}<span data-server-status role="status"></span></details>
-            <details open><summary>기억 작성·검색 AI</summary><div class="al-fields">
+            </section><section data-settings-pane="connection"><details open><summary>기억 작성·검색 AI</summary><div class="al-fields">
             ${field('기억 작성 AI 프로필',select('profile', profiles, s.profile))}
             ${field('검색·선별 프로필',select('searchProfile', [['','기억 작성 AI와 동일'],...profiles.slice(1)], s.searchProfile))}
             </div>${button('profiles','프로필 새로고침')}</details>
@@ -46,7 +51,7 @@ export function createLoreUI(api) {
             ${s.embeddingProvider==='vertex'?field('Google Cloud 프로젝트 ID',input('embeddingVertexProjectId',s.embeddingVertexProjectId,'text','spellcheck="false"'))+field('리전',input('embeddingVertexRegion',s.embeddingVertexRegion,'text','placeholder="global" spellcheck="false"')):''}
             <div data-openai ${s.embeddingProvider === 'openai' ? '' : 'hidden'}>${field('임베딩 API 주소',input('embeddingUrl',s.embeddingUrl,'url'))}</div>
             </div><div class="al-actions">${button('embedding-test','임베딩 연결 확인')}</div><div data-embedding-status role="status"></div></details>
-            <details><summary>수집·검색 설정</summary><div class="al-fields">
+            </section><section data-settings-pane="collection" hidden><details open><summary>수집·검색 설정</summary><div class="al-fields">
             ${field('검색 방식',select('mode',[['dialogue','대화로 검색'],['questions','질문으로 검색']],s.mode))}
             ${field('최근 대화 참고 개수',input('recentCount',s.recentCount,'number','min="1" max="200"'))}
             ${field('최종 주입 토큰 상한',input('injectionTokens',s.injectionTokens,'number','min="256" max="32000"'))}
@@ -61,7 +66,7 @@ export function createLoreUI(api) {
             ${field('토큰 기준 · 추정값',input('autoTokens',s.autoTokens,'number','min="100" max="100000"'))}
             ${field('수집 후 남길 메시지',input('keepMessages',s.keepMessages,'number','min="0" max="1000"'))}
             </details>
-            <details data-side-settings><summary>사이드 항목 편집</summary>
+            </section><section data-settings-pane="prompts" hidden><details data-side-settings><summary>사이드 항목 편집</summary>
             ${s.sideTemplates.map(row=>`<details class="al-card" data-side="${escape(row.id)}"><summary>${escape(row.label)}</summary>
                 <label class="al-check"><input type="checkbox" data-side-field="enabled" ${row.enabled?'checked':''}><span>수집할 때 함께 갱신</span></label>
                 ${field('이름',`<input class="text_pole" data-side-field="title" value="${escape(row.title)}">`)}
@@ -71,7 +76,7 @@ export function createLoreUI(api) {
             <details><summary>기본 프롬프트 편집</summary>
             ${[['collect','기억 수집'],['sides','사이드 공통 지침'],['questions','질문 만들기'],['select','원문 선별']].map(([key,label]) => `<details><summary>${label}</summary><textarea class="text_pole al-prompt" name="prompt.${key}" spellcheck="false">${escape(key === 'sides' ? (s.sidePrompt && s.sidePrompt!==SIDE_PROMPT ? s.sidePrompt : SIDE_COMMON) : s.prompts[key])}</textarea><div class="al-actions al-prompt-actions">${button('expand-prompt','전체화면 편집',`data-key="${key}"`)}${button('reset-prompt','이 프롬프트 초기화',`data-key="${key}"`)}</div></details>`).join('')}
             <div class="al-actions">${button('export-prompts','프롬프트 내보내기')}${button('import-prompts','프롬프트 가져오기')}<input type="file" data-prompt-file accept="application/json,.json" hidden></div>
-            </details>${button('open','아카이브 로어 열기')}
+            </details></section>
             </div>`;
     }
     function expandPrompt(container,key,sideId=null) {
@@ -89,8 +94,24 @@ export function createLoreUI(api) {
         editor.addEventListener('close',()=>editor.remove(),{once:true});document.body.append(editor);editor.showModal();const textarea=editor.querySelector('textarea');textarea.focus();textarea.setSelectionRange(0,0);textarea.scrollTop=0;
     }
     function saveSide(id,patch) { api.saveSettings({sideTemplates:normalizeSides(api.settings().sideTemplates).map(row=>row.id===id?{...row,...patch}:row)}); }
+    function settingsTab(container,tab) {
+        container.dataset.settingsTab=tab;
+        for(const pane of container.querySelectorAll('[data-settings-pane]'))pane.hidden=pane.dataset.settingsPane!==tab;
+        for(const button of container.querySelectorAll('[data-settings-tab]'))button.setAttribute('aria-pressed',String(button.dataset.settingsTab===tab));
+    }
+    function paintSettings(container) {
+        container.innerHTML=settingsHtml();settingsTab(container,container.dataset.settingsTab || 'connection');
+    }
+    function openSettings() {
+        const panel=document.createElement('dialog');panel.className='al-root al-dialog al-settings-dialog';panel.setAttribute('aria-label','아카이브 로어 설정');
+        panel.innerHTML=`<header><span class="al-brand">${loreIcon('settings')}설정</span>${iconButton('settings-close','close','설정 닫기')}</header><div class="al-scroll" data-settings-body></div>`;
+        document.body.append(panel);mountSettings(panel.querySelector('[data-settings-body]'));
+        panel.querySelector('[data-action="settings-close"]').onclick=()=>panel.close();
+        panel.addEventListener('close',()=>{panel.remove();for(const container of settingsContainers){if(container.isConnected)paintSettings(container);else settingsContainers.delete(container);}void refresh().catch(api.error);},{once:true});panel.showModal();
+    }
     function mountSettings(container) {
-        container.innerHTML = settingsHtml();
+        settingsContainers.add(container);
+        paintSettings(container);
         container.addEventListener('change', safe(async event => {
             const element = event.target;
             if (element.matches('[data-prompt-file]')) {
@@ -98,7 +119,7 @@ export function createLoreUI(api) {
                 const payload = JSON.parse(await file.text());
                 const fields = ['collect','questions','select'];
                 if (payload.format !== 'archive-lore-prompts-v1' || fields.some(k => typeof payload.prompts?.[k] !== 'string') || typeof payload.sidePrompt !== 'string') throw new Error('아카이브 로어 프롬프트 파일이 아니야.');
-                api.saveSettings({ prompts: payload.prompts, sidePrompt: payload.sidePrompt, ...(payload.sideTemplates?{sideTemplates:normalizeSides(payload.sideTemplates)}:{}) }); container.innerHTML = settingsHtml(); return;
+                api.saveSettings({ prompts: payload.prompts, sidePrompt: payload.sidePrompt, ...(payload.sideTemplates?{sideTemplates:normalizeSides(payload.sideTemplates)}:{}) }); paintSettings(container); return;
             }
             if(element.dataset.sideField){const name=element.dataset.sideField;saveSide(element.closest('[data-side]').dataset.side,{[name]:name==='enabled'?element.checked:element.value,...(name==='title'?{label:element.value}:{})});if(name==='title')element.closest('[data-side]').querySelector('summary').textContent=element.value;return;}
             if (!element.name) return;
@@ -111,7 +132,7 @@ export function createLoreUI(api) {
                 if(element.name==='embeddingProvider') {
                     const current=api.settings(),keys={...current.embeddingKeys,[current.embeddingProvider]:current.embeddingKeys?.[current.embeddingProvider] ?? current.embeddingKey ?? ''};
                     api.saveSettings({embeddingProvider:value,embeddingKeys:keys,embeddingKey:keys[value] || '',embeddingModel:value==='openai'?'text-embedding-3-small':'gemini-embedding-001'});
-                    container.innerHTML=settingsHtml();
+                    paintSettings(container);
                 } else if(element.name==='embeddingKey') api.saveSettings({embeddingKey:value,embeddingKeys:{...api.settings().embeddingKeys,[api.settings().embeddingProvider]:value}});
                 else api.saveSettings({ [element.name]: value });
             }
@@ -119,18 +140,19 @@ export function createLoreUI(api) {
         container.addEventListener('click', safe(async event => {
             const target = event.target.closest('[data-action]'); if (!target) return;
             switch (target.dataset.action) {
+                case 'settings-tab':settingsTab(container,target.dataset.settingsTab);break;
                 case 'server-check':case 'embedding-test':{
                     const node=container.querySelector(target.dataset.action==='server-check'?'[data-server-status]':'[data-embedding-status]');node.textContent='연결 확인 중';target.disabled=true;
                     try{const result=await (target.dataset.action==='server-check'?api.serverCheck():api.embeddingTest());node.textContent=target.dataset.action==='server-check'?`연결됨 · 서버 ${result.version}`:`임베딩 성공 · ${result.dimensions}차원`;}
                     catch(error){node.textContent=error.message;throw error;}finally{target.disabled=false;}break;
                 }
-                case 'open': await open(); break;
+                case 'open': container.closest('.al-settings-dialog')?.close();await open(); break;
                 case 'expand-prompt': expandPrompt(container,target.dataset.key);break;
                 case 'expand-side':expandPrompt(container,null,target.closest('[data-side]').dataset.side);break;
                 case 'add-side':{
                     const sideTemplates=normalizeSides(api.settings().sideTemplates);
                     sideTemplates.push({id:'custom_'+makeId().replace(/[^a-zA-Z0-9_-]/g,''),label:'새 사이드',title:'New side record',enabled:true,prompt:'Track changes to this topic only. Preserve unchanged facts; add or update only facts directly supported by exact dialogue evidence.'});
-                    api.saveSettings({sideTemplates});container.innerHTML=settingsHtml();container.querySelector('[data-side-settings]').open=true;container.querySelector('[data-side]:last-of-type').open=true;break;
+                    api.saveSettings({sideTemplates});paintSettings(container);container.querySelector('[data-side-settings]').open=true;container.querySelector('[data-side]:last-of-type').open=true;break;
                 }
                 case 'reset-side':{
                     const id=target.closest('[data-side]').dataset.side;if(!window.confirm('이 사이드 프롬프트를 기본값으로 되돌릴까?'))return;
@@ -140,7 +162,7 @@ export function createLoreUI(api) {
                     const id=target.closest('[data-side]').dataset.side;if(!window.confirm('이 사이드 설정을 삭제할까? 이미 저장된 기록은 남아 있어.'))return;
                     api.saveSettings({sideTemplates:normalizeSides(api.settings().sideTemplates).filter(r=>r.id!==id)});target.closest('[data-side]').remove();break;
                 }
-                case 'profiles': container.innerHTML = settingsHtml(); break;
+                case 'profiles': paintSettings(container); break;
                 case 'reset-prompt': {
                     const key = target.dataset.key;
                     if (!window.confirm('편집한 프롬프트를 기본값으로 되돌릴까?')) return;
@@ -165,10 +187,12 @@ export function createLoreUI(api) {
         dialog.querySelector('[data-status]').textContent = state.status;
         for (const element of dialog.querySelectorAll('[data-job]')) element.disabled = state.busy;
         dialog.querySelector('[data-action="stop"]').disabled = !state.busy;
-        if (state.busy) return;
+        dialog.querySelector('[data-action="stop"]').hidden = !state.busy;
+        dialog.setAttribute('aria-busy',String(state.busy));
         const node=dialog,key=api.context().key;
         node.querySelector('[data-chat]').textContent=api.context().name || '채팅방을 열어 줘';
         if(!node.querySelector('[data-counts]').textContent)node.querySelector('[data-counts]').textContent='기억·임베딩 상태 불러오는 중…';
+        if (state.busy) return;
         const generation = ++redraw, view = await api.controller.dashboard();
         if(dialog!==node||key!==api.context().key)return;
         if (!dialog?.isConnected || generation !== redraw) return;
@@ -185,14 +209,14 @@ export function createLoreUI(api) {
         dialog.querySelector('[name="target"]').innerHTML = options([['','연결된 책 없음 · 수집 시 새로 만들기'], ...names.map(n=>[n,n])], api.target());
         const chosen = api.books();
         dialog.querySelector('[data-books]').innerHTML = names.map(n => `<label class="al-check"><input type="checkbox" data-book="${escape(n)}" ${chosen.includes(n)?'checked':''}><span>${escape(n)}</span></label>`).join('');
-        const rows = view.records.filter(r => `${r.entry.comment}\n${r.entry.content}`.toLocaleLowerCase().includes(filter.toLocaleLowerCase()));
+        const rows = view.records.filter(r => (viewTab==='side'?!!r.entry[NS]?.sideCategory:!r.entry[NS]?.sideCategory)).filter(r => `${r.entry.comment}\n${r.entry.content}`.toLocaleLowerCase().includes(filter.toLocaleLowerCase()));
         const pages = Math.max(1,Math.ceil(rows.length/12)); page=Math.min(page,pages-1);
         dialog.querySelector('[data-page]').textContent = `${page+1}/${pages} · ${rows.length}항목`;
         dialog.querySelector('[data-action="prev"]').disabled = !page;
         dialog.querySelector('[data-action="next"]').disabled = page+1 >= pages;
         dialog.querySelector('[data-records]').innerHTML = rows.slice(page*12,page*12+12).map(row => {
             const e=row.entry, side=e[NS]?.sideCategory;
-            return `<details class="al-record" data-record="${escape(row.id)}"><summary><span>${escape(e.comment || '제목 없음')}</span><small>${side?'사이드':isCore(e)?'코어':tierLabel(e)}</small></summary>
+            return `<details class="al-record" data-record="${escape(row.id)}"><summary><div class="al-record-heading"><small>${side?'사이드':isCore(e)?'코어':tierLabel(e)} · ${escape(row.book)}</small><span>${escape(e.comment || '제목 없음')}</span><p>${escape(String(e.content || '').replace(/\s+/g,' ').slice(0,150))}</p></div>${loreIcon('chevron')}</summary>
             <div class="al-record-body"><span class="al-muted">${escape(row.book)}</span>
             ${check('core','코어 · 항상 주입',isCore(e))}
             ${!side&&!isCore(e)?`<label class="al-check"><input type="checkbox" data-select-memory ${selected.has(row.id)?'checked':''}><span>묶을 기억으로 선택</span></label>`:''}
@@ -231,13 +255,29 @@ export function createLoreUI(api) {
         }));
         editor.addEventListener('close',()=>{api.controller.discardDraft();editor.remove();},{once:true});document.body.append(editor);editor.showModal();
     }
+    function showView(tab) {
+        if(api.controller.state().busy && (tab==='memory'||tab==='side') && viewTab!==tab)dialog.querySelector('[data-records]').innerHTML='<div class="al-muted">작업 완료 후 목록을 새로고침해요.</div>';
+        viewTab=tab;page=0;
+        for(const pane of dialog.querySelectorAll('[data-main-pane]'))pane.hidden=pane.dataset.mainPane!==(tab==='memory'||tab==='side'?'records':tab);
+        for(const button of dialog.querySelectorAll('[data-view-tab]'))button.setAttribute('aria-pressed',String(button.dataset.viewTab===tab));
+        dialog.querySelector('[data-action="tools"]').setAttribute('aria-pressed',String(tab==='tools'));
+        dialog.querySelector('.al-organize').hidden=tab==='side';
+        dialog.querySelector('[name="filter"]').placeholder=tab==='side'?'사이드 검색':'기억 검색';
+        dialog.querySelector('.al-scroll').scrollTop=0;
+    }
     async function open() {
         if (dialog?.isConnected) { await refresh(); return; }
-        dialog = document.createElement('dialog'); dialog.className='al-dialog al-root';
-        dialog.innerHTML = `<header><div><small>ARCHIVE LORE</small><h3 data-chat></h3></div>${button('close','✕','aria-label="닫기"')}</header>
-        <div class="al-scroll"><div class="al-counts" data-counts></div>
-        <section class="al-card"><strong data-next></strong><div class="al-muted" data-range></div>
-        <div class="al-actions">${button('collect','기억 수집','data-job')}${button('index','남은 임베딩','data-job')}${button('stop','중지')}</div><div data-status role="status" aria-live="polite"></div></section>
+        dialog = document.createElement('dialog'); dialog.className='al-dialog al-root';dialog.setAttribute('aria-label','아카이브 로어');
+        viewTab='memory';page=0;filter='';
+        dialog.innerHTML = `<header><span class="al-brand">${loreIcon('book')}ARCHIVE LORE</span><div class="al-header-actions">${iconButton('settings','settings','설정')}${iconButton('tools','tools','도구','aria-pressed="false"')}${iconButton('close','close','닫기')}</div></header>
+        <div class="al-hero"><h3 data-chat></h3><div class="al-counts" data-counts></div></div>
+        <nav class="al-tabs" aria-label="아카이브 보기">${[['memory','기억'],['side','사이드'],['recall','최근 주입']].map(([id,label])=>button('view-tab',label,`data-view-tab="${id}" aria-pressed="${id==='memory'}"`)).join('')}</nav>
+        <div class="al-scroll">
+        <section data-main-pane="records"><div class="al-search-row"><label class="al-search">${loreIcon('search')}<input class="text_pole" name="filter" placeholder="기억 검색" aria-label="내용·제목 검색"></label>${iconButton('refresh','refresh','새로고침')}</div>
+        <details class="al-organize"><summary>기억 정리 <span data-selected>0개 선택</span></summary><div class="al-actions">${button('merge','선택 기억 묶기 · 아크','data-job')}${button('clear-selection','선택 해제')}</div></details>
+        <div data-records></div><div class="al-actions al-pagination">${iconButton('prev','left','이전')}<span data-page></span>${iconButton('next','chevron','다음')}</div></section>
+        <section data-main-pane="recall" hidden><div class="al-section-heading"><strong>최근 주입</strong>${button('preview',loreIcon('refresh')+'회상 미리보기','data-job')}</div><pre data-recall></pre><div data-recall-translations></div></section>
+        <section data-main-pane="tools" hidden><div class="al-section-heading"><strong>도구</strong>${button('index',loreIcon('layers')+'남은 임베딩','data-job')}</div>
         <details class="al-card"><summary>지난 대화 한꺼번에 수집·로어북</summary>
         ${field('저장할 로어북',select('target',[],''))}
         <details><summary>검색할 로어북 선택</summary><div data-books></div></details>
@@ -245,12 +285,9 @@ export function createLoreUI(api) {
         ${field('분할 메시지 개수',input('rangeBatch',normalizeSettings(api.settings()).batchSize,'number','min="1" max="100"'))}
         <div class="al-actions">${button('collect-range','범위 나눠 수집','data-job')}${button('start-here','다음 수집 시작점 지정','data-job')}${button('reindex','전체 임베딩 다시 만들기','data-job')}</div></details>
         <details class="al-card"><summary>서버 작업 내역</summary>${button('server-refresh','서버 내역 새로고침')}<div data-server-jobs></div></details>
-        <details class="al-card"><summary>최근 주입 확인</summary>${button('preview','지금 회상 미리보기','data-job')}<pre data-recall></pre><div data-recall-translations></div></details>
         <details class="al-card"><summary>턴별 진단 기록</summary><div data-log-counts></div><div class="al-actions">${select('logMode',[['all','전체 방식'],['dialogue','대화로 검색'],['questions','질문으로 검색']],'all')}${button('export-logs','진단 TXT 다운로드')}</div><div data-log-list></div></details>
-        <section class="al-card"><div class="al-actions al-between"><strong>저장된 기억·사이드 기록</strong>${button('refresh','새로고침')}</div>
-        <div class="al-actions">${button('merge','선택 기억 묶기 · 아크','data-job')}<span data-selected>0개 선택</span>${button('clear-selection','선택 해제')}</div>
-        <input class="text_pole" name="filter" placeholder="내용·제목 검색" aria-label="내용·제목 검색"><div data-records></div>
-        <div class="al-actions al-pagination">${button('prev','이전')}<span data-page></span>${button('next','다음')}</div></section></div>`;
+        </section></div>
+        <footer class="al-collection"><div class="al-range-status"><strong data-next></strong><span class="al-muted" data-range></span></div><div data-status role="status" aria-live="polite"></div><div class="al-collect-actions">${button('collect',loreIcon('plus')+'기억 수집','data-job')}${button('stop','중지','hidden')}</div></footer>`;
         document.body.append(dialog); dialog.showModal();
         dialog.addEventListener('close',()=>{dialog?.remove();dialog=null;redraw++;});
         dialog.addEventListener('change',safe(async event=>{
@@ -263,6 +300,9 @@ export function createLoreUI(api) {
         dialog.addEventListener('click',safe(async event=>{
             const b=event.target.closest('[data-action]');if(!b)return;
             switch(b.dataset.action){
+                case 'settings':openSettings();return;
+                case 'tools':showView(viewTab==='tools'?'memory':'tools');await refresh();return;
+                case 'view-tab':showView(b.dataset.viewTab);await refresh();return;
                 case 'server-refresh':await api.controller.restore(true);break;
                 case 'server-draft':openDraft(await api.controller.getDraft(b.dataset.id));break;
                 case 'close':dialog.close();return;

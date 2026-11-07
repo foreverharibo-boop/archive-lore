@@ -55,7 +55,7 @@ export function createDiagnostics({ store, secrets = () => [], warning = () => {
     };
     return {
         begin(meta) {
-            const run = { schemaVersion:1, extensionVersion:'0.3.2', ...redact(meta, secrets()), id: makeId(), started: new Date().toISOString(), status: 'running', events: [] };
+            const run = { schemaVersion:1, extensionVersion:'0.4.0', ...redact(meta, secrets()), id: makeId(), started: new Date().toISOString(), status: 'running', events: [] };
             persist(run);
             return {
                 id: run.id,

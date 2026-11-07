@@ -1,6 +1,7 @@
 // Archive Lore modifications Copyright (C) 2026 foreverharibo-boop
 // Forked from Memory Books, Copyright (C) 2024–2026 Aiko Hanasaki.
 // SPDX-License-Identifier: AGPL-3.0-only
+import { loreIcon } from './lore-icons.js';
 import { getContext, extension_settings } from '../../../extensions.js';
 import { getRequestHeaders, eventSource, event_types, saveSettingsDebounced, extension_prompt_types } from '../../../../script.js';
 import { world_names, worldInfoCache, updateWorldInfoList, createWorldInfoEntry, METADATA_KEY } from '../../../world-info.js';
@@ -261,11 +262,11 @@ function init() {
     });
     if(settings().serverEnabled)void controller.restore(true).catch(error);
     const settingsNode=document.createElement('div'); settingsNode.id='archive-lore-settings';settingsNode.className='extension_container';
-    settingsNode.innerHTML='<div class="inline-drawer"><div class="inline-drawer-toggle inline-drawer-header"><b>Archive Lore</b><div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div></div><div class="inline-drawer-content" data-al-settings></div></div>';
+    settingsNode.innerHTML='<div class="inline-drawer"><div class="inline-drawer-toggle inline-drawer-header"><b class="al-brand">'+loreIcon('book')+'Archive Lore</b><div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div></div><div class="inline-drawer-content" data-al-settings></div></div>';
     document.querySelector('#extensions_settings2')?.append(settingsNode);
     ui.mountSettings(settingsNode.querySelector('[data-al-settings]'));
     const menu=document.createElement('div');menu.id='archive-lore-menu';menu.className='list-group-item flex-container flexGap5 interactable';menu.tabIndex=0;menu.setAttribute('role','button');
-    menu.innerHTML='<i class="fa-solid fa-book-bookmark fa-fw"></i><span>아카이브 로어</span>';
+    menu.innerHTML=`${loreIcon('book')}<span>아카이브 로어</span>`;
     menu.addEventListener('click',()=>void ui.open().catch(error));menu.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();void ui.open().catch(error);}});
     document.querySelector('#extensionsMenu')?.append(menu);
     globalThis.archiveLoreInterceptor=intercept;

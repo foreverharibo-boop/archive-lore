@@ -28,7 +28,7 @@ import {createServerClient,createServerController} from '/lore-server.js';
 const call=createServerClient({headers:()=>({'Content-Type':'application/json','x-fixture-user':'owner'})});
 let data=await (await fetch('/input')).json();window.mode='dialogue';window.synced=0;
 window.controller=createServerController({local:{cancel(){},clearRecall(){},state:()=>({busy:false}),dashboard:async()=>({records:[],next:2})},enabled:()=>true,settings:()=>({...data.settings,mode:window.mode}),context:()=>data.context,call,
-input:async(kind,options)=>{data=await (await fetch('/input')).json();return {...data,settings:{...data.settings,mode:window.mode},options,...(kind==='index'?{templates:{}}:{})};},
+input:async(kind,options)=>{data=await (await fetch('/input')).json();return {...data,settings:{...data.settings,mode:window.mode},options,...(kind==='index'||(kind==='recall'&&window.mode==='embedding')?{templates:{}}:{})};},
 sync:async()=>{window.synced++;data=await (await fetch('/input')).json();},changed:()=>document.querySelector('#status').textContent=controller.state().status,countTokens:async text=>Math.ceil(text.length/3)});
 window.failures=[];document.querySelector('#collect').onclick=()=>controller.collect().catch(e=>failures.push(e.message));await controller.restore(true);window.ready=true;
 </script>`;
@@ -57,10 +57,10 @@ try{
     assert.equal(service.get(user,accepted.id).status,'completed');assert.equal(Object.keys(json(bookFile).entries).length,1);assert.equal(calls,1);
     page=await open();assert((await page.evaluate(()=>controller.jobs())).some(j=>j.id===accepted.id&&j.status==='completed'));assert.equal(await page.evaluate(()=>window.synced),1);
     await page.evaluate(()=>controller.index());assert.equal(calls,1);
-    for(const mode of ['dialogue','questions']){const result=await page.evaluate(async m=>{window.mode=m;return controller.recall();},mode);assert(result.text.includes('hospital'));}
+    for(const mode of ['dialogue','questions','embedding']){const result=await page.evaluate(async m=>{window.mode=m;return controller.recall();},mode);assert(result.text.includes('hospital'));}
     const draft=await page.evaluate(()=>controller.prepareMaintenance({kind:'compact',ids:['["Book","0"]']}));await browser.close();
     page=await open();const restored=await page.evaluate(id=>controller.getDraft(id),draft.serverJobId);assert.equal(restored.content,draft.content);
     await page.evaluate(d=>controller.applyMaintenance({...d,draftJobId:d.serverJobId}),restored);assert.equal(json(bookFile).entries[0].comment,'Compact memory');assert.equal(json(bookFile).entries[0].archiveLore.history.length,1);
     assert.deepEqual(await page.evaluate(()=>failures),[]);assert.deepEqual(errors,[]);
-    console.log(JSON.stringify({passed:true,browserClosedDuringCollection:true,completedWhileClosed:true,reconnected:true,embeddingWithoutCollectionProfile:true,bothSearchModes:true,restoredDraftApplied:true}));
+    console.log(JSON.stringify({passed:true,browserClosedDuringCollection:true,completedWhileClosed:true,reconnected:true,embeddingWithoutCollectionProfile:true,allThreeSearchModes:true,restoredDraftApplied:true}));
 }finally{await browser.close();server.close();fs.rmSync(temp,{recursive:true,force:true});}

@@ -40,7 +40,7 @@ export function normalizeSettings(value = {}) {
         autoCollect:value.autoCollect===true,autoMode:value.autoMode==='tokens'?'tokens':'messages',
         autoMessages:integer(value.autoMessages ?? 20,20,1,1000),autoTokens:integer(value.autoTokens ?? 6000,6000,100,100000),
         keepMessages:integer(value.keepMessages ?? 10,10,0,1000),
-        mode: value.mode === 'questions' ? 'questions' : 'dialogue',
+        mode: ['questions','embedding'].includes(value.mode) ? value.mode : 'dialogue',
         embeddingProvider: ['openai','vertex'].includes(value.embeddingProvider) ? value.embeddingProvider : 'gemini',
         embeddingVertexProjectId: String(value.embeddingVertexProjectId || '').trim(),
         embeddingVertexRegion: String(value.embeddingVertexRegion || 'global').trim() || 'global',
@@ -222,15 +222,20 @@ export function reviewUnits(candidates) {
 export function selectedUnits(response, offered) {
     const data = parseJson(response);
     const allowed = new Map(offered.map(u => [u.id, u]));
-    if (!Array.isArray(data.selections) && !Array.isArray(data.ids)) throw new Error('기억 선별 응답 형식이 올바르지 않아.');
+    if (!data || (!Array.isArray(data.selections) && !Array.isArray(data.ids))) throw new Error('기억 선별 응답 형식이 올바르지 않아.');
     const ranked = Array.isArray(data.selections);
     const rows = ranked ? data.selections : data.ids.map(id=>({id,priority:2,reason:'legacy ordered selection'}));
+    for (const row of rows) {
+        if (row?.contextIds !== undefined && (!Array.isArray(row.contextIds) || row.contextIds.length > 8
+            || row.contextIds.some(id => !allowed.has(id) || allowed.get(id).entryId !== allowed.get(row.id)?.entryId)))
+            throw new Error('기억 선별의 연결 문장 형식이 올바르지 않아.');
+    }
     const seen = new Set();
     return rows.filter(row=>{
         if (!row || !allowed.has(row.id) || seen.has(row.id)
             || ![2,3].includes(row.priority) || typeof row.reason !== 'string' || !row.reason.trim()) return false;
         seen.add(row.id); return true;
-    }).map(row=>({...allowed.get(row.id),priority:row.priority,reason:row.reason.trim().slice(0,240),selectionFormat:ranked?'ranked':'legacy'}))
+    }).map(row=>({...allowed.get(row.id),priority:row.priority,reason:row.reason.trim().slice(0,240),selectionFormat:ranked?'ranked':'legacy',requiredContext:[...new Set(row.contextIds || [])].filter(id=>id!==row.id).map(id=>allowed.get(id))}))
         .sort((a,b)=>b.priority-a.priority).slice(0,24);
 }
 export function formatInjection(units) {
@@ -244,10 +249,33 @@ export function formatInjection(units) {
     }).join('\n\n') + '\n[/Archive Lore]';
 }
 export async function fitInjection(units, budget, countTokens = estimateTokens) {
-    const chosen = [];
-    for (const unit of units) {
+    let chosen = [];
+    const key = u => JSON.stringify([u.entryId,u.index]);
+    const dependencies=new Map();
+    for(const unit of units){
+        const refs=dependencies.get(key(unit)) || new Map();
+        for(const context of unit.requiredContext || [])refs.set(key(context),context);
+        dependencies.set(key(unit),refs);
+    }
+    for (const original of units) {
+        const context=new Map(), pending=[...(dependencies.get(key(original))?.values() || [])];
+        while(pending.length){
+            const item=pending.pop(), id=key(item);
+            if(id===key(original) || context.has(id))continue;
+            context.set(id,item);pending.push(...(dependencies.get(id)?.values() || []));
+        }
+        const unit={...original,requiredContext:[...context.values()]};
+        // Supporting sentences are carried by their root, including on server-to-client re-budgeting.
+        if (unit.contextOnly) continue;
         if (unit.selectionFormat === 'ranked' && unit.priority === 2 && !chosen.some(u=>u.priority===3)) continue;
-        if (await countTokens(formatInjection([...chosen, unit])) <= budget) chosen.push(unit);
+        const group = [unit, ...(unit.requiredContext || []).map(u=>({...u,contextOnly:true}))];
+        const next = new Map(chosen.map(u=>[key(u),u]));
+        for (const item of group) {
+            const old=next.get(key(item));
+            if (!old || (old.contextOnly && !item.contextOnly)) next.set(key(item),item);
+        }
+        const proposed=[...next.values()];
+        if (await countTokens(formatInjection(proposed)) <= budget) chosen = proposed;
     }
     const text = formatInjection(chosen);
     return { text, units: chosen, tokens: text ? await countTokens(text) : 0 };

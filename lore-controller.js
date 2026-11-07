@@ -1,14 +1,14 @@
 // Archive Lore modifications Copyright (C) 2026 foreverharibo-boop
 // SPDX-License-Identifier: AGPL-3.0-only
 import { NS, normalizeSettings, sourceRange, matchesRange, validReceipts, nextStart,
-    entryAvailable, isCore, entryId, embeddingChunks, estimateTokens, recentDialogue, parseJson,
+    entryAvailable, isCore, entryId, embeddingChunks, estimateTokens, recentDialogue, parseJson, rankChunks,
     parseCollection, reviewUnits, selectedUnits, fitInjection, materializeEntry,
     sideRecords, parseSideChanges, applySideChanges, sideSnapshot, parseStoryDate, currentStoryDate } from './lore-core.js';
 import { enabledSides, sideInstructions } from './lore-side-config.js';
 import { automaticReady, collectedHideRanges } from './lore-automation.js';
 import { consolidationView, maintenanceRequest, maintenanceResult } from './lore-maintenance.js';
 import { digest, embeddingKey, makeId } from './lore-api.js';
-import { retrievalFocus, rankFocusedChunks, chooseCandidates } from './lore-retrieval.js';
+import { retrievalFocus, rankFocusedChunks, chooseCandidates, recallMessages, reviewCandidates, reviewBatches } from './lore-retrieval.js';
 
 const COLLECTION_SCHEMA = `Return ONLY JSON:
 {"entries":[{"title":"short English title","date":"story date/range or empty","time":"story time or empty","location":"place or empty","content":"English narrative paragraphs only, no title/metadata headings","keywords":["English keyword"],"supersedes":null}],
@@ -18,19 +18,21 @@ Omit relationship and dateEvidence on non-relationship facts. Use actual JSON nu
 
 export function createLoreController(host) {
     let draft = null;
-    let active = null, status = '준비됨', lastRecall = null, trace = null;
+    let active = null, status = '준비됨', lastRecall = null, trace = null, timings = null;
     const log = (stage, data) => trace?.event(stage, data);
-    const askTracked = async (profile, system, data, signal, tokens) => {
+    const askTracked = async (profile, system, data, signal, tokens, phase = 'selectionMs') => {
         const started = Date.now();
         await log('ai.request', { profile, system, data, maxOutputTokens:tokens });
         try { const response = await host.ask(profile, system, data, signal, tokens);
             await log('ai.response', { response, elapsedMs:Date.now()-started });return response;
         } catch (error) { await log('ai.error', { message:error.message,details:error.details, elapsedMs:Date.now()-started });throw error; }
+        finally { if(timings)timings[phase] += Date.now()-started; }
     };
     const embedTracked = async (config, text, query, signal) => {
         const started=Date.now();await log('embedding.request', { provider:config.embeddingProvider, model:config.embeddingModel, query, text });
         try { const vector=await host.embed(config,text,query,signal);await log('embedding.response', { query, dimensions:vector.length, elapsedMs:Date.now()-started });return vector; }
         catch(error) { await log('embedding.error',{message:error.message,details:error.details});throw error; }
+        finally { if(timings)timings.embeddingMs += Date.now()-started; }
     };
     const notify = value => { status = value; host.changed?.(); };
     const settings = () => normalizeSettings(host.settings());
@@ -48,7 +50,7 @@ export function createLoreController(host) {
             await log('settings', {mode:config.mode,recentCount:config.recentCount,injectionTokens:config.injectionTokens,candidateCount:config.candidateCount,profile:config.profile,searchProfile:config.searchProfile,embeddingProvider:config.embeddingProvider,embeddingModel:config.embeddingModel,books:host.books(),profiles:host.profileInfo?.(),autoCollect:config.autoCollect,autoMode:config.autoMode,autoMessages:config.autoMessages,autoTokens:config.autoTokens,keepMessages:config.keepMessages,enabledSides:enabledSides(config).map(s=>s.id)});
             const result=await callback(abort.signal);await trace?.finish('success');return result;
         } catch (error) { await trace?.finish(abort.signal.aborted?'canceled':'error',{message:error.message});notify(abort.signal.aborted ? '작업 중지됨 · 저장한 기억은 유지돼' : error.message); throw error; }
-        finally { active = null;trace=null;host.changed?.(); }
+        finally { active = null;trace=null;timings=null;host.changed?.(); }
     }
     async function records(snapshot = host.context()) {
         const result = [];
@@ -227,24 +229,26 @@ export function createLoreController(host) {
     async function recall(options = {}) {
         return job('필요한 기억 찾는 중', async signal => {
             lastRecall=null;
+            const started=Date.now();timings={questionMs:0,embeddingMs:0,selectionMs:0};
             const snapshot = structuredClone(host.context()), config = settings();
             const rows = await records(snapshot);
             const core = rows.filter(r => isCore(r.entry)).map(r => r.entry.content).join('\n\n');
-            const recent = recentDialogue(snapshot.messages, config.recentCount);
-            const focus = retrievalFocus(snapshot.messages, config.recentCount);
-            await log('dialogue.context', {requested:config.recentCount, recent, sourceMessages:snapshot.messages.map((m,index)=>({index,name:m.name,is_user:m.is_user,is_system:m.is_system,text:m.mes})).filter(m=>!m.is_system&&String(m.text||'').trim()).slice(-config.recentCount)});
+            const messages=recallMessages(snapshot.messages,options.generationType);
+            const recent = recentDialogue(messages, config.recentCount);
+            const focus = retrievalFocus(messages, config.recentCount);
+            await log('dialogue.context', {requested:config.recentCount,generationType:options.generationType,excludedTail:snapshot.messages.length-messages.length, recent, sourceMessages:messages.map((m,index)=>({index,name:m.name,is_user:m.is_user,is_system:m.is_system,text:m.mes})).filter(m=>!m.is_system&&String(m.text||'').trim()).slice(-config.recentCount)});
             await log('core.records',{records:rows.filter(r=>isCore(r.entry)),text:core});
             if (!recent.text) { lastRecall={text:'',core,units:[],questions:[],pending:0,candidateTotal:0,tokens:0,mode:config.mode,records:rows.filter(r=>isCore(r.entry))};await log('retrieval.empty',{reason:'no dialogue'});return { text: '', core, selected: new Set(), books: host.books() }; }
             let questions = [];
             if (config.mode === 'questions') {
                 notify('최근 대화에서 검색 질문 만드는 중');
                 const raw = parseJson(await askTracked(config.searchProfile || config.profile,
-                    config.prompts.questions + '\nReturn ONLY JSON: {"questions":["question"]}.', { latestUser:focus.latestUser, dialogue: recent.text }, signal, 1200));
+                    config.prompts.questions + '\nReturn ONLY JSON: {"questions":["question"]}.', { latestUser:focus.latestUser, dialogue: recent.text }, signal, 1200, 'questionMs'));
                 if (!Array.isArray(raw.questions) || raw.questions.length > 4 || raw.questions.some(q => typeof q !== 'string' || q.length > 2000))
                     throw new Error('검색 질문 형식이 올바르지 않아.');
                 questions = raw.questions.filter(q => q.trim());
             }
-            await log('search.queries',{mode:config.mode,queries:config.mode==='questions'?questions:[focus.latestUser,focus.context],latestUser:focus.latestUser,context:focus.context,policy:'latest-user-reserved-v1'});
+            await log('search.queries',{mode:config.mode,queries:config.mode==='questions'?questions:config.mode==='embedding'?[recent.text]:[focus.latestUser,focus.context],latestUser:focus.latestUser,context:focus.context,policy:config.mode==='embedding'?'cosine-similarity':'latest-user-reserved-v1'});
             const chunks = [], cacheStatus=[]; let pending = 0;
             for (const row of rows.filter(r => !isCore(r.entry))) for (const chunk of await chunksFor(row, config)) {
                 const vector = await host.store.get(chunk.cacheKey);
@@ -263,47 +267,63 @@ export function createLoreController(host) {
                     }
                     return result;
                 };
-                const lanes = {focus:await vectors([focus.latestUser]),questions:await vectors(questions),context:await vectors([focus.context])};
-                const ranked=rankFocusedChunks(chunks,lanes);
-                const candidates=chooseCandidates(ranked,config.candidateCount); candidateTotal = candidates.length;
+                const plain=config.mode==='embedding';
+                const lanes = plain ? {context:await vectors([recent.text])} : {focus:await vectors([focus.latestUser]),questions:await vectors(questions),context:await vectors([focus.context])};
+                const ranked=plain ? rankChunks(chunks,lanes.context,chunks.length) : rankFocusedChunks(chunks,lanes);
+                const candidates=plain ? ranked.slice(0,config.candidateCount) : chooseCandidates(ranked,config.candidateCount); candidateTotal = candidates.length;
                 const candidateKeys=new Set(candidates.map(c=>JSON.stringify([c.id,c.index])));
-                await log('search.ranking',{indexedChunks:chunks.length,missingChunks:pending,queryDimensions:[...queryCache.values()].map(v=>v.length),policy:'latest-user-reserved-v1',ranked:ranked.map(({vector,cacheKey,...item},index)=>({...item,rank:index+1,offered:candidateKeys.has(JSON.stringify([item.id,item.index]))})),notRanked:chunks.filter(c=>!ranked.some(r=>r.id===c.id&&r.index===c.index)).map(c=>({entryId:c.id,chunk:c.index,reason:'non-positive similarity or incompatible vector dimensions'}))});
-                const offered = reviewUnits(candidates), selected = [];
-                const batches = [];
-                let batch = [], cost = 0;
-                for (const unit of offered) {
-                    const size = estimateTokens(JSON.stringify(unit));
-                    if (batch.length && cost + size > 10000) { batches.push(batch); batch = []; cost = 0; }
-                    batch.push(unit); cost += size;
+                await log('search.ranking',{indexedChunks:chunks.length,missingChunks:pending,queryDimensions:[...queryCache.values()].map(v=>v.length),policy:plain?'cosine-similarity':'latest-user-reserved-v1',ranked:ranked.map(({vector,cacheKey,...item},index)=>({...item,rank:index+1,offered:candidateKeys.has(JSON.stringify([item.id,item.index]))})),notRanked:chunks.filter(c=>!ranked.some(r=>r.id===c.id&&r.index===c.index)).map(c=>({entryId:c.id,chunk:c.index,reason:'non-positive similarity or incompatible vector dimensions'}))});
+                if (plain) {
+                    // Whole original chunks, in similarity order. No planner, selector or lexical fallback.
+                    const groups=candidates.map(c=>{
+                        const units=reviewUnits([c]);
+                        return units.length ? {...units[0],selectionFormat:'embedding',reason:'cosine similarity',score:c.score,requiredContext:units.slice(1)} : null;
+                    }).filter(Boolean);
+                    fitted=await fitInjection(groups,config.injectionTokens,host.countTokens);
+                    await log('injection.budget',{policy:'embedding-chunks',limit:config.injectionTokens,tokens:fitted.tokens,kept:fitted.units,dropped:groups.filter(u=>!fitted.units.some(k=>k.entryId===u.entryId&&k.index===u.index))});
+                } else {
+                    const offered = reviewUnits(reviewCandidates(candidates,chunks)), selected = [];
+                    const batches = reviewBatches(offered);
+                    for (const [index,batch] of batches.entries()) {
+                        notify('검색된 기억에서 필요한 원문 고르는 중');
+                        let response, accepted;
+                        for (let attempt=0;attempt<2;attempt++) {
+                            response = await askTracked(config.searchProfile || config.profile,
+                                config.prompts.select + '\nReturn ONLY JSON: {"selections":[{"id":"u0","priority":3,"reason":"specific missing fact needed now","contextIds":[]}]}. Use priority 3 for direct facts, 2 for indispensable supporting context. Omit everything else. At most 24 selections in usefulness order. For no needed facts return {"selections":[]}. For each fact include contextIds (up to 8 IDs from the same entry) for sentences required to identify the owner, speaker, referent, conditions, negation, or a contrasting counterpart. Read nearby sentences before selecting. If two people have similar objects, include the distinguishing facts for each relevant owner; never assume their properties match. Before responding check that your excerpts do not change attribution or omit a qualification. Omit a fact if the supplied context cannot disambiguate it. These dependent sentences are retained together or omitted together; do not invent connective text.',
+                                { latestUser:focus.latestUser, dialogue: recent.text, questions, memories: batch,
+                                    batch:index+1,batchCount:batches.length,maxSelections:24,injectionBudgetTokens:config.injectionTokens }, signal, 3000);
+                            try { accepted=selectedUnits(response,batch);break; }
+                            catch(error) {
+                                signal.throwIfAborted();
+                                await log('selection.invalid',{batch:index+1,attempt:attempt+1,message:error.message,response});
+                                if(attempt===1)throw error;
+                                notify('선별 응답 형식 다시 확인 중');
+                            }
+                        }
+                        await log('selection.validated',{batch:index+1,batchCount:batches.length,maxSelections:24,offered:batch,rawResponse:response,accepted,rejectedOrUnselected:batch.filter(u=>!accepted.some(a=>a.id===u.id))});
+                        selected.push(...accepted);
+                    }
+                    // Direct answers precede supporting context; keep the AI's order within each priority.
+                    const beforeBudget=selected.sort((a,b)=>b.priority-a.priority);
+                    fitted = await fitInjection(beforeBudget, config.injectionTokens, host.countTokens);
+                    await log('injection.budget',{policy:'selection-priority-v1',limit:config.injectionTokens,tokens:fitted.tokens,kept:fitted.units,dropped:beforeBudget.filter(u=>!fitted.units.some(k=>k.id===u.id))});
                 }
-                if (batch.length) batches.push(batch);
-                for (const [index,batch] of batches.entries()) {
-                    notify('검색된 기억에서 필요한 원문 고르는 중');
-                    const response = await askTracked(config.searchProfile || config.profile,
-                        config.prompts.select + '\nReturn ONLY JSON: {"selections":[{"id":"u0","priority":3,"reason":"specific missing fact needed now"}]}. Use priority 3 for direct facts, 2 for indispensable supporting context. Omit everything else. At most 24 selections in usefulness order. For no needed facts return {"selections":[]}.',
-                        { latestUser:focus.latestUser, dialogue: recent.text, questions, memories: batch,
-                            batch:index+1,batchCount:batches.length,maxSelections:24,injectionBudgetTokens:config.injectionTokens }, signal, 3000);
-                    const accepted=selectedUnits(response,batch);
-                    await log('selection.validated',{batch:index+1,batchCount:batches.length,maxSelections:24,offered:batch,rawResponse:response,accepted,rejectedOrUnselected:batch.filter(u=>!accepted.some(a=>a.id===u.id))});
-                    selected.push(...accepted);
-                }
-                // Direct answers precede supporting context; keep the AI's order within each priority.
-                const beforeBudget=selected.sort((a,b)=>b.priority-a.priority);
-                fitted = await fitInjection(beforeBudget, config.injectionTokens, host.countTokens);
-                await log('injection.budget',{policy:'selection-priority-v1',limit:config.injectionTokens,tokens:fitted.tokens,kept:fitted.units,dropped:beforeBudget.filter(u=>!fitted.units.some(k=>k.id===u.id))});
             }
             assertCurrent(snapshot, signal);
             if (JSON.stringify(snapshot.messages) !== JSON.stringify(host.context().messages)) throw new Error('검색 중 대화가 바뀌었어. 다시 시도해 줘.');
-            lastRecall = { ...fitted, questions: config.mode === 'questions' ? questions : [], pending,
+            timings.totalMs=Date.now()-started;timings.otherMs=Math.max(0,timings.totalMs-timings.questionMs-timings.embeddingMs-timings.selectionMs);
+            await log('recall.timing',timings);
+            lastRecall = { ...fitted, timings:{...timings}, questions: config.mode === 'questions' ? questions : [], pending,
                 candidateTotal, core, records:rows.filter(r=>isCore(r.entry)||fitted.units.some(u=>u.entryId===r.id)),shortened: recent.shortened, mode: config.mode, time: new Date().toISOString() };
             await log('injection.prepared',{core,recalled:fitted.text,tokens:fitted.tokens,selected:fitted.units,pending,candidateTotal});
-            notify(`회상 완료 · ${fitted.tokens}토큰${pending ? ` · 미임베딩 ${pending}구간` : ''}`);
+            notify(`회상 완료 · ${(timings.totalMs/1000).toFixed(1)}초 · ${fitted.tokens}토큰${pending ? ` · 미임베딩 ${pending}구간` : ''}`);
             return { ...fitted, core, selected: new Set(fitted.units.map(u => u.entryId)), books: host.books() };
         }, options.kind || 'preview', options.trace);
     }
     return {
         prepareMaintenance, applyMaintenance, discardDraft:()=>{draft=null;},
         exportDraft:()=>structuredClone(draft), restoreDraft:value=>{if(active)throw Error('작업 중에는 초안을 복원할 수 없어.');draft=structuredClone(value);},
+        markInjected:elapsedMs=>{if(lastRecall){lastRecall.timings={...lastRecall.timings,injectionMs:elapsedMs};host.changed?.();}},
         collect, recall, cancel: () => active?.abort(), clearRecall: () => { lastRecall = null; },
         index: (force = false) => job('임베딩 확인 중', async signal => {
             const snapshot=structuredClone(host.context()),config=settings();

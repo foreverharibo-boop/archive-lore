@@ -236,6 +236,23 @@ const mergedScan=await page.evaluate(async entries=>{settings.archiveLore.keywor
 for(const member of arc.archiveLore.members)assert(mergedScan.find(e=>String(e.uid)===member.uid).disable);
 assert(!mergedScan.find(e=>e.uid===arc.uid).disable);
 assert.deepEqual(runtimeErrors,[]);assert.deepEqual(await page.evaluate(()=>window.errors),[]);
+// Third mode uses the real interceptor and has no completion-model dependency.
+await page.locator('.al-dialog [data-action="close"]').click();
+await page.locator('#archive-lore-settings [data-settings-tab="collection"]').last().click();
+await page.locator('[name="mode"]').last().selectOption('embedding');
+await page.evaluate(async()=>{
+    settings.archiveLore.enabled=true;settings.archiveLore.profile='';settings.archiveLore.searchProfile='';
+    window.modelReply=()=>{throw Error('plain embedding called a completion model');};
+    ctx.chat.push({name:'User',mes:'Remember our hospital visit?',is_user:true},{name:'Character',mes:'REPLACED_ANSWER_SENTINEL',is_user:false});
+    await archiveLoreInterceptor([],30000,()=>{throw Error('embedding recall aborted');},'swipe');
+});
+assert((await page.evaluate(()=>prompts['archive-lore-recalled'])).includes('Archive Lore'));
+await page.locator('#archive-lore-menu').click();
+await page.locator('[data-view-tab="recall"]').click();
+await page.waitForFunction(()=>document.querySelector('[data-recall]').textContent.includes('선별 0.0초'));
+assert((await page.locator('[data-recall]').textContent()).includes('기억 준비'));
+assert.deepEqual(await page.evaluate(()=>window.errors),[]);
+
 // Reproduce the reported bulk conversion with the real dashboard and server facade.
 await page.locator('.al-dialog [data-action="close"]').click();
 const bulk=await page.evaluate(async()=>{

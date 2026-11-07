@@ -52,7 +52,7 @@ export function createLoreUI(api) {
             <div data-openai ${s.embeddingProvider === 'openai' ? '' : 'hidden'}>${field('임베딩 API 주소',input('embeddingUrl',s.embeddingUrl,'url'))}</div>
             </div><div class="al-actions">${button('embedding-test','임베딩 연결 확인')}</div><div data-embedding-status role="status"></div></details>
             </section><section data-settings-pane="collection" hidden><details open><summary>수집·검색 설정</summary><div class="al-fields">
-            ${field('검색 방식',select('mode',[['dialogue','대화로 검색'],['questions','질문으로 검색']],s.mode))}
+            ${field('검색 방식',select('mode',[['dialogue','대화로 검색'],['questions','질문으로 검색'],['embedding','일반 임베딩']],s.mode))}
             ${field('최근 대화 참고 개수',input('recentCount',s.recentCount,'number','min="1" max="200"'))}
             ${field('최종 주입 토큰 상한',input('injectionTokens',s.injectionTokens,'number','min="256" max="32000"'))}
             ${field('한 번에 수집할 메시지',input('batchSize',s.batchSize,'number','min="1" max="100"'))}
@@ -230,12 +230,12 @@ export function createLoreUI(api) {
         const serverJobs=api.serverJobs?.()||[];
         dialog.querySelector('[data-server-jobs]').innerHTML=serverJobs.slice().reverse().map(job=>`<div class="al-record"><span>${escape(job.kind)} · ${escape(job.status)}</span><div>${escape(job.message)}</div>${job.kind==='prepareMaintenance'&&job.status==='completed'&&job.draftAvailable!==false?button('server-draft','초안 열기',`data-id="${escape(job.id)}"`):''}</div>`).join('')||'서버 작업 없음';
         const recall = state.lastRecall;
-        dialog.querySelector('[data-recall]').textContent = recall ? `${recall.tokens}토큰 · 후보 ${recall.candidateTotal}구간 · 미임베딩 ${recall.pending}구간${recall.shortened?' · 긴 대화 일부 생략':''}\n${recall.questions.join('\n')}\n\n[코어 · 항상 주입]\n${recall.core || '없음'}\n\n[검색으로 선별한 기억]\n${recall.text || '선별한 기억 없음'}` : '아직 회상한 기록 없음';
+        dialog.querySelector('[data-recall]').textContent = recall ? `${recall.timings ? `기억 준비 ${((recall.timings.injectionMs ?? recall.timings.clientTotalMs ?? recall.timings.totalMs)/1000).toFixed(1)}초 · 질문 ${((recall.timings.questionMs || 0)/1000).toFixed(1)}초 · 임베딩 ${((recall.timings.embeddingMs || 0)/1000).toFixed(1)}초 · 선별 ${((recall.timings.selectionMs || 0)/1000).toFixed(1)}초\n` : ''}${recall.tokens}토큰 · 후보 ${recall.candidateTotal}구간 · 미임베딩 ${recall.pending}구간${recall.shortened?' · 긴 대화 일부 생략':''}\n${recall.questions.join('\n')}\n\n[코어 · 항상 주입]\n${recall.core || '없음'}\n\n[검색으로 선별한 기억]\n${recall.text || '선별한 기억 없음'}` : '아직 회상한 기록 없음';
         dialog.querySelector('[data-recall-translations]').innerHTML=(recall?.records || []).map(r=>translationHtml(api.translation?.(r.book,r.entry),`${isCore(r.entry)?'코어':'선택된 기억'} 전체 번역 · ${r.entry.comment || r.book}`)).join('');
         const runs=await api.diagnostics?.list(context.key) || [];
         if(!dialog?.isConnected || generation!==redraw)return;
         const attempts=runs.filter(r=>r.kind==='generation');
-        dialog.querySelector('[data-log-counts]').textContent=`대화로 검색 ${attempts.filter(r=>r.mode==='dialogue'&&!['skipped','error','canceled'].includes(r.status)).length}회 · 질문으로 검색 ${attempts.filter(r=>r.mode==='questions'&&!['skipped','error','canceled'].includes(r.status)).length}회 · 전체 기록 ${runs.length}개`;
+        dialog.querySelector('[data-log-counts]').textContent=`대화로 검색 ${attempts.filter(r=>r.mode==='dialogue'&&!['skipped','error','canceled'].includes(r.status)).length}회 · 질문으로 검색 ${attempts.filter(r=>r.mode==='questions'&&!['skipped','error','canceled'].includes(r.status)).length}회 · 일반 임베딩 ${attempts.filter(r=>r.mode==='embedding'&&!['skipped','error','canceled'].includes(r.status)).length}회 · 전체 기록 ${runs.length}개`;
         dialog.querySelector('[data-log-list]').innerHTML=runs.slice(-30).reverse().map(r=>`<details><summary>${escape(r.started)} · ${escape(r.kind)} · ${escape(r.mode)} · ${escape(r.status)}</summary><pre>${escape(JSON.stringify(r,null,2))}</pre></details>`).join('');
     }
     function openDraft(draft) {
@@ -285,7 +285,7 @@ export function createLoreUI(api) {
         ${field('분할 메시지 개수',input('rangeBatch',normalizeSettings(api.settings()).batchSize,'number','min="1" max="100"'))}
         <div class="al-actions">${button('collect-range','범위 나눠 수집','data-job')}${button('start-here','다음 수집 시작점 지정','data-job')}${button('reindex','전체 임베딩 다시 만들기','data-job')}</div></details>
         <details class="al-card"><summary>서버 작업 내역</summary>${button('server-refresh','서버 내역 새로고침')}<div data-server-jobs></div></details>
-        <details class="al-card"><summary>턴별 진단 기록</summary><div data-log-counts></div><div class="al-actions">${select('logMode',[['all','전체 방식'],['dialogue','대화로 검색'],['questions','질문으로 검색']],'all')}${button('export-logs','진단 TXT 다운로드')}</div><div data-log-list></div></details>
+        <details class="al-card"><summary>턴별 진단 기록</summary><div data-log-counts></div><div class="al-actions">${select('logMode',[['all','전체 방식'],['dialogue','대화로 검색'],['questions','질문으로 검색'],['embedding','일반 임베딩']],'all')}${button('export-logs','진단 TXT 다운로드')}</div><div data-log-list></div></details>
         </section></div>
         <footer class="al-collection"><div class="al-range-status"><strong data-next></strong><span class="al-muted" data-range></span></div><div data-status role="status" aria-live="polite"></div><div class="al-collect-actions">${button('collect',loreIcon('plus')+'기억 수집','data-job')}${button('stop','중지','hidden')}</div></footer>`;
         document.body.append(dialog); dialog.showModal();

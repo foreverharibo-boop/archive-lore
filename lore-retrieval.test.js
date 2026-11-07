@@ -87,3 +87,53 @@ test('saved old defaults upgrade once while customized search and selection prom
     const custom=normalizeSettings({promptRevision:2,prompts:{questions:'My query rules',select:'My selection rules'}});
     assert.equal(custom.prompts.questions,'My query rules');assert.equal(custom.prompts.select,'My selection rules');
 });
+
+test('regeneration excludes only the answer being replaced without mutating chat or continuation context', async()=>{
+    const {recallMessages}=await import('./lore-retrieval.js');
+    const messages=[{is_user:true,mes:'remember the rings?'},{mes:'wrong old answer'},{is_system:true,mes:'hidden'}];
+    assert.deepEqual(recallMessages(messages,'swipe'),messages.slice(0,1));
+    assert.deepEqual(recallMessages(messages,'regenerate'),messages.slice(0,1));
+    assert.equal(recallMessages(messages,'continue'),messages);
+    assert.equal(recallMessages(messages.slice(0,1),'swipe').length,1);
+    assert.equal(messages.length,3);
+});
+
+test('attribution dependencies survive together or are dropped together, including client re-budgeting',async()=>{
+    const offered=[
+        {id:'u0',entryId:'rings',index:0,title:'Rings',text:'Her ring reads A × B.'},
+        {id:'u1',entryId:'rings',index:1,title:'Rings',text:'His ring reads B × A.'},
+        {id:'u2',entryId:'other',index:0,title:'Other',text:'An unrelated ring.'},
+    ];
+    const selected=selectedUnits(JSON.stringify({selections:[{id:'u0',priority:3,reason:'the two rings',contextIds:['u1']}]}),offered);
+    const full=await fitInjection(selected,1000,t=>t.length);
+    assert(full.text.includes('Her ring'));assert(full.text.includes('His ring'));
+    const small=await fitInjection(full.units,full.tokens-1,t=>t.length);
+    assert.equal(small.text,'');assert.equal(small.units.length,0);
+    assert.throws(()=>selectedUnits(JSON.stringify({selections:[{id:'u0',priority:3,reason:'x',contextIds:['u2']}]}),offered),/연결 문장/);
+    const both=selectedUnits(JSON.stringify({selections:[{id:'u0',priority:3,reason:'her ring',contextIds:['u1']},{id:'u1',priority:3,reason:'his ring',contextIds:['u0']}]}),offered);
+    const result=await fitInjection(both,1000,t=>t.length);assert.equal(result.units.length,2);
+    assert.equal((await fitInjection(result.units,1000,t=>t.length)).text,result.text);
+});
+
+test('review expands only adjacent chunks of the same retrieved entry',async()=>{
+    const {reviewCandidates}=await import('./lore-retrieval.js');
+    const chunks=Array.from({length:5},(_,index)=>({id:'a',index})).concat({id:'b',index:1});
+    assert.deepEqual(reviewCandidates([chunks[1]],chunks).map(c=>c.index),[0,1,2]);
+});
+
+test('review batching keeps short entries intact and overlaps large-entry source context',async()=>{
+    const {reviewBatches}=await import('./lore-retrieval.js');
+    const units=Array.from({length:40},(_,index)=>({id:'u'+index,entryId:index<6?'a':'b',index,text:'A fact with an owner. '.repeat(5)}));
+    const batches=reviewBatches(units,700);
+    assert(batches[0].filter(u=>u.entryId==='a').length===6);
+    assert.equal(new Set(batches.flat().map(u=>u.id)).size,40);
+    assert(batches.flat().length>40);
+});
+
+test('transitive attribution dependencies cannot be orphaned by client re-budgeting',async()=>{
+    const a={entryId:'x',index:0,id:'a',text:'Her ring reads A B.',title:'Rings'},b={entryId:'x',index:1,id:'b',text:'His ring is different.',title:'Rings'},c={entryId:'x',index:2,id:'c',text:'His ring reads B A.',title:'Rings'};
+    const result=await fitInjection([{...a,requiredContext:[b]},{...b,requiredContext:[c]}],1000,t=>t.length);
+    assert.equal(result.units.length,3);
+    const smaller=await fitInjection(result.units,result.tokens-1,t=>t.length);
+    assert(!smaller.text.includes('Her ring'));assert(smaller.text.includes('His ring reads B A.'));
+});

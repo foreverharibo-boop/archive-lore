@@ -66,6 +66,7 @@ export function createServerController({local,enabled,settings,context,input,cal
     function scheduleRestore(){clearTimeout(poll);poll=setTimeout(()=>void restore(true).catch(error=>{status=error.message;changed?.();}),1500);}
     async function run(kind,options={},externalTrace=null) {
         if(!enabled())return kind==='index'?local.index(options.force):local[kind](options);
+        const started=Date.now();
         const initialKey=context().key;await restore(true);if(initialKey!==context().key)throw Error('채팅방이 바뀌어서 접수하지 않았어.');
         if(current&&active(current))throw Error('서버 작업이 진행 중이야. 내역에서 완료를 기다리거나 중지해 줘.');
         const epoch=detached,key=context().key;
@@ -86,8 +87,8 @@ export function createServerController({local,enabled,settings,context,input,cal
                     if(kind==='recall'){
                         const messages=payload.context.messages;if(messages.length!==context().messages.length || (messages.length&&!matchesRange(sourceRange(messages,0,messages.length-1),context().messages)))throw Error('검색 중 대화가 바뀌어서 주입하지 않았어. 다시 시도해 줘.');
                         const fitted=await fitInjection(result.lastRecall.units,normalizeSettings(settings()).injectionTokens,countTokens);
-                        lastRecall={...result.lastRecall,...fitted,records:result.lastRecall.records.filter(r=>r.entry.constant || fitted.units.some(u=>u.entryId===r.id))};result={...result,...fitted,selected:new Set(fitted.units.map(u=>u.entryId))};
-                        await externalTrace?.event('server.recall',{id:value.id,core:result.core,...fitted});await externalTrace?.finish('success');
+                        lastRecall={...result.lastRecall,...fitted,timings:{...result.lastRecall.timings,clientTotalMs:Date.now()-started},records:result.lastRecall.records.filter(r=>r.entry.constant || fitted.units.some(u=>u.entryId===r.id))};result={...result,...fitted,selected:new Set(fitted.units.map(u=>u.entryId))};
+                        await externalTrace?.event('server.recall',{id:value.id,core:result.core,...fitted,timings:lastRecall.timings});await externalTrace?.finish('success');
                     }
                     if(kind==='prepareMaintenance')pendingDrafts.set(result.token,value.id);
                     if(epoch!==detached||key!==context().key)throw new DOMException('채팅방 변경 · 서버 작업은 유지됨','AbortError');
@@ -98,8 +99,9 @@ export function createServerController({local,enabled,settings,context,input,cal
         }finally{if(epoch===detached)current=null;changed?.();}
     }
     return {
+        markInjected:elapsedMs=>{if(!enabled())return local.markInjected(elapsedMs);if(lastRecall){lastRecall.timings={...lastRecall.timings,injectionMs:elapsedMs};changed?.();}},
         collect:options=>run('collect',options),index:force=>run('index',{force:!!force}),
-        recall:options=>enabled()?run('recall',{},options?.trace):local.recall(options),
+        recall:options=>enabled()?run('recall',{generationType:options?.generationType},options?.trace):local.recall(options),
         prepareMaintenance:options=>run('prepareMaintenance',options),
         applyMaintenance:options=>run('applyMaintenance',{...options,draftJobId:options.draftJobId||pendingDrafts.get(options.token)}),
         discardDraft:()=>{if(!enabled())local.discardDraft();},

@@ -1,3 +1,4 @@
+import { ARCHIVE_LORE_TITLE_FORMAT, titleFormatLabel } from '../lore-native-title.js';
 // SPDX-License-Identifier: AGPL-3.0-only
 import http from 'node:http';
 import Handlebars from 'handlebars';
@@ -92,9 +93,11 @@ try{
     const marker='const profileEditTemplate = Handlebars.compile(`';
     const start=source.indexOf(marker)+marker.length;
     const template=Handlebars.compile(source.slice(start,source.indexOf('`);',start)));
-    await page.setContent(template({archiveLoreFork:true,name:'기본 수집',connection:{api:'current_st',model:'hidden-model'},archiveLoreConnections:[{id:'saved',name:'저장된 제미나이',selected:true}]}));
+    await page.setContent(template({archiveLoreFork:true,titleFormats:[{value:ARCHIVE_LORE_TITLE_FORMAT,label:titleFormatLabel(ARCHIVE_LORE_TITLE_FORMAT),isSelected:true}],name:'기본 수집',connection:{api:'current_st',model:'hidden-model'},archiveLoreConnections:[{id:'saved',name:'저장된 제미나이',selected:true}]}));
     assert(await page.locator('#al-native-connection').isVisible());
     assert.equal(await page.locator('#al-native-connection').inputValue(),'saved');
+    assert.equal(await page.locator('#stmb-profile-title-format-select').inputValue(),ARCHIVE_LORE_TITLE_FORMAT);
+    assert.equal(await page.locator('#stmb-profile-title-format-select option:checked').textContent(),titleFormatLabel(ARCHIVE_LORE_TITLE_FORMAT));
     assert.equal(await page.locator('#stmb-profile-model').isVisible(),false);
     await page.locator('.al-legacy-connection summary').click();
     assert(await page.locator('#stmb-profile-model').isVisible());

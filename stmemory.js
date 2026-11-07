@@ -1,3 +1,4 @@
+import { withArchiveLoreTitle } from './lore-native-title.js';
 // Copyright (C) 2024–2026 Aiko Hanasaki
 // SPDX-License-Identifier: AGPL-3.0-only
 
@@ -1639,7 +1640,9 @@ async function buildPrompt(compiledScene, profile) {
         ...getGroupMemoryProfile(profile || {}, {}, metadata),
         stmbPromptTarget: metadata?.stmbPromptTarget || profile?.stmbPromptTarget || '',
     };
-    const systemPrompt = await getEffectivePrompt(promptProfile);
+    const basePrompt = await getEffectivePrompt(promptProfile);
+    const systemPrompt = globalThis.archiveLoreFork
+        ? withArchiveLoreTitle(basePrompt, profile.titleFormat) : basePrompt;
     
     // Use substituteParams to allow for standard macros like {{char}} and {{user}}
     const groupName = metadata.groupName || metadata.characterName || '';

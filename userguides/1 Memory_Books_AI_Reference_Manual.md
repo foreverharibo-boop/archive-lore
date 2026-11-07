@@ -2927,3 +2927,10 @@ The home header keeps the destination Memory Book, collection profile, saved AI 
 **지금 수집** (also `/al-collect` without arguments) collects from the saved checkpoint + 1 through the current last message. **범위 지정·지난 대화 수집** remains available for explicit ranges and batches. Successful writes advance the chat checkpoint; reprocessing older ranges does not move it backwards. Failed/cancelled collection does not advance it. A cancelled post-save side task does not undo an already saved memory. Existing pending server progress and rollback handling still apply. If an explicit range skips earlier messages, next collection follows its end; it does not automatically fill earlier gaps.
 
 In the fork, built-in summary/consolidation/side prompt instructions are English, with English saved output requested and Korean UI retained. Existing exact, unmodified stock prompts in the current locale are converted. Edited/custom/imported instructions are preserved. The six migrated Archive Lore side categories remain Relationship, Promises & Agreements, Preferences & Habits, Feelings & Reasons, Relationship Turning Points, and Unresolved Issues & Plans.
+
+
+### Archive Lore event title format
+
+The title format selector includes **아카이브 로어 · [번호] 작중 날짜 · 사건 제목** (`[[000]] {{archiveLoreTitle}}`). Selecting it adds an English title instruction to memory collection without changing the JSON schema: the AI returns the event's established fictional date and a short English title; the extension adds the sequence number. Unknown dates are omitted. Date ranges are allowed when established in the collected scene. This is AI extraction, not a calendar calculation; generated dates should be checked against the source. Existing profiles are not switched automatically. Native `{{date}}` and `{{time}}` still refer to real-world creation time. Existing stored titles are not renamed.
+
+The fork-only “기본 통합 프롬프트 복원” shortcut has been removed from the consolidation prompt manager. Native built-in prompt recreation and JSON import/export remain available.

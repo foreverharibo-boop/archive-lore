@@ -1,3 +1,4 @@
+import { titleFormatLabel } from './lore-native-title.js';
 import { bindSavedConnection, savedConnectionOptions } from './lore-native-connection.js';
 // Copyright (C) 2024–2026 Aiko Hanasaki
 // SPDX-License-Identifier: AGPL-3.0-only
@@ -281,7 +282,7 @@ const profileEditTemplate = Handlebars.compile(`
         <small class="opacity50p" data-i18n="STMemoryBooks_TitleFormatDesc">Use [0], [00], etc. for numbering. Available tags: \{{title}}, \{{scene}}, \{{char}}, \{{groupname}}, \{{present}}, \{{user}}, \{{messages}}, \{{profile}}, \{{date}}, \{{time}}</small>
         <select id="stmb-profile-title-format-select" class="text_pole">
             {{#each titleFormats}}
-            <option value="{{value}}" {{#if isSelected}}selected{{/if}}>{{value}}</option>
+            <option value="{{value}}" {{#if isSelected}}selected{{/if}}>{{#if label}}{{label}}{{else}}{{value}}{{/if}}</option>
             {{/each}}
             <option value="custom" {{#if isCustomTitleFormat}}selected{{/if}} data-i18n="STMemoryBooks_CustomTitleFormat">Custom Title Format...</option>
         </select>
@@ -432,6 +433,7 @@ export async function editProfile(settings, profileIndex, refreshCallback) {
             titleFormat: profileTitleFormat,
             titleFormats: allTitleFormats.map(format => ({
                 value: format,
+                label: titleFormatLabel(format),
                 isSelected: format === profileTitleFormat
             })),
             isCustomTitleFormat,
@@ -548,6 +550,7 @@ export async function newProfile(settings, refreshCallback) {
             titleFormat: currentTitleFormat,
             titleFormats: allTitleFormats.map(format => ({
                 value: format,
+                label: titleFormatLabel(format),
                 isSelected: format === currentTitleFormat
             })),
             isCustomTitleFormat,

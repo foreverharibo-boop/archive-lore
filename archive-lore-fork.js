@@ -141,7 +141,7 @@ function queueIndex(){
         if(!search()?.settings().enabled || search().settings().autoEmbed===false){indexPending=false;return;}
         if(migrating||generating||native.busy()||search().controller.state().busy){queueIndex();return;}
         indexPending=false;
-        try{await search().controller.index();}catch(e){fail(e);}finally{if(indexPending)queueIndex();}
+        try{await search().controller.index();}catch(e){if(e.name!=='AbortError')fail(e);}finally{if(indexPending)queueIndex();}
     },800);
 }
 
@@ -159,7 +159,8 @@ function setup(){
     SlashCommandParser.addCommandObject(SlashCommand.fromProps({name:'al-migrate',helpString:'기존 아카이브 로어 기억 가져오기 화면',callback:async()=>{await openMigration();return '';}}));
     eventSource.on(event_types.WORLDINFO_UPDATED,(name,_data,metadata)=>{if(shouldIndexBookUpdate(name,search().books(),metadata,migrating)){indexPending=true;queueIndex();}});
     eventSource.on(event_types.GENERATION_STARTED,(_type,_options,dryRun)=>{if(!dryRun)generating=true;});
-    for(const event of [event_types.GENERATION_ENDED,event_types.GENERATION_STOPPED])eventSource.on(event,()=>{generating=false;queueIndex();});
+    eventSource.on(event_types.GENERATION_ENDED,()=>{generating=false;queueIndex();});
+    eventSource.on(event_types.GENERATION_STOPPED,()=>{generating=false;indexPending=false;clearTimeout(indexTimer);native.stop();});
     eventSource.on(event_types.CHAT_CHANGED,()=>{indexPending=false;clearTimeout(indexTimer);});
     for(const [name,fn,help] of [['al',()=>native.open(),'아카이브 로어 기능별 메뉴'],['al-embed',()=>search().controller.index(),'남은 기억 임베딩'],['al-recall',()=>search().controller.recall(),'기억 검색 미리보기'],['al-stop',()=>{native.stop();search().controller.cancel();},'수집·검색 작업 중지']])SlashCommandParser.addCommandObject(SlashCommand.fromProps({name,helpString:help,callback:async()=>{await fn();return '';}}));
     for(const name of ['al-collect','al-catchup'])SlashCommandParser.addCommandObject(SlashCommand.fromProps({

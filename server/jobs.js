@@ -15,7 +15,7 @@ export function createJobService({sanitize,ask,embedRequest=embed}) {
         const owner=fs.realpathSync(user.directories.root);if(users.has(owner))return users.get(owner);
         const root=inside(owner,'archive-lore-server');fs.mkdirSync(root,{recursive:true,mode:0o700});
         const jobsDir=inside(root,'jobs');fs.mkdirSync(jobsDir,{recursive:true,mode:0o700});
-        const s={root,jobsDir,jobs:new Map(),running:false,controllers:new Map(),vectors:privateStore(root,'vectors'),user};
+        const s={root,jobsDir,jobs:new Map(),running:false,controllers:new Map(),canceledRequests:new Map(),vectors:privateStore(root,'vectors'),user};
         for(const file of fs.readdirSync(jobsDir).filter(f=>/^[a-f0-9-]+\.json$/.test(f))){
             const job=json(inside(jobsDir,file));if(['queued','running'].includes(job.status)){job.status='interrupted';job.message='서버가 재시작됐어. 저장된 구간은 유지돼. 다시 실행해 줘.';atomic(inside(jobsDir,file),job);}s.jobs.set(job.id,job);
         }
@@ -78,6 +78,8 @@ export function createJobService({sanitize,ask,embedRequest=embed}) {
     async function drain(s){if(s.running)return;s.running=true;try{let job;while((job=[...s.jobs.values()].find(j=>j.status==='queued'))){try{await run(s,job);}catch{job.status='error';job.message='서버 작업 파일을 저장하지 못했어. 서버 저장 공간과 권한을 확인해 줘.';job.finished=new Date().toISOString();s.controllers.delete(job.id);try{save(s,job);}catch{console.error('[Archive Lore] Could not persist job status:',job.id);}}}}finally{s.running=false;}}
     return {
         async submit(user,kind,input,requestId){const s=state(user);if(typeof requestId!=='string'||!/^[a-f0-9-]{16,80}$/.test(requestId))throw Error('작업 요청 ID가 잘못됐어.');
+            for(const [id,time] of s.canceledRequests)if(Date.now()-time>300000)s.canceledRequests.delete(id);
+            if(s.canceledRequests.has(requestId))return {requestId,status:'canceled',message:'취소됨'};
             const existing=[...s.jobs.values()].find(j=>j.requestId===requestId);if(existing)return publicJob(existing);
             if([...s.jobs.values()].some(j=>['queued','running'].includes(j.status)))throw Error('이미 서버 작업이 진행 중이야. 작업 내역에서 확인해 줘.');
             input=structuredClone(input);validate(s,input,kind);
@@ -93,7 +95,21 @@ export function createJobService({sanitize,ask,embedRequest=embed}) {
             result.hidden=messages.length?[{...sourceRange(messages,0,messages.length-1),indices:messages.map((m,i)=>m.is_system?i:-1).filter(i=>i>=0)}]:[];
             return result;
         },
-        cancel(user,id){const s=state(user),job=s.jobs.get(id);if(!job)throw Error('서버 작업을 찾을 수 없어.');job.cancelRequested=true;s.controllers.get(id)?.cancel();if(job.status==='queued'){job.status='canceled';job.message='취소됨';}save(s,job);return publicJob(job);},
+        cancel(user,id,requestId){
+            const s=state(user);
+            if(!id && (typeof requestId!=='string'||!/^[a-f0-9-]{16,80}$/.test(requestId)))throw Error('작업 요청 ID가 잘못됐어.');
+            const job=id?s.jobs.get(id):[...s.jobs.values()].find(j=>j.requestId===requestId);
+            if(!job){
+                if(id)throw Error('서버 작업을 찾을 수 없어.');
+                // The cancel can arrive before its delayed submission, or before its ID response.
+                for(const [key,time] of s.canceledRequests)if(Date.now()-time>300000)s.canceledRequests.delete(key);
+                s.canceledRequests.set(requestId,Date.now());return {requestId,status:'canceled',message:'취소됨'};
+            }
+            if(!['queued','running'].includes(job.status))return publicJob(job);
+            job.cancelRequested=true;s.controllers.get(job.id)?.cancel();
+            if(job.status==='queued'){job.status='canceled';job.message='취소됨';job.finished=new Date().toISOString();}
+            save(s,job);return publicJob(job);
+        },
         vectors(user){return state(user).vectors;},
         async logs(user,key){const s=state(user),dir=inside(s.root,'diagnostics');if(!fs.existsSync(dir))return [];return fs.readdirSync(dir).filter(f=>f.endsWith('.json')).map(f=>json(inside(dir,f))).filter(r=>!key||r.chatKey===key).sort((a,b)=>a.started.localeCompare(b.started));},
         state,

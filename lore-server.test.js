@@ -3,6 +3,42 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {profileTemplate,serverVectorStore,createServerClient,createServerController} from './lore-server.js';
 import {embeddingKey} from './lore-api.js';
+const deferred=()=>{let resolve;const promise=new Promise(r=>resolve=r);return {promise,resolve};};
+test('explicit abort reaches server fetch without becoming a retryable network failure',async()=>{
+    const abort=new AbortController(),entered=deferred();let transportSignal;
+    const call=createServerClient({headers:()=>({}),request:async(_url,{signal})=>{
+        transportSignal=signal;entered.resolve();return new Promise((_resolve,reject)=>signal.addEventListener('abort',()=>reject(signal.reason),{once:true}));
+    }});
+    const result=call('/embedding',{}, {signal:abort.signal});await entered.promise;abort.abort();
+    await assert.rejects(result,e=>e.name==='AbortError'&&!e.code?.startsWith?.('SERVER_'));assert(transportSignal.aborted);
+});
+for(const phase of ['restore','input','submit','poll','fit'])test(`cancel during ${phase} releases recall and rejects late completion`,async()=>{
+    const entered=deferred(),gate=deferred(),calls=[];let synced=0;
+    const hold=async()=>{entered.resolve();await gate.promise;};
+    const messages=[{mes:'hello',is_user:true}];
+    const controller=createServerController({local:{cancel(){},clearRecall(){}},enabled:()=>true,settings:()=>({}),context:()=>({key:'chat',messages}),
+        input:async()=>{if(phase==='input')await hold();return {context:{key:'chat',messages}};},sync:async()=>synced++,
+        countTokens:async()=>{if(phase==='fit')await hold();return 1;},
+        call:async(route,body)=>{
+            calls.push({route,body});
+            if(route==='/jobs/list'){if(phase==='restore')await hold();return [];}
+            if(route==='/jobs'){if(phase==='submit')await hold();return {id:'accepted',status:'queued'};}
+            if(route==='/jobs/get'){if(phase==='poll')await hold();return {id:'accepted',status:'completed',result:{core:'',lastRecall:{units:[{id:'u0',entryId:'e',text:'Fact',priority:3}],records:[]}}};}
+            if(route==='/jobs/cancel')return {id:body.id,status:'canceled'};
+            throw Error(route);
+        }});
+    const result=controller.recall();const rejected=assert.rejects(result,e=>e.name==='AbortError');
+    await entered.promise;controller.cancel();
+    // Token counting is local work; its result is guarded before it can be installed.
+    if(phase==='fit')gate.resolve();
+    await rejected;gate.resolve();await new Promise(r=>setImmediate(r));
+    assert.equal(controller.state().lastRecall,null);
+    const cancel=calls.find(c=>c.route==='/jobs/cancel');
+    if(['restore','input'].includes(phase)){assert(!cancel);assert(!calls.some(c=>c.route==='/jobs'));}
+    else {assert(cancel);if(phase==='submit')assert.equal(cancel.body.requestId,calls.find(c=>c.route==='/jobs').body.requestId);}
+    if(phase!=='fit')assert.equal(synced,0);
+    controller.detach();
+});
 test('profile preparation preserves selected provider, secret ID, proxy and preset without sending an AI request',async()=>{
     const profile={model:'chosen-model',preset:'chosen-preset',proxy:'P','secret-id':'secret-choice','api-url':'https://provider.example/v1','prompt-post-processing':'strict'};
     let presetUsed;const context={extensionSettings:{connectionManager:{selectedProfile:'p'}},ConnectionManagerRequestService:{getProfile:id=>{assert.equal(id,'p');return profile;},validateProfile:()=>({selected:'openai',source:'custom'})},getPresetManager:()=>({getCompletionPresetByName:name=>({name})}),ChatCompletionService:{createRequestData:v=>v,presetToGeneratePayload:async(preset,_extra,override)=>{presetUsed=preset;return {reasoning_effort:'low',...override};}}};

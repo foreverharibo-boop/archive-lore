@@ -11,7 +11,8 @@ function queueFixture(config={}) {
     const start=source.indexOf('function queueIndex(){'),end=source.indexOf('\nfunction setup()',start);
     const listeners=new Map(),timers=new Map();let id=0,indexes=0,busy=false,error=null;
     const state={busy:false},settings=normalizeSettings(config),failures=[];
-    const scope={shouldIndexBookUpdate,native:{busy:()=>busy},search:()=>({settings:()=>settings,books:()=>['native-book'],controller:{state:()=>state,index:async()=>{indexes++;if(error)throw error;}}}),fail:e=>failures.push(e),
+    let stops=0;
+    const scope={shouldIndexBookUpdate,native:{busy:()=>busy,stop:()=>stops++},search:()=>({settings:()=>settings,books:()=>['native-book'],controller:{state:()=>state,index:async()=>{indexes++;if(error)throw error;}}}),fail:e=>failures.push(e),
         setTimeout:fn=>{timers.set(++id,fn);return id;},clearTimeout:n=>timers.delete(n),
         event_types:{WORLDINFO_UPDATED:'save',GENERATION_STARTED:'start',GENERATION_ENDED:'end',GENERATION_STOPPED:'stop',CHAT_CHANGED:'chat'},
         eventSource:{on:(event,listener)=>listeners.set(event,listener)}};
@@ -19,7 +20,7 @@ function queueFixture(config={}) {
     const eventsStart=source.indexOf('    eventSource.on(event_types.WORLDINFO_UPDATED',source.indexOf('function setup()'));
     const eventsEnd=source.indexOf('\n    for(const [name,fn,help]',eventsStart);
     vm.runInNewContext(source.slice(eventsStart,eventsEnd),scope);
-    return {settings,failures,state,get indexes(){return indexes;},set busy(value){busy=value;},set error(value){error=value;},
+    return {settings,failures,state,get stops(){return stops;},get indexes(){return indexes;},set busy(value){busy=value;},set error(value){error=value;},
         emit:(event,...args)=>listeners.get(event)(...args),
         tick:async()=>{const pending=[...timers.values()];timers.clear();for(const fn of pending)await fn();},get queued(){return timers.size;}};
 }
@@ -30,6 +31,13 @@ test('native book save automatically queues embedding after collection finishes 
     f.busy=false;await f.tick();assert.equal(f.indexes,1);assert.equal(f.queued,0);
     f.emit('save','other-book');await f.tick();assert.equal(f.indexes,1);
     f.emit('save','native-book',{}, {archiveLoreServerSync:true});await f.tick();assert.equal(f.indexes,1);
+});
+test('RP stop drops queued automatic embedding even when generation-ended follows',async()=>{
+    const f=queueFixture();f.emit('start','normal',{},false);f.emit('save','native-book');
+    f.emit('stop');f.emit('end');await f.tick();
+    assert.equal(f.indexes,0);assert.equal(f.queued,0);assert.equal(f.stops,1);
+    f.emit('start','normal',{},false);f.emit('save','native-book');f.emit('end');await f.tick();
+    assert.equal(f.indexes,1);
 });
 test('native automatic embedding honors disabled settings, generation, chat changes and failed requests',async()=>{
     for(const config of [{autoEmbed:false},{enabled:false}]){

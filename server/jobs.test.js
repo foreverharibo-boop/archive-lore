@@ -24,6 +24,34 @@ function fixture(t){
 }
 const jsonLines=file=>fs.readFileSync(file,'utf8').trim().split('\n').map(l=>JSON.parse(l));
 const memory=()=>JSON.stringify({entries:[{title:'Hospital',content:'They agreed to visit and arrived at the hospital.',keywords:['hospital']}],sideChanges:[]});
+test('request-ID cancellation works before submission and before the accepted ID reaches the browser',async t=>{
+    const f=fixture(t),early=randomUUID();
+    f.service.cancel(f.user,undefined,early);
+    assert.equal((await f.service.submit(f.user,'collect',f.input(),early)).status,'canceled');
+    assert.equal(f.service.list(f.user).length,0);assert.equal(f.calls.length,0);
+    const late=randomUUID(),job=await f.service.submit(f.user,'collect',f.input(),late);
+    assert.equal(f.service.cancel(f.user,undefined,late).id,job.id);
+    assert.equal((await done(f.service,f.user,job.id)).status,'canceled');assert.equal(f.calls.length,0);
+});
+test('running server cancellation aborts provider signal and prevents late memory writes',async t=>{
+    const f=fixture(t);let entered,release,signal;
+    const started=new Promise(r=>entered=r),gate=new Promise(r=>release=r);
+    f.replies.push(async(_payload,s)=>{signal=s;entered();await gate;return memory();});
+    const job=await f.service.submit(f.user,'collect',f.input(),randomUUID());await started;
+    f.service.cancel(f.user,job.id);assert(signal.aborted);
+    assert.equal((await done(f.service,f.user,job.id)).status,'canceled');release();await new Promise(r=>setImmediate(r));
+    assert.deepEqual(json(f.book),{entries:{}});assert(!jsonLines(f.file)[1].is_system);
+});
+test('direct embedding aborts on HTTP disconnect but persistent jobs do not',async()=>{
+    const {EventEmitter}=await import('node:events'),{registerRoutes}=await import('./index.js');
+    const handlers=new Map();let entered,signal;const started=new Promise(r=>entered=r);
+    registerRoutes({post:(route,handler)=>handlers.set(route,handler)},{},async(_s,_text,_query,s)=>{
+        signal=s;entered();return new Promise((_r,reject)=>s.addEventListener('abort',()=>reject(s.reason),{once:true}));
+    });
+    const res=new EventEmitter();res.json=()=>assert.fail('disconnected response');res.status=()=>res;
+    const result=handlers.get('/embedding')({user:{profile:{handle:'owner'},directories:{root:'/tmp'}},body:{text:'hello'}},res);
+    await started;res.emit('close');await result;assert(signal.aborted);assert.equal(res.listenerCount('close'),0);
+});
 async function done(service,user,id){for(let i=0;i<500;i++){const job=service.get(user,id);if(!['queued','running'].includes(job.status))return job;await new Promise(r=>setTimeout(r,5));}throw Error('job timeout');}
 test('accepted collection survives without polling; saves book, vector, hide flags and redacted diagnostics on disk',async t=>{
     const f=fixture(t);f.replies.push(memory());const id=randomUUID(),job=await f.service.submit(f.user,'collect',f.input(),id);

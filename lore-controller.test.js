@@ -22,6 +22,24 @@ function fixture() {
         set key(v){key=v;},set failSave(v){failSave=v;},set failEmbed(v){failEmbed=v;},set config(v){config={...config,...v};}};
 }
 const memory=()=>JSON.stringify({entries:[{title:'병원 약속',content:'두 사람은 병원에 함께 가기로 약속했다.',keywords:['병원']}],sideChanges:[]});
+for(const phase of ['questions','embedding','selection'])test(`stop aborts ${phase}, discards noncooperative late results and allows a new recall`,async()=>{
+    const f=fixture();f.book={entries:{0:{uid:0,content:'The hospital visit happened.'}}};await f.controller.index();
+    f.config={mode:'questions'};let entered,release,seen;
+    const started=new Promise(r=>entered=r),gate=new Promise(r=>release=r);
+    const hold=async signal=>{seen=signal;entered();await gate;return phase==='embedding'?[1,0]:'{"selections":[]}';};
+    const originalEmbed=f.host.embed;
+    f.host.embed=async(...args)=>phase==='embedding'?hold(args[3]):originalEmbed(...args);
+    f.host.ask=async(_p,system,_data,signal)=>{
+        const question=system.includes('"questions":');
+        if((phase==='questions'&&question)||(phase==='selection'&&!question))return hold(signal);
+        return question?'{"questions":["Which hospital?"]}':'{"selections":[]}';
+    };
+    const result=f.controller.recall();await started;f.controller.cancel();
+    await assert.rejects(result,e=>e.name==='AbortError');assert(seen.aborted);assert.equal(f.controller.state().busy,false);
+    assert.equal(f.controller.state().lastRecall,null);release();await new Promise(r=>setImmediate(r));
+    f.host.embed=originalEmbed;f.host.ask=async(_p,system)=>system.includes('"questions":')?'{"questions":["Which hospital?"]}':'{"selections":[]}';
+    await f.controller.recall();assert.equal(f.controller.state().busy,false);
+});
 test('both recall modes focus the new request, select original facts, and reuse cached document embeddings',async()=>{
     for (const mode of ['dialogue','questions']) {
         const f=fixture();f.config={mode,candidateCount:4};

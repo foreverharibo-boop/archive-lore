@@ -22,6 +22,16 @@ const download=(text,name,type='text/plain;charset=utf-8')=>{
 };
 let migrating=false,generating=false,indexPending=false,indexTimer;
 
+async function openMigration(){
+    const node=document.createElement('div');node.className='al-search-tools';
+    const h=document.createElement('h3');h.textContent='기존 아카이브 로어 기억 가져오기';
+    const p=document.createElement('p');p.textContent='이 채팅의 구버전 아카이브 로어 기억을 새 형식으로 복사해. 원본 책을 남겨두고 저장을 확인한 뒤 연결을 바꿔. 별도 확장인 아카이브의 데이터를 가져오는 기능은 아니야.';
+    const button=document.createElement('button');button.type='button';button.className='menu_button';button.textContent='백업하고 기억 가져오기';
+    const status=document.createElement('p');status.setAttribute('role','status');
+    button.onclick=async()=>{button.disabled=true;status.textContent='백업·이관 중…';try{status.textContent=await globalThis.archiveLoreMigration();}catch(e){status.textContent=e.message;}finally{button.disabled=false;}};
+    node.append(h,p,button,status);await new Popup(node,POPUP_TYPE.TEXT,'',{wide:true,okButton:false,cancelButton:'닫기'}).show();
+}
+
 async function openRange(){
     const c=getContext(),start=(c.chatMetadata.STMemoryBooks?.highestMemoryProcessed ?? -1)+1,end=c.chat.length-1;
     const node=document.createElement('div');node.className='al-search-tools';node.innerHTML='<h3>범위 지정 수집</h3><p>번호는 실리태번 메시지 번호야. 한 번 수집은 하나의 기억으로, 나눠 수집은 여러 기억으로 저장해.</p>';
@@ -128,7 +138,10 @@ function setup(){
     search().openRecords=openRecords;search().openRange=openRange;
     const container=document.createElement('div');container.className='extension_container';
     container.innerHTML='<div class="inline-drawer"><div class="inline-drawer-toggle inline-drawer-header"><b>Archive Lore</b><div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div></div><div class="inline-drawer-content"><p>메모리북의 수집·관리 기능과 아카이브 검색을 함께 사용해.</p><button type="button" class="menu_button" data-home>기능별 메뉴 열기</button><button type="button" class="menu_button" data-search>검색·임베딩 설정</button></div></div>';
+    container.querySelector('[data-home]').textContent='아카이브 로어 열기';
+    const migrationButton=document.createElement('button');migrationButton.type='button';migrationButton.className='menu_button';migrationButton.textContent='기존 기억 가져오기';migrationButton.onclick=()=>openMigration().catch(fail);container.querySelector('.inline-drawer-content').append(migrationButton);
     container.querySelector('[data-home]').onclick=()=>native.open().catch(fail);container.querySelector('[data-search]').onclick=()=>search().openSettings();document.querySelector('#extensions_settings2')?.append(container);
+    SlashCommandParser.addCommandObject(SlashCommand.fromProps({name:'al-migrate',helpString:'기존 아카이브 로어 기억 가져오기 화면',callback:async()=>{await openMigration();return '';}}));
     eventSource.on(event_types.WORLDINFO_UPDATED,name=>{if(search().books().includes(name)){indexPending=true;queueIndex();}});
     eventSource.on(event_types.GENERATION_STARTED,()=>{generating=true;});
     for(const event of [event_types.GENERATION_ENDED,event_types.GENERATION_STOPPED])eventSource.on(event,()=>{generating=false;queueIndex();});

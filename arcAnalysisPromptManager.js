@@ -65,7 +65,7 @@ let cachedOverrides = null;
 function safeSlug(str) {
   return String(str || '')
     .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/[^\p{L}\p{N}]+/gu, '-')
     .replace(/^-+|-+$/g, '')
     .substring(0, 50);
 }
@@ -116,7 +116,7 @@ function getBuiltInDisplayName(key, prompt = '') {
 function generateUniqueKey(baseName, existingOverrides) {
   const builtIns = getBuiltInArcPrompts() || {};
   const existing = existingOverrides || {};
-  const baseSlug = safeSlug(baseName || 'arc-prompt');
+  const baseSlug = safeSlug(baseName || 'arc-prompt') || 'arc-prompt';
   let key = baseSlug;
   let counter = 2;
   while (key in existing || key in builtIns) {
@@ -370,7 +370,7 @@ export async function upsertPreset(key, prompt, displayName) {
   const now = new Date().toISOString();
 
   let actualKey = key;
-  if (!actualKey) {
+  if (actualKey == null) {
     actualKey = generateUniqueKey(displayName || generateDisplayNameFromContent(prompt), data.overrides);
   }
 
@@ -569,4 +569,18 @@ export async function rebuildFromBuiltIns(options = {}) {
   }
 
   return { count: Object.keys(overrides).length, backupName };
+}
+
+/** Restore only the shipped default; keep every other preset untouched. */
+export async function restoreDefaultPreset() {
+  const data = structuredClone(await loadOverrides());
+  const prompt = getBuiltInArcPrompts().arc_default;
+  if (!prompt) throw new Error('기본 통합 프롬프트를 찾을 수 없습니다.');
+  data.overrides.arc_default = {
+    displayName: getBuiltInDisplayName('arc_default', prompt), prompt,
+    createdAt: data.overrides.arc_default?.createdAt || new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+  data.defaultPresetKey = 'arc_default';
+  await saveOverrides(data);
 }

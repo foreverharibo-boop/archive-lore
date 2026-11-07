@@ -42,3 +42,9 @@
 .al-native-advanced[open]>summary::after,.al-selected-scene[open]>summary::after {content:'−';}
 .al-search-tools pre {white-space:pre-wrap;overflow-wrap:anywhere;max-height:45vh;overflow:auto;font-size:.9em;}
 .al-search-tools p {font-size:.9em;line-height:1.5;}
+
+.al-native-connection { display: grid; gap: 8px; padding: 12px 0 18px; text-align: left; }
+.al-native-connection label { display: grid; gap: 8px; }
+.al-native-connection select { width: 100%; min-width: 0; font-size: inherit; }
+.al-native-connection small { opacity: .7; line-height: 1.5; }
+.al-legacy-connection { margin: 12px 0; }

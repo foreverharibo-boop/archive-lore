@@ -56,7 +56,7 @@ function toTitleCase(str) {
 function safeSlug(str) {
     return str
         .toLowerCase()
-        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/[^\p{L}\p{N}]+/gu, '-')
         .replace(/^-+|-+$/g, '')
         .substring(0, 50);
 }
@@ -88,7 +88,7 @@ function generateDisplayNameFromContent(prompt) {
  * @returns {string} Unique key
  */
 function generateUniqueKey(baseName, existingOverrides) {
-    const baseSlug = safeSlug(baseName);
+    const baseSlug = safeSlug(baseName) || 'prompt';
     let key = baseSlug;
     let counter = 2;
     
@@ -365,7 +365,7 @@ export async function upsertPreset(key, prompt, displayName) {
     const now = new Date().toISOString();
     
     // Generate key if not provided
-    if (!key) {
+    if (key == null) {
         key = generateUniqueKey(displayName || generateDisplayNameFromContent(prompt), data.overrides);
     }
     

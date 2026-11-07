@@ -74,6 +74,7 @@ export function organizeMemoryBooks(root, actions = {}, explicitContent = null) 
         const tab=document.createElement('button');tab.type='button';tab.textContent=title;tab.dataset.homeTab=key;nav.append(tab);
         const pane=document.createElement('section');pane.className='al-home-pane';pane.dataset.homePane=key;
         const intro=document.createElement('p');intro.className='al-home-intro';intro.textContent=description;pane.append(intro);
+        if(key==='settings' && actions['al-connection-panel']) pane.append(actions['al-connection-panel']());
         if(key==='collect'){
             const stats=document.createElement('div');stats.className='al-home-status';
             const status=document.createElement('strong');status.textContent=progress?'#'+progress+'까지 수집했습니다':'아직 수집한 대화가 없습니다';

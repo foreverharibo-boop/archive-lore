@@ -2918,3 +2918,12 @@ Malformed selection JSON/schema is retried once per batch. A valid empty selecti
 In Archive Lore → Settings, **수집·통합·사이드 AI** selects an existing SillyTavern Chat Completion connection profile for the default collection configuration. Its saved model and credentials are used without changing the active RP connection. Side prompts with explicit connection overrides retain their own settings. Existing manual connection settings remain under the advanced section of the profile editor.
 
 In **통합 프롬프트**, **기본 통합 프롬프트 복원** restores only the shipped `arc_default` prompt and selects it as the default after confirmation; other custom and edited presets are preserved. It does not recover deleted custom text. Korean-named summary and consolidation prompts now receive nonempty IDs, and legacy empty-ID entries can be edited or deleted.
+
+
+### Archive Lore: collection home and English defaults
+
+The home header keeps the destination Memory Book, collection profile, saved AI connection and next message range visible across tabs. **변경** selects another existing book using the current chat-bound/manual mode; it does not move or delete stored entries. Selecting a collection profile makes it the default for subsequent collection. **편집** and **추가** open native profile workflows.
+
+**지금 수집** (also `/al-collect` without arguments) collects from the saved checkpoint + 1 through the current last message. **범위 지정·지난 대화 수집** remains available for explicit ranges and batches. Successful writes advance the chat checkpoint; reprocessing older ranges does not move it backwards. Failed/cancelled collection does not advance it. A cancelled post-save side task does not undo an already saved memory. Existing pending server progress and rollback handling still apply. If an explicit range skips earlier messages, next collection follows its end; it does not automatically fill earlier gaps.
+
+In the fork, built-in summary/consolidation/side prompt instructions are English, with English saved output requested and Korean UI retained. Existing exact, unmodified stock prompts in the current locale are converted. Edited/custom/imported instructions are preserved. The six migrated Archive Lore side categories remain Relationship, Promises & Agreements, Preferences & Habits, Feelings & Reasons, Relationship Turning Points, and Unresolved Issues & Plans.

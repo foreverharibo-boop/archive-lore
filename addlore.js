@@ -1,3 +1,4 @@
+import { advanceCollectionCheckpoint } from './lore-native-progress.js';
 // Copyright (C) 2024–2026 Aiko Hanasaki
 // SPDX-License-Identifier: AGPL-3.0-only
 
@@ -610,6 +611,11 @@ export async function addMemoryToLorebook(memoryResult, lorebookValidation, opti
         }
         await saveWorldInfo(lorebookValidation.name, lorebookValidation.data, true);
 
+        // Update highest memory processed tracking
+        if (options.updateHighestMemoryProcessed !== false) {
+            updateHighestMemoryProcessed(effectiveMemoryResult);
+        }
+
         if (options.showNotification !== false && settings.moduleSettings?.showNotifications !== false) {
             toastr.success(
                 i18n('addlore.toast.added', 'Memory "{{entryTitle}}" added to "{{lorebookName}}"', { entryTitle: entryTitle, lorebookName: lorebookValidation.name }),
@@ -643,10 +649,6 @@ export async function addMemoryToLorebook(memoryResult, lorebookValidation, opti
                     );
                 }
             }
-        }
-        // Update highest memory processed tracking
-        if (options.updateHighestMemoryProcessed !== false) {
-            updateHighestMemoryProcessed(effectiveMemoryResult);
         }
 
         return {
@@ -1267,8 +1269,9 @@ function updateHighestMemoryProcessed(memoryResult) {
             return;
         }
 
-        // Always update highestMemoryProcessed to the end of the memory we just created
-        sceneMarkers.highestMemoryProcessed = endMessage;
+        // Preserve the furthest saved checkpoint when reprocessing an earlier range.
+        if (globalThis.archiveLoreFork) advanceCollectionCheckpoint(sceneMarkers, endMessage);
+        else sceneMarkers.highestMemoryProcessed = endMessage;
         delete sceneMarkers.highestMemoryProcessedManuallySet;
 
         // Save the metadata (works for both group chats and single-character chats)

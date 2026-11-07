@@ -20,10 +20,10 @@ export function savedConnectionOptions(profiles, selected = '') {
     return options;
 }
 
-export function createConnectionPicker({settings, profiles, service, save}) {
+export function createConnectionPicker({settings, profiles, service, save, compact=false}) {
     const box=document.createElement('div');box.className='al-native-connection';
     const profile=settings.profiles?.[settings.defaultProfile];
-    const label=document.createElement('label');label.textContent='수집·통합·사이드 AI';
+    const label=document.createElement('label');label.textContent=compact?'AI 연결 프로필':'수집·통합·사이드 AI';
     const select=document.createElement('select');select.className='text_pole';select.id='al-home-connection';
     const existing=String(profile?.archiveLoreConnectionProfileId || '');
     select.append(new Option('기존 연결 설정 사용',''));
@@ -32,11 +32,11 @@ export function createConnectionPicker({settings, profiles, service, save}) {
     select.value=existing;select.disabled=!profile;label.append(select);
     const help=document.createElement('small');help.textContent='실리에 저장된 연결 프로필을 선택합니다. 모델명은 입력하지 않아도 됩니다.';
     const status=document.createElement('small');status.setAttribute('role','status');
-    status.textContent=profile ? `적용할 수집 설정: ${profile.name}` : '수집 설정을 먼저 만들어 주세요.';
+    status.textContent=compact?'':profile ? `적용할 수집 설정: ${profile.name}` : '수집 설정을 먼저 만들어 주세요.';
     select.addEventListener('change',()=>{
         const before=profile?.archiveLoreConnectionProfileId || '';
         try {bindSavedConnection(profile,select.value,profiles,service);save();status.textContent='저장했습니다. 별도 AI 설정이 있는 사이드 항목은 해당 설정을 따릅니다.';}
         catch(error){select.value=before;status.textContent=error.message;}
     });
-    box.append(label,help,status);return box;
+    box.append(label);if(!compact)box.append(help);box.append(status);return box;
 }

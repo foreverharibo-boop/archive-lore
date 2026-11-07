@@ -1,3 +1,4 @@
+import { englishPrompt } from './lore-native-defaults.js';
 // Copyright (C) 2024–2026 Aiko Hanasaki
 // SPDX-License-Identifier: AGPL-3.0-only
 
@@ -19,9 +20,10 @@ import {
  * Helper to generate defined prompts with translation support.
  * Returns an object where keys are stable IDs and values are translated strings.
  */
-function getDefinitions() {
+function getDefinitions(localized = !globalThis.archiveLoreFork) {
+    const promptText = localized ? translate : englishPrompt;
     return {
-        arc_default: translate(`You are an expert narrative analyst and memory-engine assistant.
+        arc_default: promptText(`You are an expert narrative analyst and memory-engine assistant.
 Your task is to combine multiple {{stmbchildtier}} entries into one or more coherent {{stmbtier}} summaries.
 
 You will receive:
@@ -175,7 +177,7 @@ Exclude:
 
 Before returning the JSON, silently verify that each keyword is natural to search, continuity-relevant, stable under paraphrasing, independently useful, and no longer than necessary.`, 'STMemoryBooks_SummaryPrompt_Default'),
 
-        arc_alternate: translate(`You are an expert narrative analyst and memory-engine assistant.
+        arc_alternate: promptText(`You are an expert narrative analyst and memory-engine assistant.
 Your task is to combine multiple {{stmbchildtier}} entries into a single coherent {{stmbtier}} summary.
 
 Return JSON only:
@@ -302,7 +304,7 @@ Requirements:
 - Use member_ids whenever possible.
 - Return only valid JSON.`, 'STMemoryBooks_SummaryPrompt_Alternate'),
 
-        [GROUP_CHAT_CONSOLIDATION_PRESET_KEY]: translate(`You specialize in building omniscient narrative timelines and maintaining chronological story continuity.
+        [GROUP_CHAT_CONSOLIDATION_PRESET_KEY]: promptText(`You specialize in building omniscient narrative timelines and maintaining chronological story continuity.
 
 Your task is to combine multiple {{stmbchildtier}}-bounded chronologies into the smallest coherent number of {{stmbtier}}-bounded chronologies.
 
@@ -472,7 +474,7 @@ Exclude:
 
 Before returning the JSON, silently verify that each keyword is natural to search, continuity-relevant, stable under paraphrasing, independently useful, and no longer than necessary.`, 'STMemoryBooks_SummaryPrompt_GroupChatConsolidation'),
 
-        [CONSOLIDATION_REGENERATION_PRESET_KEY]: translate(`You are an expert narrative analyst and memory-engine assistant. Combine and condense all included {{stmbchildtier}} entries into one coherent {{stmbtier}} summary.
+        [CONSOLIDATION_REGENERATION_PRESET_KEY]: promptText(`You are an expert narrative analyst and memory-engine assistant. Combine and condense all included {{stmbchildtier}} entries into one coherent {{stmbtier}} summary.
 
 Reconstruct the events chronologically, with a clear beginning, development, and conclusion. Exercise judgment: preserve major plot, character, relationship, and continuity developments while omitting scenery, filler, banter, repeated actions, and throwaway logistics.
 
@@ -594,7 +596,7 @@ Exclude:
 
 Before returning the JSON, silently verify that each keyword is natural to search, continuity-relevant, stable under paraphrasing, independently useful, and no longer than necessary.`, 'STMemoryBooks_SummaryPrompt_Regenerate'),
 
-        arc_tiny: translate(`You specialize in compressing many small {{stmbchildtier}} entries into compact, coherent {{stmbtier}} summaries.
+        arc_tiny: promptText(`You specialize in compressing many small {{stmbchildtier}} entries into compact, coherent {{stmbtier}} summaries.
 
 Return JSON only:
 {
@@ -618,8 +620,8 @@ Rules:
 /**
  * Get built-in Arc Analysis prompts
  */
-export function getBuiltInArcPrompts() {
-  return getDefinitions();
+export function getBuiltInArcPrompts(localized = !globalThis.archiveLoreFork) {
+  return getDefinitions(localized);
 }
 
 /**

@@ -1,7 +1,7 @@
 // Archive Lore — AGPL-3.0-only. Presentation only: original actions retain their listeners.
 export const FEATURE_GROUPS = [
     ['수집·자동화', '대화를 로어북 기억으로 저장합니다. 범위를 선택한 뒤 기억 수집을 눌러 주세요.', [
-        ['al-native-collect','기억 수집','선택한 대화 범위를 읽고 새 기억을 만듭니다.'],
+        ['al-native-collect','지금 수집','마지막 저장 위치 다음부터 현재 마지막 메시지까지 수집합니다.'],
         ['al-native-range','범위 지정·지난 대화 수집','시작·끝 번호를 지정하거나 긴 대화를 나누어 수집합니다.'],
         ['stmb-automatic-memories-settings','자동 수집·지난 대화 수집','메시지·토큰 기준으로 자동 수집하거나 지난 대화를 나누어 수집합니다.'],
         ['stmb-pending-progress','진행·저장 확인','진행 중인 작업과 아직 반영되지 않은 결과를 확인합니다.'],
@@ -30,7 +30,7 @@ export const FEATURE_GROUPS = [
 ];
 
 const PANES = [
-    ['collect','기억 수집','대화 범위를 선택해 기억으로 저장합니다.',['al-native-range','al-native-collect','stmb-pending-progress']],
+    ['collect','수집','새 대화는 지금 수집, 특정 대화는 범위 지정으로 저장합니다.',['al-native-collect','al-native-range','stmb-pending-progress']],
     ['records','저장된 기억','기억과 사이드 기록을 확인하고 정리합니다.',['al-native-books','stmb-side-prompts','al-search-tools','al-native-consolidate','stmb-compact-review','stmb-topical-clip','stmb-clip-review-suggestions','stmb-consolidation-recovery']],
     ['settings','설정','연결, 자동 수집과 프롬프트를 설정합니다.',['al-search-settings','stmb-automatic-memories-settings','stmb-prompt-manager','stmb-arc-prompt-manager','stmb-context-settings','stmb-general-settings']],
 ];
@@ -58,6 +58,8 @@ export function organizeMemoryBooks(root, actions = {}, explicitContent = null) 
     const summary=document.createElement('summary');summary.textContent='고급 설정 · 원본 메모리북';advanced.append(summary);
     for(const child of [...content.children])if(child!==heading)advanced.append(child);
     content.append(home);
+    if(actions['al-context-panel'])home.append(actions['al-context-panel']());
+    let migrationPanel;
     if(actions['al-migrate']){
         const box=document.createElement('div');box.className='al-migration-panel';
         const label=document.createElement('strong');label.textContent='기존 아카이브 로어 기억 이관';
@@ -65,7 +67,7 @@ export function organizeMemoryBooks(root, actions = {}, explicitContent = null) 
         const b=document.createElement('button');b.type='button';b.className='menu_button';b.textContent='기존 기억 가져오기';
         const state=document.createElement('p');state.setAttribute('role','status');
         b.onclick=async()=>{b.disabled=true;state.textContent='백업·이관 중…';try{state.textContent=await actions['al-migrate'](message=>{state.textContent=message;});}catch(e){state.textContent=e.message;}finally{b.disabled=false;}};
-        box.append(label,help,b,state);home.append(box);
+        box.append(label,help,b,state);migrationPanel=box;
     }
     const nav=document.createElement('nav');nav.className='al-home-tabs';nav.setAttribute('aria-label','아카이브 로어 메뉴');home.append(nav);
     const features=new Map(FEATURE_GROUPS.flatMap(g=>g[2]).map(f=>[f[0],f]));
@@ -75,7 +77,7 @@ export function organizeMemoryBooks(root, actions = {}, explicitContent = null) 
         const pane=document.createElement('section');pane.className='al-home-pane';pane.dataset.homePane=key;
         const intro=document.createElement('p');intro.className='al-home-intro';intro.textContent=description;pane.append(intro);
         if(key==='settings' && actions['al-connection-panel']) pane.append(actions['al-connection-panel']());
-        if(key==='collect'){
+        if(key==='collect' && !actions['al-context-panel']){
             const stats=document.createElement('div');stats.className='al-home-status';
             const status=document.createElement('strong');status.textContent=progress?'#'+progress+'까지 수집했습니다':'아직 수집한 대화가 없습니다';
             const target=document.createElement('small');target.textContent=book?'저장할 책 · '+book:'저장할 책은 수집할 때 선택할 수 있습니다';stats.append(status,target);pane.append(stats);
@@ -96,6 +98,7 @@ export function organizeMemoryBooks(root, actions = {}, explicitContent = null) 
     const scene=advanced.querySelector('#stmb-scene');
     if(scene){const details=document.createElement('details');details.className='al-selected-scene';const label=document.createElement('summary');label.textContent='선택한 대화 범위 확인';details.append(label,scene);
         if(actions['al-native-clear']){const b=document.createElement('button');b.type='button';b.className='menu_button';b.textContent='선택 범위 지우기';b.onclick=actions['al-native-clear'];details.append(b);}panes.get('collect').append(details);}
+    if(migrationPanel){const details=document.createElement('details');details.className='al-migration-details';const label=document.createElement('summary');label.textContent='기존 기억 가져오기';details.append(label,migrationPanel);panes.get('settings').append(details);}
     panes.get('settings').append(advanced);
     function select(key){
         if(!panes.has(key))key='collect';home.dataset.tab=key;root.dataset.alHomeTab=key;

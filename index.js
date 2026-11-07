@@ -1,3 +1,5 @@
+import { createHomeContext } from './lore-native-home.js';
+import { advanceCollectionCheckpoint, nextCollectionRange } from './lore-native-progress.js';
 import { createConnectionPicker } from './lore-native-connection.js';
 import { organizeMemoryBooks, restoreFeatureButtons } from './lore-fork-layout.js';
 import { generateProfileKey } from './utils.js';
@@ -1678,7 +1680,16 @@ function validateSceneMemoryRange(startId, endId) {
   return true;
 }
 
+async function collectNextArchiveLore() {
+  if (globalThis.archiveLoreMigrating) throw new Error('이관이 끝난 뒤 수집해 주세요.');
+  if (isMemoryProcessing()) throw new Error('진행 중인 수집이 끝난 뒤 다시 눌러 주세요.');
+  const range=nextCollectionRange(getSceneMarkers(),chat.length);
+  if (!range.count) { toastr.info('새로 수집할 메시지가 없습니다.','Archive Lore'); return false; }
+  return runSceneMemoryRange(range.start,range.end);
+}
+
 async function runSceneMemoryRange(startId, endId, options = {}) {
+  if(globalThis.archiveLoreFork && isMemoryProcessing())throw new Error('진행 중인 수집이 끝난 뒤 다시 눌러 주세요.');
   if(globalThis.archiveLoreMigrating)throw new Error('이관이 끝난 뒤 수집해 줘.');
   if (guardPendingProgress()) return false;
   const { showSceneToast = true } = options;
@@ -5817,7 +5828,8 @@ async function executeMemoryGeneration(
     // Update auto-summary baseline so the next trigger starts after this scene
     try {
       const stmbData = getSceneMarkers() || {};
-      stmbData.highestMemoryProcessed = sceneData.sceneEnd;
+      if (globalThis.archiveLoreFork) advanceCollectionCheckpoint(stmbData, sceneData.sceneEnd);
+      else stmbData.highestMemoryProcessed = sceneData.sceneEnd;
       delete stmbData.highestMemoryProcessedManuallySet;
       saveMetadataForCurrentContext();
       refreshMemoryBoundaryUi();
@@ -8129,11 +8141,34 @@ function populateInlineButtons() {
     promptButtonsContainer.appendChild(button);
   });
   if (globalThis.archiveLoreFork) organizeMemoryBooks(currentPopupInstance?.dlg, {
-    'al-connection-panel': () => createConnectionPicker({
-      settings, profiles: extension_settings.connectionManager?.profiles || [],
-      service: getContext().ConnectionManagerRequestService, save: saveSettingsDebounced,
+    'al-context-panel': () => createHomeContext({
+      settings, markers:getSceneMarkers(), length:chat.length,
+      book:settings.moduleSettings.manualModeEnabled
+        ? getCurrentManualLorebookResolution({settings,markers:getSceneMarkers()}).lorebookName
+        : chat_metadata?.[METADATA_KEY],
+      books:[...getCurrentChatLorebookNames(settings)],
+      changeBook:async()=>{
+        if(isMemoryProcessing())throw new Error('수집이 끝난 뒤 로어북을 변경해 주세요.');
+        const manual=settings.moduleSettings.manualModeEnabled;
+        const character=characters?.[this_chid];
+        if(manual && getCharacterMemoryBookLock(settings.characterMemoryBookLocks,character?.avatar))throw new Error('고급 설정에서 캐릭터 로어북 잠금을 해제해 주세요.');
+        const before=manual?getCurrentManualLorebookResolution({settings,markers:getSceneMarkers()}).lorebookName:chat_metadata?.[METADATA_KEY];
+        const selected=await showLorebookSelectionPopup(before,{binding:manual?'manual':'chat'});
+        if(selected){await refreshMemoryTierMacroCache();await refreshPopupContent();}
+      },
+      changeProfile:async(index)=>{
+        if(isMemoryProcessing())throw new Error('수집이 끝난 뒤 프로필을 변경해 주세요.');
+        if(!settings.profiles[index])throw new Error('수집 프로필을 찾을 수 없습니다.');
+        settings.defaultProfile=index;
+        const select=currentPopupInstance?.dlg?.querySelector('#stmb-profile-select');
+        if(select)select.value=String(index);
+        saveSettingsDebounced();await refreshPopupContent();
+      },
+      editProfile:()=>editProfile(settings,settings.defaultProfile,refreshPopupContent),
+      newProfile:()=>newProfile(settings,refreshPopupContent),
+      connection:createConnectionPicker({settings,profiles:extension_settings.connectionManager?.profiles || [],service:getContext().ConnectionManagerRequestService,save:saveSettingsDebounced,compact:true}),
     }),
-    'al-native-collect': () => initiateMemoryCreation(),
+    'al-native-collect': async () => {try {return await collectNextArchiveLore();} finally {await refreshPopupContent();}},
     'al-native-range': () => globalThis.archiveLoreSearch.openRange(),
     'al-native-consolidate': () => showSummaryConsolidationPopup({ showGoBack: true }),
     'al-native-books': () => globalThis.archiveLoreSearch.openRecords(),
@@ -13853,7 +13888,8 @@ async function applyManualFixedJson(correctedRaw) {
 
     try {
       const stmbData = getSceneMarkers() || {};
-      stmbData.highestMemoryProcessed = context.sceneData.sceneEnd;
+      if (globalThis.archiveLoreFork) advanceCollectionCheckpoint(stmbData, context.sceneData.sceneEnd);
+      else stmbData.highestMemoryProcessed = context.sceneData.sceneEnd;
       delete stmbData.highestMemoryProcessedManuallySet;
       saveMetadataForCurrentContext();
       refreshMemoryBoundaryUi();
@@ -14807,7 +14843,7 @@ $(document).ready(() => {
 // Narrow bridge: the fork uses the original workflows rather than reimplementing them.
 if (globalThis.archiveLoreFork) globalThis.archiveLoreMemoryBooks = {
   initialize: init, open: showSettingsPopup, settings: initializeSettings, busy: isMemoryProcessing,
-  collect: initiateMemoryCreation, collectRange: runSceneMemoryRange, catchup: handleStmbCatchupCommand, stop: stmbStopAllInFlight,
+  collect: collectNextArchiveLore, collectRange: runSceneMemoryRange, catchup: handleStmbCatchupCommand, stop: stmbStopAllInFlight,
   books: () => [...getCurrentChatLorebookNames(initializeSettings())],
   refresh: refreshPopupContent,
   async saveMigrationPrompts(config, templates, setKey) {

@@ -1674,6 +1674,8 @@ export async function showSidePromptsPopup() {
             cancelButton: translate('Close', 'STMemoryBooks_Close')
         }));
 
+        markStmbPopup(popup);
+
         // Attach handlers before show
         const attachHandlers = () => {
             const dlg = popup.dlg;

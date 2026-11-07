@@ -1,3 +1,4 @@
+import { englishPrompt } from './lore-native-defaults.js';
 // Copyright (C) 2024–2026 Aiko Hanasaki
 // SPDX-License-Identifier: AGPL-3.0-only
 
@@ -421,7 +422,7 @@ export async function getEffectiveLorebookName() {
     }
 
     const popupContent = `
-        <h4>Select a Memory Book</h4>
+        <h4>${globalThis.archiveLoreFork?'저장할 로어북 선택':'Select a Memory Book'}</h4>
         <div class="world_entry_form_control">
             <p>Manual mode is enabled, but no lorebook has been designated for this chat's memories. Please select one.</p>
             <select id="stmb-manual-lorebook-select" class="text_pole">
@@ -430,7 +431,7 @@ export async function getEffectiveLorebookName() {
         </div>
     `;
 
-    const popup = new Popup(popupContent, POPUP_TYPE.TEXT, '', { okButton: 'Select', cancelButton: 'Cancel' });
+    const popup = new Popup(popupContent, POPUP_TYPE.TEXT, '', { okButton: globalThis.archiveLoreFork?'선택':'Select', cancelButton: globalThis.archiveLoreFork?'취소':'Cancel' });
     const result = await popup.show();
 
     if (result === POPUP_RESULT.AFFIRMATIVE) {
@@ -458,6 +459,7 @@ export async function getEffectiveLorebookName() {
  * @returns {Promise<string|null>} The name of the selected lorebook, or null if cancelled/no selection made.
  */
 export async function showLorebookSelectionPopup(currentLorebook = null, options = {}) {
+    const originMetadata = getContext().chatMetadata;
     const markers = getSceneMarkers() || {};
     const ignoreCharacterBindings = isCharacterAwarenessDisabled({}, getCurrentMemoryBooksContext());
     const currentCharacterLorebooks = markers.manualCharacterLorebooks
@@ -497,9 +499,9 @@ export async function showLorebookSelectionPopup(currentLorebook = null, options
     ].join('');
 
     const popupContent = `
-        <h4>Select a Memory Book</h4>
+        <h4>${globalThis.archiveLoreFork?'저장할 로어북 선택':'Select a Memory Book'}</h4>
         <div class="world_entry_form_control">
-            <p>Choose which lorebook should be used for this chat's memories.</p>
+            <p>${globalThis.archiveLoreFork?'이 채팅의 기억을 저장할 로어북을 선택합니다. 기존 로어북 내용은 그대로 유지됩니다.':"Choose which lorebook should be used for this chat’s memories."}</p>
             ${currentLorebook ? `<p><strong>Current:</strong> ${escapeHtml(currentLorebook)}</p>` : ''}
             <select id="stmb-manual-lorebook-select" class="text_pole">
                 ${lorebookOptions}
@@ -507,10 +509,11 @@ export async function showLorebookSelectionPopup(currentLorebook = null, options
         </div>
     `;
 
-    const popup = new Popup(popupContent, POPUP_TYPE.TEXT, '', { okButton: 'Select', cancelButton: 'Cancel' });
+    const popup = new Popup(popupContent, POPUP_TYPE.TEXT, '', { okButton: globalThis.archiveLoreFork?'선택':'Select', cancelButton: globalThis.archiveLoreFork?'취소':'Cancel' });
     const result = await popup.show();
 
     if (result === POPUP_RESULT.AFFIRMATIVE) {
+        if(globalThis.archiveLoreFork && getContext().chatMetadata !== originMetadata)throw new Error('채팅이 변경되었습니다. 해당 채팅에서 로어북을 다시 선택해 주세요.');
         const selectedLorebook = popup.dlg.querySelector('#stmb-manual-lorebook-select').value;
         if (!selectedLorebook) {
             toastr.error(translate('Please select a lorebook for manual mode', 'STMemoryBooks_PleaseSelectLorebookForManualMode'), 'STMemoryBooks');
@@ -527,7 +530,8 @@ export async function showLorebookSelectionPopup(currentLorebook = null, options
         // Only save and show success if a different lorebook was actually selected
         if (selectedLorebook !== currentLorebook) {
             const stmbData = getSceneMarkers();
-            stmbData.manualLorebook = selectedLorebook;
+            if (options.binding === 'chat') chat_metadata[METADATA_KEY] = selectedLorebook;
+            else stmbData.manualLorebook = selectedLorebook;
             saveMetadataForCurrentContext();
             void eventSource.emit(MEMORY_TIER_CACHE_REFRESH_EVENT);
 
@@ -748,9 +752,10 @@ export function getCharacterFilterNameFromAvatar(avatar) {
  * Keys are stable; values are localized strings from SillyTavern i18n.
  * JSON keys in responses must remain: "title", "content", "keywords".
  */
-export function getBuiltInPresetPrompts() {
+export function getBuiltInPresetPrompts(localized = !globalThis.archiveLoreFork) {
+    const promptText = localized ? translate : englishPrompt;
     return {
-        summary: translate(
+        summary: promptText(
 `You are a talented summarist skilled at capturing scenes from stories comprehensively. Analyze the following roleplay scene and return a detailed memory as JSON.
 
 You must respond with ONLY valid JSON in this exact format:
@@ -773,7 +778,7 @@ For the keywords field, provide 15-30 specific, descriptive, relevant keywords f
 Return ONLY the JSON, no other text.`,
             'STMemoryBooks_Prompt_summary'
         ),
-        group: translate(
+        group: promptText(
 `Analyze the following roleplay scene and create a memory entry from an omniscient POV.
 
 You must respond with ONLY valid JSON in this exact format:
@@ -824,7 +829,7 @@ For the keywords field:
 Return ONLY the JSON, no additional text.`,
             'STMemoryBooks_Prompt_group'
         ),
-        char: translate(
+        char: promptText(
 `Analyze the following scene and create a memory entry written with {{char}} as the focus.
 
 You must respond with ONLY valid JSON in this exact format:
@@ -871,7 +876,7 @@ For the keywords field, generate 15-30 specific, descriptive, highly relevant ke
 Return ONLY the JSON, no additional text.`,
             'STMemoryBooks_Prompt_char'
         ),
-        summarize: translate(
+        summarize: promptText(
 `Analyze the following roleplay scene and return a structured summary as JSON.
 
 You must respond with ONLY valid JSON in this exact format:
@@ -895,7 +900,7 @@ Ensure you capture ALL important information - comprehensive detail is more impo
 Return ONLY the JSON, no other text.`,
             'STMemoryBooks_Prompt_summarize'
         ),
-        synopsis: translate(
+        synopsis: promptText(
 `Analyze the following roleplay scene and return a comprehensive synopsis as JSON.
 
 You must respond with ONLY valid JSON in this exact format:
@@ -924,7 +929,7 @@ For the keywords field, provide 15-30 specific, descriptive, relevant keywords f
 Return ONLY the JSON, no other text.`,
             'STMemoryBooks_Prompt_synopsis'
         ),
-        sumup: translate(
+        sumup: promptText(
 `Analyze the following roleplay scene and return a beat summary as JSON.
 
 You must respond with ONLY valid JSON in this exact format:
@@ -943,7 +948,7 @@ For the keywords field, provide 15-30 specific, descriptive, relevant keywords t
 Return ONLY the JSON, no other text.`,
             'STMemoryBooks_Prompt_sumup'
         ),
-        minimal: translate(
+        minimal: promptText(
 `Analyze the following roleplay scene and return a minimal memory entry as JSON.
 
 You must respond with ONLY valid JSON in this exact format:
@@ -960,7 +965,7 @@ For the keywords field, generate 15-30 specific, descriptive, highly relevant ke
 Return ONLY the JSON, no other text.`,
             'STMemoryBooks_Prompt_minimal'
         ),
-        northgate: translate(
+        northgate: promptText(
 `You are a memory archivist for a long-form narrative. Your function is to analyze the provided scene and extract all pertinent information into a structured JSON object.
 
 You must respond with ONLY valid JSON in this exact format:
@@ -977,7 +982,7 @@ For the "keywords" field, provide 15-30 specific and descriptive keywords that c
 Return ONLY the JSON object, with no additional text or explanations.`,
             'STMemoryBooks_Prompt_northgate'
         ),
-        aelemar: translate(
+        aelemar: promptText(
 `You are a meticulous archivist, skilled at accurately capturing all key plot points and memories from a story. Analyze the following story scene and extract a detailed summary as JSON.
 
 You must respond with ONLY valid JSON in this exact format:
@@ -999,7 +1004,7 @@ For the keywords field, provide 15-30 specific and descriptive keywords that cap
 Return ONLY the JSON, no other text.`,
             'STMemoryBooks_Prompt_aelemar'
         ),
-        comprehensive: translate(
+        comprehensive: promptText(
 `Analyze the following roleplay scene in the context of previous summaries provided (if available) and return a comprehensive synopsis as JSON.
 
 You must respond with ONLY valid JSON in this exact format:
@@ -1127,8 +1132,9 @@ Return ONLY the JSON — no additional text.`,
 /**
  * Localized default prompt
  */
-export function getDefaultPrompt() {
-    return translate(
+export function getDefaultPrompt(localized = !globalThis.archiveLoreFork) {
+    const promptText = localized ? translate : englishPrompt;
+    return promptText(
 `Analyze the following chat scene and return a memory as JSON.
 
 You must respond with ONLY valid JSON in this exact format:

@@ -79,3 +79,25 @@ test('branch collection without changes never overwrites later side version',asy
     f.book={entries:{0:{uid:0,content:'future side',[NS]:{sideCategory:'plans',source:sourceRange(later,2,2),facts:[{id:'f',text:'future'}],history:[{content:'old side',facts:[{id:'f',text:'old'}],source}]}}}};
     const before=JSON.stringify(f.book.entries[0]);f.replies.push('{"entries":[],"sideChanges":[]}');await f.controller.collect();assert.equal(JSON.stringify(f.book.entries[0]),before);
 });
+test('collection persists six side entries and advances story dates without duplicating them',async()=>{
+    const f=fixture();f.messages[0].mes='2026-03-01. We are lovers. The other facts are confirmed.';
+    const evidence={message:0,quote:'2026-03-01'};
+    const categories=['relationship','agreements','preferences','emotions','turningPoints','plans'];
+    f.replies.push(JSON.stringify({entries:[],sideChanges:categories.map(category=>({op:'add',category,text:category==='relationship'?'Lovers':'Confirmed '+category,evidence,...(category==='relationship'?{relationship:{kind:'start',since:'2026-03-01'},dateEvidence:evidence}:{})})),storyDate:{date:'2026-03-01',evidence}}));
+    await f.controller.collect();
+    const relation=()=>Object.values(f.book.entries).find(e=>e[NS]?.sideCategory==='relationship');
+    const other=()=>JSON.stringify(Object.values(f.book.entries).filter(e=>e[NS]?.sideCategory!=='relationship'));
+    assert.equal(Object.keys(f.book.entries).length,6);assert.equal(relation().content,'Lovers · D+1');
+    const uid=relation().uid, unchanged=other();
+    f.messages.push({mes:'2026-03-12. We went for a walk.',name:'A'});
+    f.replies.push(data=>{assert.equal(data.currentStoryDate,'2026-03-01');return JSON.stringify({entries:[],sideChanges:[],storyDate:{date:'2026-03-12',evidence:{message:2,quote:'2026-03-12'}}});});
+    await f.controller.collect();
+    assert.equal(relation().uid,uid);assert.equal(relation().content,'Lovers · D+12');assert.equal(other(),unchanged);
+    assert.equal(relation()[NS].history[0].content,'Lovers · D+1');
+    f.messages.push({mes:'2026-03-13. We broke up.',name:'A'});
+    const breakupEvidence={message:3,quote:'2026-03-13. We broke up.'};
+    f.replies.push(JSON.stringify({entries:[],sideChanges:[{op:'update',category:'relationship',id:relation()[NS].facts[0].id,text:'Ex-partners',relationship:{kind:'breakup',since:'2026-03-13'},evidence:breakupEvidence,dateEvidence:breakupEvidence}],storyDate:{date:'2026-03-13',evidence:breakupEvidence}}));
+    await f.controller.collect();
+    assert.equal(relation().uid,uid);assert.equal(relation().content,'Ex-partners · D+1 since breakup');
+    assert.equal(Object.keys(f.book.entries).length,6);assert.equal(f.book[NS].receipts.length,3);
+});

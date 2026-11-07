@@ -3,10 +3,14 @@
 import { NS, SIDE_PROMPT, normalizeSettings, sourceRange, matchesRange, validReceipts, nextStart,
     entryAvailable, isCore, entryId, embeddingChunks, estimateTokens, recentDialogue, parseJson,
     parseCollection, rankChunks, reviewUnits, selectedUnits, fitInjection, materializeEntry,
-    sideRecords, parseSideChanges, applySideChanges } from './lore-core.js';
+    sideRecords, parseSideChanges, applySideChanges, sideSnapshot, parseStoryDate, currentStoryDate } from './lore-core.js';
 import { digest, embeddingKey, makeId } from './lore-api.js';
 
-const COLLECTION_SCHEMA = `Return ONLY JSON: {"entries":[{"title":"short title","content":"self-contained memory","keywords":["keyword"],"supersedes":null}],"sideChanges":[{"op":"add or update","category":"relationship|agreements|preferences|emotions|turningPoints|plans","id":"existing fact id for update","text":"updated fact","evidence":{"message":0,"quote":"exact dialogue substring"}}]}. For nothing new return empty arrays. Only use message numbers in the supplied dialogue.`;
+const COLLECTION_SCHEMA = `Return ONLY JSON:
+{"entries":[{"title":"short English title","date":"story date/range or empty","time":"story time or empty","location":"place or empty","content":"English narrative paragraphs only, no title/metadata headings","keywords":["English keyword"],"supersedes":null}],
+"sideChanges":[{"op":"add or update","category":"relationship|agreements|preferences|emotions|turningPoints|plans","id":"existing fact ID for update","text":"English fact (relationship: short label only)","evidence":{"message":0,"quote":"exact original substring"},"relationship":{"kind":"start|breakup|reunion|other","since":"YYYY-MM-DD or null"},"dateEvidence":{"message":0,"quote":"exact dating/event evidence"}}],
+"storyDate":{"date":"YYYY-MM-DD","evidence":{"message":0,"quote":"exact current-story-date evidence"}}}
+Omit relationship and dateEvidence on non-relationship facts. Use actual JSON null for unknown dates. storyDate is null unless new dialogue establishes the current fictional date. For nothing new use empty arrays. Use only supplied message numbers and exact original-language quotes for evidence. User-visible saved text must be English; never translate evidence quotes.`;
 
 export function createLoreController(host) {
     let active = null, status = '준비됨', lastRecall = null;
@@ -37,7 +41,7 @@ export function createLoreController(host) {
     async function chunksFor(record, config) {
         const chunks = embeddingChunks(record.entry);
         return Promise.all(chunks.map(async chunk => ({ ...chunk, id: record.id, book: record.book,
-            title: record.entry.comment || '기억', source: record.entry[NS]?.source,
+            title: [record.entry.comment || 'Memory', ...['date','time','location'].map(key => record.entry[NS]?.[key]).filter(Boolean)].join(' | '), source: record.entry[NS]?.source,
             cacheKey: await embeddingKey(config, record.id, chunk.text) })));
     }
     async function indexRecords(snapshot, signal, config, force = false) {
@@ -86,13 +90,15 @@ export function createLoreController(host) {
                 const facts = sideRecords(available);
                 const existing = available.filter(e => !e[NS]?.sideCategory).slice(-24).map(e => ({ uid: e.uid, title: e.comment, content: e.content }));
                 const dialogue = snapshot.messages.slice(start, stop + 1).map((m, i) => ({ message: start + i, name: m.name, text: m.mes, hidden: m.is_system })).filter(m => !m.hidden);
-                const payload = { dialogue, existing, sideRecords: facts };
+                const knownStoryDate = currentStoryDate(data, snapshot.messages);
+                const payload = { dialogue, existing, sideRecords: facts, currentStoryDate: knownStoryDate };
                 if (estimateTokens(JSON.stringify(payload)) > 24000) throw new Error('이 수집 범위와 기존 기록이 검토 한도를 넘었어. 범위를 줄이거나 긴 기록을 정리해 줘.');
                 notify(`기억 수집 #${start}–#${stop}`);
                 const system = config.prompts.collect + '\n\n' + (config.sideEnabled === false ? 'Return no sideChanges.' : (config.sidePrompt || SIDE_PROMPT)) + '\n\n' + COLLECTION_SCHEMA;
                 const response = dialogue.length ? await host.ask(config.profile, system, payload, signal, 6000)
                     : '{"entries":[],"sideChanges":[]}';
                 const memories = parseCollection(response, existing);
+                const clock = config.sideEnabled === false ? null : parseStoryDate(response, snapshot.messages, source);
                 const changes = config.sideEnabled === false ? [] : parseSideChanges(response, facts, snapshot.messages, source);
                 assertCurrent(snapshot, signal);
                 if (!matchesRange(source, host.context().messages)) throw new Error('수집 중 대화가 수정됐어. 저장하지 않았어.');
@@ -103,7 +109,7 @@ export function createLoreController(host) {
                     if (Object.values(staged.entries).some(e => e.content === memory.content)) continue;
                     const entry = host.newEntry(staged);
                     Object.assign(entry, { comment: memory.title, content: memory.content, key: memory.keywords, constant: false, vectorized: false });
-                    entry[NS] = { source, collectedAt: new Date().toISOString(), supersedes: memory.supersedes };
+                    entry[NS] = { source, collectedAt: new Date().toISOString(), supersedes: memory.supersedes, date: memory.date, time: memory.time, location: memory.location };
                     saved++;
                 }
                 // Work on the version visible in this branch, while retaining every former version.
@@ -111,12 +117,12 @@ export function createLoreController(host) {
                     const raw = staged.entries[e.uid];
                     const version = structuredClone(e);
                     if (raw.content !== e.content) version[NS].history = [...(raw[NS].history || []),
-                        { content: raw.content, facts: raw[NS].facts, source: raw[NS].source }];
+                        sideSnapshot(raw)];
                     return version;
                 });
-                const updatedSides = applySideChanges(sideEntries, changes, source, () => host.newEntry(staged), makeId);
+                const updatedSides = applySideChanges(sideEntries, changes, source, () => host.newEntry(staged), makeId, config.sideEnabled === false ? undefined : clock?.date || knownStoryDate);
                 for (const entry of updatedSides) staged.entries[entry.uid] = entry;
-                staged[NS] = { ...staged[NS], receipts: [...(staged[NS]?.receipts || []), { id: receiptId, source, created: new Date().toISOString() }] };
+                staged[NS] = { ...staged[NS], storyDates: [...(staged[NS]?.storyDates || []), ...(clock ? [clock] : [])], receipts: [...(staged[NS]?.receipts || []), { id: receiptId, source, created: new Date().toISOString() }] };
                 // The receipt and entries are saved together. Failed writes never advance the cursor.
                 await host.saveBook(book, staged);
                 assertCurrent(snapshot, signal);

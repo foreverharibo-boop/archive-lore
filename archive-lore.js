@@ -8,7 +8,8 @@ import { SlashCommandParser } from '../../../slash-commands/SlashCommandParser.j
 import { SlashCommand } from '../../../slash-commands/SlashCommand.js';
 import { SlashCommandArgument, ARGUMENT_TYPE } from '../../../slash-commands/SlashCommandArgument.js';
 import { generateLorebookName } from './autocreate.js';
-import { NS, normalizeSettings, applyNativePolicy, materializeEntry, isCore, entryAvailable, SIDE_PROMPT } from './lore-core.js';
+import { NS, normalizeSettings, applyNativePolicy, materializeEntry, isCore, entryAvailable, SIDE_PROMPT, sideSnapshot, sourceRange } from './lore-core.js';
+import { dateDay, relationshipPhase, relationshipLabel, formatRelationship } from './lore-relationship.js';
 import { ask, embed, createVectorStore, makeId } from './lore-api.js';
 import { createLoreController } from './lore-controller.js';
 import { createLoreUI } from './lore-ui.js';
@@ -110,11 +111,27 @@ async function saveRecord(id, changes) {
         const visible=materializeEntry(entry,chatContext().messages);
         if(visible[NS]?.sideCategory){
             const prior=structuredClone(entry[NS]);
-            const facts=structuredClone(visible[NS].facts);
-            for(const change of changes.facts){const fact=facts.find(f=>f.id===change.id);if(!fact || !change.text.trim())throw new Error('사이드 항목을 빈칸으로 저장할 수 없어.');fact.text=change.text.trim();}
-            const content=facts.map(f=>`• ${f.text}`).join('\n');
-            if(content!==entry.content){
-                entry[NS]={...visible[NS],facts,history:[...(prior.history||[]),{content:entry.content,facts:prior.facts,source:prior.source}]};
+            let facts=structuredClone(visible[NS].facts || []), content, storyDate=visible[NS].storyDate;
+            if(visible[NS].sideCategory === 'relationship') {
+                const r=changes.relationship;
+                if(!r)throw new Error('관계 날짜 입력을 확인해 줘.');
+                const label=relationshipLabel(r.label), phase=relationshipPhase(label,{kind:r.kind,since:r.since});
+                if(r.today!==null && dateDay(r.today)===null)throw new Error('현재 RP 날짜를 확인해 줘.');
+                if(phase.since && r.today && dateDay(phase.since)>dateDay(r.today))throw new Error('시작일이 현재 RP 날짜보다 늦어. 날짜를 확인해 줘.');
+                storyDate=r.today;
+                facts=[{id:facts[0]?.id || makeId(),text:label,relationship:phase,manual:true}];
+                content=formatRelationship(facts[0],storyDate);
+                const messages=chatContext().messages;
+                const source=sourceRange(messages,messages.length-1,messages.length-1);
+                data[NS]={...data[NS],storyDates:[...(data[NS]?.storyDates || []),{date:storyDate,source,manual:true}]};
+            } else {
+                for(const change of changes.facts){const fact=facts.find(f=>f.id===change.id);if(!fact || !change.text.trim())throw new Error('사이드 항목을 빈칸으로 저장할 수 없어.');fact.text=change.text.trim();}
+                content=facts.map(f=>`• ${f.text}`).join('\n');
+            }
+            if(content!==entry.content || storyDate!==visible[NS].storyDate || JSON.stringify(facts)!==JSON.stringify(visible[NS].facts)){
+                const messages=chatContext().messages;
+                entry[NS]={...visible[NS],facts,storyDate,source:sourceRange(messages,messages.length-1,messages.length-1),
+                    history:[...(prior.history||[]),sideSnapshot(entry)]};
                 entry.content=content;
             }
         } else { if(!changes.content?.trim())throw new Error('빈 기억은 저장할 수 없어.');entry.content=changes.content.trim(); }

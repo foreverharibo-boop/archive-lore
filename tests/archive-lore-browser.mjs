@@ -39,10 +39,11 @@ const browser=await pw.launch({executablePath:process.env.CHROMIUM_EXECUTABLE_PA
 const page=await browser.newPage({viewport:{width:390,height:844}});const runtimeErrors=[];page.on('pageerror',e=>{runtimeErrors.push(e.message);console.error('PAGE ERROR',e.message);});page.on('console',m=>{if(m.type()==='error')console.error('CONSOLE',m.text());});
 await page.addInitScript(() => { Object.defineProperty(crypto, 'subtle', { value: undefined }); Object.defineProperty(crypto, 'randomUUID', { value: undefined }); });
 await page.route('https://generativelanguage.googleapis.com/**',r=>r.fulfill({json:{embedding:{values:[1,0]}}}));
-await page.route('https://aiplatform.googleapis.com/**',r=>{assert.equal(r.request().headers()['x-goog-api-key'],'vertex-fixture-key');return r.fulfill({json:{predictions:[{embeddings:{values:[1,0]}}]}});});
+await page.route('https://aiplatform.googleapis.com/**',r=>{assert.equal(r.request().headers()['x-goog-api-key'],'vertex-fixture-key');assert(r.request().url().includes('/projects/fixture-project/locations/global/'));return r.fulfill({json:{predictions:[{embeddings:{values:[1,0]}}]}});});
 await page.goto('http://127.0.0.1:'+server.address().port);
 // Both credential slots survive provider switching; full-screen editing saves and cancels independently.
 await page.locator('[name="embeddingProvider"]').selectOption('vertex');
+await page.locator('[name="embeddingVertexProjectId"]').fill('fixture-project');await page.locator('[name="embeddingVertexProjectId"]').dispatchEvent('change');
 await page.locator('[name="embeddingKey"]').fill('vertex-fixture-key');await page.locator('[name="embeddingKey"]').dispatchEvent('change');
 await page.locator('[name="embeddingProvider"]').selectOption('gemini');assert.equal(await page.locator('[name="embeddingKey"]').inputValue(),'fixture-only');
 await page.locator('#archive-lore-settings summary').filter({hasText:'기본 프롬프트 편집'}).click();
@@ -112,7 +113,7 @@ await page.locator('[name="enabled"]').uncheck();await page.evaluate(()=>window.
 await page.setViewportSize({width:1280,height:900});await page.locator('#archive-lore-menu').click();await page.locator('[data-action="refresh"]').click();await page.screenshot({path:path.join(os.tmpdir(),'archive-lore-desktop.png'),fullPage:true});
 await page.getByRole('button',{name:'닫기',exact:true}).click();
 await page.locator('[name="embeddingProvider"]').selectOption('vertex');assert.equal(await page.locator('[name="embeddingKey"]').inputValue(),'vertex-fixture-key');
-await page.getByRole('button',{name:'임베딩 연결 확인',exact:true}).click();await page.locator('[data-embedding-status]').filter({hasText:'Express'}).waitFor();assert((await page.evaluate(()=>errors.splice(0))).some(e=>e.includes('Express')));await page.locator('[name="embeddingProvider"]').selectOption('gemini');
+await page.getByRole('button',{name:'임베딩 연결 확인',exact:true}).click();await page.locator('[data-embedding-status]').filter({hasText:'임베딩 성공'}).waitFor();assert.equal(await page.locator('[data-embedding-settings] [name="profile"]').count(),0);assert.equal(await page.locator('[data-embedding-settings] [data-action="profiles"]').count(),0);await page.locator('[name="embeddingProvider"]').selectOption('gemini');
 await page.locator('#archive-lore-menu').click();await page.getByRole('button',{name:'남은 임베딩',exact:true}).click();
 await page.locator('[data-status]').filter({hasText:'임베딩 완료'}).waitFor();
 await page.reload();await page.locator('#archive-lore-menu').click();

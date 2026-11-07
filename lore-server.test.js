@@ -29,3 +29,11 @@ test('disabled extension never starts automatic server collection',async()=>{
     const controller=createServerController({local:{dashboard:async()=>{throw Error('must not collect');}},enabled:()=>true,settings:()=>({enabled:false,autoCollect:true})});
     assert.equal(await controller.maybeAutoCollect(),false);
 });
+
+test('Vertex vector cache isolates project and location without changing AI Studio cache keys',async()=>{
+    const config={cacheNamespace:'n',embeddingProvider:'vertex',embeddingModel:'gemini-embedding-001',embeddingVertexProjectId:'one'};
+    const key=await embeddingKey(config,'id','content');
+    assert.notEqual(key,await embeddingKey({...config,embeddingVertexProjectId:'two'},'id','content'));
+    assert.notEqual(key,await embeddingKey({...config,embeddingVertexRegion:'us-central1'},'id','content'));
+    assert.equal(await embeddingKey({...config,embeddingProvider:'gemini'},'id','content'),'embedding-v2:'+JSON.stringify(['n','gemini','','gemini-embedding-001','id','content']));
+});

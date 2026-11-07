@@ -38,6 +38,8 @@ export function normalizeSettings(value = {}) {
         keepMessages:integer(value.keepMessages ?? 10,10,0,1000),
         mode: value.mode === 'questions' ? 'questions' : 'dialogue',
         embeddingProvider: ['openai','vertex'].includes(value.embeddingProvider) ? value.embeddingProvider : 'gemini',
+        embeddingVertexProjectId: String(value.embeddingVertexProjectId || '').trim(),
+        embeddingVertexRegion: String(value.embeddingVertexRegion || 'global').trim() || 'global',
         embeddingModel: value.embeddingProvider === 'openai' ? value.embeddingModel || 'text-embedding-3-small' : 'gemini-embedding-001',
         embeddingKeys: { ...(value.embeddingKey ? { [value.embeddingProvider || 'gemini']: value.embeddingKey } : {}), ...value.embeddingKeys },
         recentCount: integer(value.recentCount ?? 10, 10, 1, 200),

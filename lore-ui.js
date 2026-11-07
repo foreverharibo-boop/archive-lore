@@ -25,14 +25,17 @@ export function createLoreUI(api) {
         return `<div class="al-root al-settings">
             ${check('enabled','아카이브 로어 활성화',s.enabled)}
             <details><summary>서버 실행</summary>${check('serverEnabled','서버에서 실행 · 플러그인 필요',s.serverEnabled)}${button('server-check','서버 연결 확인')}<span data-server-status role="status"></span></details>
-            <details open><summary>연결 설정</summary><div class="al-fields">
+            <details open><summary>기억 작성·검색 AI</summary><div class="al-fields">
             ${field('기억 작성 AI 프로필',select('profile', profiles, s.profile))}
-            ${field('검색·선별 프로필',select('searchProfile', [['','수집 프로필과 동일'],...profiles.slice(1)], s.searchProfile))}
-            ${field('임베딩 연결',select('embeddingProvider',[['gemini','Google AI Studio'],['vertex','Vertex AI Express · 임베딩 미지원'],...(s.embeddingProvider==='openai'?[['openai','OpenAI 호환 API (기존 설정)']]:[])],s.embeddingProvider))}
+            ${field('검색·선별 프로필',select('searchProfile', [['','기억 작성 AI와 동일'],...profiles.slice(1)], s.searchProfile))}
+            </div>${button('profiles','프로필 새로고침')}</details>
+            <details open data-embedding-settings><summary>임베딩 연결</summary><div class="al-fields">
+            ${field('임베딩 제공자',select('embeddingProvider',[['gemini','Google AI Studio'],['vertex','Vertex AI Express'],...(s.embeddingProvider==='openai'?[['openai','OpenAI 호환 API (기존 설정)']]:[])],s.embeddingProvider))}
             ${s.embeddingProvider==='openai'?field('임베딩 모델',input('embeddingModel',s.embeddingModel)):''}
             ${field(s.embeddingProvider==='vertex'?'Vertex AI Express API 키':s.embeddingProvider==='gemini'?'Google AI Studio API 키':'임베딩 API 키',input('embeddingKey',s.embeddingKeys?.[s.embeddingProvider] || '', 'password','autocomplete="off" spellcheck="false"'))}
+            ${s.embeddingProvider==='vertex'?field('Google Cloud 프로젝트 ID',input('embeddingVertexProjectId',s.embeddingVertexProjectId,'text','spellcheck="false"'))+field('리전',input('embeddingVertexRegion',s.embeddingVertexRegion,'text','placeholder="global" spellcheck="false"')):''}
             <div data-openai ${s.embeddingProvider === 'openai' ? '' : 'hidden'}>${field('임베딩 API 주소',input('embeddingUrl',s.embeddingUrl,'url'))}</div>
-            </div><div class="al-actions">${button('embedding-test','임베딩 연결 확인')}${button('profiles','프로필 새로고침')}</div><div data-embedding-status role="status"></div></details>
+            </div><div class="al-actions">${button('embedding-test','임베딩 연결 확인')}</div><div data-embedding-status role="status"></div></details>
             <details><summary>수집·검색 설정</summary><div class="al-fields">
             ${field('검색 방식',select('mode',[['dialogue','대화로 검색'],['questions','질문으로 검색']],s.mode))}
             ${field('최근 대화 참고 개수',input('recentCount',s.recentCount,'number','min="1" max="200"'))}

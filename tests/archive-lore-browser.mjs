@@ -9,7 +9,7 @@ import path from 'node:path';
 const { chromium: pw } = await import(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const extra = process.env.CHROMIUM_ARGS_MODULE ? (await import(process.env.CHROMIUM_ARGS_MODULE)).default.args : [];
 const root=fileURLToPath(new URL('../',import.meta.url));
-const fixture=`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">${process.env.KOREAN_FONT_ROOT ? '<link rel="stylesheet" href="/fonts/400.css">' : ''}<link rel="stylesheet" href="/scripts/extensions/third-party/archive-lore/lore-style.css"><style>:root{--SmartThemeBlurTintColor:#f7f9fc;--SmartThemeBodyColor:#303740;--SmartThemeBorderColor:#cbd6e3;--SmartThemeQuoteColor:#e5ebf2;--black30a:#fff}body{background:#e9eef4;font-family:'Noto Sans KR',Arial,sans-serif;margin:15px}.inline-drawer-content{display:block}.inline-drawer-header{padding:10px}input,select,textarea{color:inherit}button{cursor:pointer}#extensions_settings2{max-width:600px;margin:auto}</style><div id="extensionsMenu"></div><div id="extensions_settings2"></div><script>
+const fixture=`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">${process.env.KOREAN_FONT_ROOT ? '<link rel="stylesheet" href="/fonts/400.css">' : ''}<link rel="stylesheet" href="/scripts/extensions/third-party/archive-lore/lore-style.css"><style>:root{--SmartThemeBlurTintColor:#f7f9fc;--SmartThemeBodyColor:#303740;--SmartThemeBorderColor:#cbd6e3;--SmartThemeQuoteColor:#e5ebf2;--black30a:#fff}body{background:#e9eef4;font-family:'Noto Sans KR',Arial,sans-serif;margin:15px}.inline-drawer-content{display:block}.inline-drawer-header{padding:10px}input,select,textarea{color:inherit}button{cursor:pointer}#extensions_settings2{max-width:600px;margin:auto}/* Simulate late host-theme rules, including important declarations. */button{background:#edf0f5!important;color:white!important;box-shadow:0 0 2px #777!important}.text_pole{background:white!important;border:1px solid #cbd6e3!important}dialog h3{font-size:26px!important}summary::before{content:'▶'!important}</style><div id="extensionsMenu"></div><div id="extensions_settings2"></div><script>
 window.errors=[];window.toastr={warning:e=>errors.push(e),error:(e)=>errors.push(e),success:()=>{},info:()=>{}};window.commands={};window.prompts={};window.events={};window.settings={archiveLore:{embeddingKey:'fixture-only',profile:'p',cacheNamespace:'fixture'}};
 window.ctx={extensionSettings:settings,chatMetadata:{},characters:[{avatar:'test.png',data:{extensions:{world:'Example'}}}],characterId:0,name1:'User',name2:'Character',chat:[{name:'User',mes:'2026-03-01. 같이 병원에 가자.',is_user:true},{name:'Character',mes:'좋아, 같이 가자.'}],getCurrentChatId:()=> 'test-chat',saveMetadata:async()=>{},getTokenCountAsync:async t=>Math.ceil(t.length/3),setExtensionPrompt:(k,v)=>prompts[k]=v};
 ctx.extensionSettings.connectionManager={selectedProfile:'p',profiles:[{id:'p',name:'Test profile',model:'fixture'}]};ctx.ConnectionManagerRequestService={getProfile:()=>({model:'fixture'}),validateProfile:()=>({selected:'openai',source:'openai'}),sendRequest:async(_id,messages)=>{const sys=messages[0].content;if(window.modelReply)return {choices:[{message:{content:await window.modelReply(sys,JSON.parse(messages[1].content))}}]};if(sys.includes('sideChanges'))return {choices:[{message:{content:JSON.stringify({entries:[{title:'Hospital promise',date:'2026-03-01',time:'Morning',location:'Home',content:'They agreed to visit the hospital together.',keywords:['hospital']}],sideChanges:['relationship','agreements','preferences','emotions','turningPoints','plans'].map(category=>({op:'add',category,text:category==='relationship'?'Lovers':'Example fact for '+category,evidence:{message:0,quote:'같이 병원에 가자.'},...(category==='relationship'?{relationship:{kind:'start',since:'2026-03-01'},dateEvidence:{message:0,quote:'2026-03-01'}}:{})})),storyDate:{date:'2026-03-01',evidence:{message:0,quote:'2026-03-01'}}})}}]};if(sys.includes('questions') && window.badQuestion)return {choices:[{message:{content:'invalid JSON test'}}]};if(sys.includes('questions'))return {choices:[{message:{content:'{"questions":["병원 약속은 무엇인가?"]}'}}]};return {choices:[{message:{content:'{"ids":["u0"]}'}}]};}};
@@ -70,6 +70,16 @@ await page.getByRole('button',{name:'설정 닫기',exact:true}).click();
 await page.locator('.al-settings-dialog').waitFor({state:'detached'});
 assert.equal(await page.locator('#archive-lore-settings [name="recentCount"]').inputValue(),'12');
 assert.equal(await page.locator('.al-dialog > header .al-icon').count(),4);
+const compactLayout=await page.locator('.al-dialog').evaluate(root=>({
+    name:getComputedStyle(root.querySelector('[data-chat]')).fontSize,
+    searchBorder:getComputedStyle(root.querySelector('[name="filter"]')).borderTopWidth,
+    collectBg:getComputedStyle(root.querySelector('[data-action="collect"]')).backgroundColor,
+    collectFg:getComputedStyle(root.querySelector('[data-action="collect"]')).color,
+    marker:getComputedStyle(root.querySelector('.al-organize summary'),'::before').content,
+}));
+assert.equal(compactLayout.name,'14px');assert.equal(compactLayout.searchBorder,'0px');assert.equal(compactLayout.marker,'none');
+assert.equal(compactLayout.collectBg,'rgb(48, 55, 64)');assert.equal(compactLayout.collectFg,'rgb(247, 249, 252)');
+
 await page.getByRole('button',{name:'기억 수집',exact:true}).click();
 await page.locator('[data-status]').filter({hasText:'수집 완료'}).waitFor();
 assert.equal(Object.keys(book.entries).length,9);assert.equal(Object.values(book.entries).filter(e=>e.archiveLore?.sideCategory).length,6);assert.equal(book.archiveLore.receipts.length,1);
@@ -145,6 +155,10 @@ await page.waitForFunction(()=>document.querySelector('[data-log-counts]')?.text
 await page.getByRole('button',{name:'닫기',exact:true}).click();
 await page.locator('#archive-lore-settings [data-settings-tab="prompts"]').click();
 await page.locator('[data-side-settings] > summary').click();
+const sideLayout=await page.locator('[data-side]').first().evaluate(row=>({height:row.getBoundingClientRect().height,marker:getComputedStyle(row.querySelector('summary'),'::before').content,display:getComputedStyle(row.querySelector('summary')).display}));
+assert(sideLayout.height<=38);assert.equal(sideLayout.marker,'none');assert.equal(sideLayout.display,'flex');
+await page.screenshot({path:path.join(os.tmpdir(),'archive-lore-compact-sides.png'),fullPage:true});
+
 await page.getByRole('button',{name:'사이드 항목 추가',exact:true}).click();
 const custom=page.locator('[data-side]').last();
 await custom.locator('[data-side-field="title"]').fill('Inventory');await custom.locator('[data-side-field="title"]').dispatchEvent('change');

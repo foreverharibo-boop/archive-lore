@@ -20,13 +20,15 @@
 - 로어북 매니저의 기존 번역 표시 · 프롬프트 전체화면 편집
 - SillyTavern 테마를 따르는 모바일 UI · 슬래시 명령어
 
+**0.4.1 UI 보완:** 앞쪽 펼침 세모를 제거하고 오른쪽 +/−로 표시합니다. 주인공 이름은 14px로 줄이고, 사이드 설정 행·목록·상하 여백을 더 작게 정리했습니다. 테마가 겹쳐 검색창 테두리가 이중으로 보이거나 수집 버튼 글씨가 흐려지는 현상을 방지합니다.
+
 **0.4.0 UI:** 기억 / 사이드 / 최근 주입 탭, 하단 고정 수집 버튼, 별도 도구 화면과 공통 선 아이콘으로 정리했습니다. 확장 설정은 연결 / 수집·검색 / 프롬프트 / 서버로 나눴고, 채팅창 설정 버튼에서도 열 수 있습니다. 색상은 SillyTavern 테마를 따릅니다. 이번 화면 변경은 확장 업데이트 후 브라우저 새로고침으로 적용되며 서버 플러그인 재시작은 필요하지 않습니다.
 
 설치 주소: `https://github.com/foreverharibo-boop/archive-lore`
 
 [설치·동작·제한 사항](userguides/1%20Memory_Books_AI_Reference_Manual.md) · [기본 프롬프트](prompts/archive-lore-defaults.json)
 
-**0.4.0:** 자동화·브라우저 모의 검사는 완료했으며, 실제 모델의 기억 수집 품질과 사용자 SillyTavern 환경에서의 검증은 아직 필요합니다.
+**0.4.1:** 자동화·브라우저 모의 검사는 완료했으며, 실제 모델의 기억 수집 품질과 사용자 SillyTavern 환경에서의 검증은 아직 필요합니다.
 
 서버 플러그인은 같은 저장소를 SillyTavern의 `plugins/archive-lore-server`에도 설치합니다. 확장과 서버 복사본을 함께 업데이트해 주세요. [설치 명령·서버 모드 안내](userguides/1%20Memory_Books_AI_Reference_Manual.md#server-plugin-installation-and-lifecycle)
 

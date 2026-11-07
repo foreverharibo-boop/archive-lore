@@ -8,7 +8,7 @@ import { loreIcon } from './lore-icons.js';
 import { makeId } from './lore-api.js';
 
 const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
-const button = (action, label, extra = '') => `<button type="button" class="menu_button al-button" data-action="${action}" ${extra}>${label}</button>`;
+const button = (action, label, extra = '') => `<button type="button" class="al-button" data-action="${action}" ${extra}>${label}</button>`;
 const iconButton = (action, icon, label, extra = '') => button(action,loreIcon(icon),`data-icon-button aria-label="${label}" title="${label}" ${extra}`);
 const field = (label, control) => `<label class="al-field"><span>${label}</span>${control}</label>`;
 const input = (name, value, type = 'text', extra = '') => `<input class="text_pole" name="${name}" type="${type}" value="${escape(value)}" ${extra}>`;

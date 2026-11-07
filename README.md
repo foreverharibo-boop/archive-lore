@@ -3,10 +3,14 @@
 [Memory Books](https://github.com/aikohanasaki/SillyTavern-MemoryBooks)를 기반으로 UI와 실행 흐름을 개편한 포크입니다.
 
 - 채팅방에서 마지막 수집 위치 다음부터 버튼 한 번으로 수집
+- 메시지 수·토큰 수 기준 자동 수집 · 버퍼 없음 · 지난 대화 범위 분할 수집
+- 수집·임베딩 성공 후 자동 숨김 · 최근 수집 메시지 보존 개수 입력
+- 기억 → 아크 → 통합 아크 · 짧게 다듬기·원문으로 다시 만들기 · 초안 확인 후 적용
 - 수집 후 별도 API 키로 자동 임베딩 · 실패한 임베딩만 재시도
 - **대화로 검색 / 질문으로 검색** 후 필요한 원문만 선별해 주입
 - 영어 기억 요약: 제목 + 날짜·장소 한 줄 + 사건 문단
 - 관계·약속·취향·감정·전환점·계획을 **6개 개별 사이드 항목**으로 저장하고 변경된 내용만 갱신
+- 사이드별 프롬프트·이름 편집, 켜기·끄기, 사용자 항목 추가 · 켠 항목은 기억 수집과 같은 요청으로 실행
 - 관계·이별·재회 D+를 RP 날짜로 계산 · 날짜 직접 수정 가능
 - 변경 전 사이드 기록 보존 · 기본 프롬프트 편집 및 가져오기/내보내기
 - AI Studio / Vertex AI Express 임베딩 키 직접 입력 · 제공자별 키 보관
@@ -18,6 +22,6 @@
 
 [설치·동작·제한 사항](userguides/1%20Memory_Books_AI_Reference_Manual.md) · [기본 프롬프트](prompts/archive-lore-defaults.json)
 
-**0.1.2:** 자동화·브라우저 모의 검사는 완료했으며, 실제 모델의 기억 수집 품질과 사용자 SillyTavern 환경에서의 검증은 아직 필요합니다.
+**0.2.0:** 자동화·브라우저 모의 검사는 완료했으며, 실제 모델의 기억 수집 품질과 사용자 SillyTavern 환경에서의 검증은 아직 필요합니다.
 
 Original Memory Books © 2024–2026 Aiko Hanasaki. Archive Lore modifications © 2026 foreverharibo-boop. [AGPL-3.0-only](LICENSE).

@@ -1,18 +1,22 @@
 // Archive Lore modifications Copyright (C) 2026 foreverharibo-boop
 // SPDX-License-Identifier: AGPL-3.0-only
-import { NS, SIDE_PROMPT, normalizeSettings, sourceRange, matchesRange, validReceipts, nextStart,
+import { NS, normalizeSettings, sourceRange, matchesRange, validReceipts, nextStart,
     entryAvailable, isCore, entryId, embeddingChunks, estimateTokens, recentDialogue, parseJson,
     parseCollection, rankChunks, reviewUnits, selectedUnits, fitInjection, materializeEntry,
     sideRecords, parseSideChanges, applySideChanges, sideSnapshot, parseStoryDate, currentStoryDate } from './lore-core.js';
+import { enabledSides, sideInstructions } from './lore-side-config.js';
+import { automaticReady, collectedHideRanges } from './lore-automation.js';
+import { consolidationView, maintenanceRequest, maintenanceResult } from './lore-maintenance.js';
 import { digest, embeddingKey, makeId } from './lore-api.js';
 
 const COLLECTION_SCHEMA = `Return ONLY JSON:
 {"entries":[{"title":"short English title","date":"story date/range or empty","time":"story time or empty","location":"place or empty","content":"English narrative paragraphs only, no title/metadata headings","keywords":["English keyword"],"supersedes":null}],
-"sideChanges":[{"op":"add or update","category":"relationship|agreements|preferences|emotions|turningPoints|plans","id":"existing fact ID for update","text":"English fact (relationship: short label only)","evidence":{"message":0,"quote":"exact original substring"},"relationship":{"kind":"start|breakup|reunion|other","since":"YYYY-MM-DD or null"},"dateEvidence":{"message":0,"quote":"exact dating/event evidence"}}],
+"sideChanges":[{"op":"add or update","category":"one enabled side category ID","id":"existing fact ID for update","text":"English fact (relationship: short label only)","evidence":{"message":0,"quote":"exact original substring"},"relationship":{"kind":"start|breakup|reunion|other","since":"YYYY-MM-DD or null"},"dateEvidence":{"message":0,"quote":"exact dating/event evidence"}}],
 "storyDate":{"date":"YYYY-MM-DD","evidence":{"message":0,"quote":"exact current-story-date evidence"}}}
 Omit relationship and dateEvidence on non-relationship facts. Use actual JSON null for unknown dates. storyDate is null unless new dialogue establishes the current fictional date. For nothing new use empty arrays. Use only supplied message numbers and exact original-language quotes for evidence. User-visible saved text must be English; never translate evidence quotes.`;
 
 export function createLoreController(host) {
+    let draft = null;
     let active = null, status = '준비됨', lastRecall = null, trace = null;
     const log = (stage, data) => trace?.event(stage, data);
     const askTracked = async (profile, system, data, signal, tokens) => {
@@ -40,7 +44,7 @@ export function createLoreController(host) {
         trace=externalTrace || host.diagnostics?.begin({kind,chatKey:context.key,chatName:context.name,mode:config.mode,messageCount:context.messages.length});
         notify(label);
         try {
-            await log('settings', {mode:config.mode,recentCount:config.recentCount,injectionTokens:config.injectionTokens,candidateCount:config.candidateCount,profile:config.profile,searchProfile:config.searchProfile,embeddingProvider:config.embeddingProvider,embeddingModel:config.embeddingModel,books:host.books(),profiles:host.profileInfo?.()});
+            await log('settings', {mode:config.mode,recentCount:config.recentCount,injectionTokens:config.injectionTokens,candidateCount:config.candidateCount,profile:config.profile,searchProfile:config.searchProfile,embeddingProvider:config.embeddingProvider,embeddingModel:config.embeddingModel,books:host.books(),profiles:host.profileInfo?.(),autoCollect:config.autoCollect,autoMode:config.autoMode,autoMessages:config.autoMessages,autoTokens:config.autoTokens,keepMessages:config.keepMessages,enabledSides:enabledSides(config).map(s=>s.id)});
             const result=await callback(abort.signal);await trace?.finish('success');return result;
         } catch (error) { await trace?.finish(abort.signal.aborted?'canceled':'error',{message:error.message});notify(abort.signal.aborted ? '작업 중지됨 · 저장한 기억은 유지돼' : error.message); throw error; }
         finally { active = null;trace=null;host.changed?.(); }
@@ -49,7 +53,7 @@ export function createLoreController(host) {
         const result = [];
         for (const book of host.books()) {
             const data = await host.loadBook(book), availability=[];
-            for (const raw of Object.values(data.entries || {})) {
+            for (const raw of consolidationView(Object.values(data.entries || {}), snapshot.messages)) {
                 const entry = materializeEntry(raw, snapshot.messages);
                 if (trace) availability.push({uid:entry.uid,title:entry.comment,available:entryAvailable(entry,snapshot.messages),core:isCore(entry),disabled:!!entry.disable,source:entry[NS]?.source});
                 if (entryAvailable(entry, snapshot.messages)) result.push({ id: entryId(book, entry.uid), book, entry });
@@ -84,6 +88,19 @@ export function createLoreController(host) {
         }
         return { complete, total };
     }
+    async function hideCollected(snapshot,signal,config,book) {
+        if(!host.hideRange || !host.books().includes(book))return;
+        assertCurrent(snapshot,signal);
+        const data=await host.loadBook(book),messages=host.context().messages;
+        const ranges=collectedHideRanges(validReceipts(data,messages),messages,config.keepMessages);
+        for(const range of ranges){assertCurrent(snapshot,signal);await host.hideRange(range,snapshot.key);await log('collection.hidden',range);}
+    }
+    async function maybeAutoCollect() {
+        const config=settings();if(!config.enabled || active || !config.autoCollect || host.generating?.())return false;
+        const key=host.context().key;const view=await controllerDashboard();
+        if(key!==host.context().key||host.generating?.()||active)return false;
+        if(automaticReady(config,host.context().messages,view.next)){await collect();return true;}return false;
+    }
     async function collect(options = {}) {
         return job('수집 준비 중', async signal => {
             const config = settings(), snapshot = structuredClone(host.context());
@@ -92,35 +109,38 @@ export function createLoreController(host) {
             let data = await host.loadBook(book);
             const receipts = validReceipts(data, snapshot.messages);
             let start = options.start === undefined ? nextStart(receipts, host.initialStart()) : Number(options.start);
+            const batchSize=options.batchSize===undefined?config.batchSize:Number(options.batchSize);
+            if(!Number.isInteger(batchSize)||batchSize<1||batchSize>100)throw Error('분할 개수는 1~100 사이로 입력해 줘.');
+            const categories=Object.fromEntries(enabledSides(config).map(r=>[r.id,r.title]));
             const end = options.end === undefined ? snapshot.messages.length - 1 : Number(options.end);
             if (start > end && start === snapshot.messages.length) {
-                await indexRecords(snapshot, signal, config); notify('새 대화 없음 · 임베딩 확인 완료'); return;
+                await indexRecords(snapshot, signal, config);await hideCollected(snapshot,signal,config,book); notify('새 대화 없음 · 임베딩 확인 완료'); return;
             }
             sourceRange(snapshot.messages, start, end);
             let saved = 0;
             while (start <= end) {
                 assertCurrent(snapshot, signal);
-                let stop = Math.min(end, start + config.batchSize - 1);
+                let stop = Math.min(end, start + batchSize - 1);
                 while (stop > start && estimateTokens(JSON.stringify(snapshot.messages.slice(start, stop + 1).map(m => m.mes))) > 12000) stop--;
                 const source = sourceRange(snapshot.messages, start, stop);
                 const receiptId = await digest(JSON.stringify([book, source]));
                 data = await host.loadBook(book);
                 if ((data[NS]?.receipts || []).some(r => r.id === receiptId)) { start = stop + 1; continue; }
                 const before = JSON.stringify(data);
-                const available = Object.values(data.entries || {}).map(e => materializeEntry(e, snapshot.messages)).filter(e => entryAvailable(e, snapshot.messages));
-                const facts = sideRecords(available);
+                const available = consolidationView(Object.values(data.entries || {}),snapshot.messages).map(e => materializeEntry(e, snapshot.messages)).filter(e => entryAvailable(e, snapshot.messages));
+                const facts = sideRecords(available).filter(f=>Object.hasOwn(categories,f.category));
                 const existing = available.filter(e => !e[NS]?.sideCategory).slice(-24).map(e => ({ uid: e.uid, title: e.comment, content: e.content }));
                 const dialogue = snapshot.messages.slice(start, stop + 1).map((m, i) => ({ message: start + i, name: m.name, text: m.mes, hidden: m.is_system })).filter(m => !m.hidden);
                 const knownStoryDate = currentStoryDate(data, snapshot.messages);
                 const payload = { dialogue, existing, sideRecords: facts, currentStoryDate: knownStoryDate };
                 if (estimateTokens(JSON.stringify(payload)) > 24000) throw new Error('이 수집 범위와 기존 기록이 검토 한도를 넘었어. 범위를 줄이거나 긴 기록을 정리해 줘.');
                 notify(`기억 수집 #${start}–#${stop}`);
-                const system = config.prompts.collect + '\n\n' + (config.sideEnabled === false ? 'Return no sideChanges.' : (config.sidePrompt || SIDE_PROMPT)) + '\n\n' + COLLECTION_SCHEMA;
+                const system = config.prompts.collect + '\n\n' + sideInstructions(config) + '\n\n' + COLLECTION_SCHEMA;
                 const response = dialogue.length ? await askTracked(config.profile, system, payload, signal, 6000)
                     : '{"entries":[],"sideChanges":[]}';
                 const memories = parseCollection(response, existing);
                 const clock = config.sideEnabled === false ? null : parseStoryDate(response, snapshot.messages, source);
-                const changes = config.sideEnabled === false ? [] : parseSideChanges(response, facts, snapshot.messages, source);
+                const changes = config.sideEnabled === false ? [] : parseSideChanges(response, facts, snapshot.messages, source,categories);
                 assertCurrent(snapshot, signal);
                 if (!matchesRange(source, host.context().messages)) throw new Error('수집 중 대화가 수정됐어. 저장하지 않았어.');
                 const fresh = await host.loadBook(book);
@@ -141,10 +161,12 @@ export function createLoreController(host) {
                         sideSnapshot(raw)];
                     return version;
                 });
-                const updatedSides = applySideChanges(sideEntries, changes, source, () => host.newEntry(staged), makeId, config.sideEnabled === false ? undefined : clock?.date || knownStoryDate);
+                const updatedSides = applySideChanges(sideEntries, changes, source, () => host.newEntry(staged), makeId, config.sideEnabled === false ? undefined : clock?.date || knownStoryDate,categories);
                 for (const entry of updatedSides) staged.entries[entry.uid] = entry;
                 staged[NS] = { ...staged[NS], storyDates: [...(staged[NS]?.storyDates || []), ...(clock ? [clock] : [])], receipts: [...(staged[NS]?.receipts || []), { id: receiptId, source, created: new Date().toISOString() }] };
                 // The receipt and entries are saved together. Failed writes never advance the cursor.
+                assertCurrent(snapshot,signal);
+                if(!matchesRange(source,host.context().messages))throw Error('저장 직전에 대화가 바뀌었어. 다시 수집해 줘.');
                 await host.saveBook(book, staged);
                 await log('collection.saved', {book,source,memories,sideChanges:changes,storyDate:clock,updatedSides});
                 assertCurrent(snapshot, signal);
@@ -152,8 +174,54 @@ export function createLoreController(host) {
             }
             notify('기억 저장 완료 · 자동 임베딩 중');
             await indexRecords(snapshot, signal, config);
+            await hideCollected(snapshot,signal,config,book);
             notify(`수집 완료 · 새 기억 ${saved}개`);
         }, 'collection');
+    }
+    async function prepareMaintenance({kind,ids}) {
+        draft=null;
+        return job('기억 정리 초안 만드는 중',async signal=>{
+            const snapshot=structuredClone(host.context()),config=settings();
+            if(!snapshot.key)throw Error('채팅방에서 열어 줘.');
+            const wanted=[...new Set(ids || [])], rows=(await records(snapshot)).filter(r=>wanted.includes(r.id));
+            if(!wanted.length || rows.length!==wanted.length || new Set(rows.map(r=>r.book)).size!==1)throw Error('같은 로어북의 현재 기억을 선택해 줘.');
+            const book=rows[0].book,data=await host.loadBook(book),before=JSON.stringify(data);
+            assertCurrent(snapshot,signal);
+            const visible=new Map(consolidationView(Object.values(data.entries || {}),snapshot.messages).map(e=>[String(e.uid),e]));
+            const entries=rows.map(r=>visible.get(String(r.entry.uid)));
+            if(entries.some(e=>!e || !entryAvailable(e,snapshot.messages)))throw Error('선택한 원본이 바뀌었어. 다시 선택해 줘.');
+            const request=maintenanceRequest(kind,entries,snapshot.messages,config,data);
+            const result=maintenanceResult(await askTracked(config.profile,request.system,request.data,signal,6000));
+            assertCurrent(snapshot,signal);
+            if(JSON.stringify(await host.loadBook(book))!==before || (request.source&&!matchesRange(request.source,host.context().messages)))throw Error('초안을 만드는 동안 원본이 바뀌었어. 다시 만들어 줘.');
+            const token=makeId();
+            draft={token,kind,book,before,snapshot,entries,request,result};
+            await log('maintenance.preview',{kind,ids,result});
+            notify('초안 준비됨 · 확인 후 적용해 줘');
+            return {token,kind,...result,beforeTokens:estimateTokens(entries.map(e=>e.content).join('\n')),afterTokens:estimateTokens(result.content),originals:entries.map(e=>({title:e.comment,content:e.content}))};
+        },'maintenance-preview');
+    }
+    async function applyMaintenance({token,title,content}) {
+        return job('기억 정리 적용 중',async signal=>{
+            const pending=draft;if(!pending || pending.token!==token)throw Error('초안이 만료됐어. 다시 만들어 줘.');
+            const {snapshot,book,before,entries,request,kind}=pending;
+            assertCurrent(snapshot,signal);
+            if(!host.books().includes(book))throw Error('검색 대상 로어북이 바뀌었어.');
+            const result=maintenanceResult(JSON.stringify({title,content}));
+            const data=await host.loadBook(book);
+            if(JSON.stringify(data)!==before || (request.source&&!matchesRange(request.source,host.context().messages)))throw Error('초안 이후 원본이 바뀌었어. 다시 만들어 줘.');
+            const entry=kind==='merge'?host.newEntry(data):data.entries[entries[0].uid];
+            const previous=kind==='merge'?null:{content:entry.content,title:entry.comment,source:entry[NS]?.source};
+            entry.comment=result.title;entry.content=result.content;
+            entry[NS]={...entry[NS],source:request.source,tier:request.tier,updatedAt:new Date().toISOString(),
+                ...(kind==='merge'?{members:entries.map(e=>({uid:String(e.uid),title:e.comment,content:e.content})),collectedAt:new Date().toISOString()}:{}),
+                history:[...(entry[NS]?.history || []),...(previous?[previous]:[])]};
+            assertCurrent(snapshot,signal);
+            await host.saveBook(book,data);draft=null;lastRecall=null;
+            await log('maintenance.applied',{kind,book,entry});
+            assertCurrent(snapshot,signal);await indexRecords(snapshot,signal,settings());
+            notify('기억 정리 적용 완료');
+        },'maintenance-apply');
     }
     async function recall(options = {}) {
         return job('필요한 기억 찾는 중', async signal => {
@@ -224,13 +292,19 @@ export function createLoreController(host) {
         }, options.kind || 'preview', options.trace);
     }
     return {
+        prepareMaintenance, applyMaintenance, discardDraft:()=>{draft=null;},
         collect, recall, cancel: () => active?.abort(), clearRecall: () => { lastRecall = null; },
         index: (force = false) => job('임베딩 확인 중', async signal => {
-            const result = await indexRecords(structuredClone(host.context()), signal, settings(), force);
+            const snapshot=structuredClone(host.context()),config=settings();
+            const result = await indexRecords(snapshot, signal, config, force);
+            if(host.target())await hideCollected(snapshot,signal,config,host.target());
             notify(`임베딩 완료 · ${result.complete}구간`); return result;
         }, 'index'),
         state: () => ({ busy: !!active, status, lastRecall }),
-        async dashboard() {
+        dashboard:controllerDashboard,
+        maybeAutoCollect,
+    };
+    async function controllerDashboard() {
             const snapshot = structuredClone(host.context()), config = settings();
             if (!snapshot.key) return { records: [], ranges: [], next: 0, embedded: 0, pending: 0 };
             const rows = await records(snapshot); let embedded = 0, pending = 0;
@@ -243,6 +317,5 @@ export function createLoreController(host) {
             const data = book ? await host.loadBook(book) : null;
             const ranges = validReceipts(data, snapshot.messages).map(r => r.source);
             return { records: rows, ranges, next: nextStart(validReceipts(data, snapshot.messages), host.initialStart()), embedded, pending };
-        },
-    };
+    }
 }

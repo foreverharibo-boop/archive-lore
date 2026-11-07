@@ -4,6 +4,8 @@
 import { getContext, extension_settings } from '../../../extensions.js';
 import { getRequestHeaders, eventSource, event_types, saveSettingsDebounced, extension_prompt_types } from '../../../../script.js';
 import { world_names, worldInfoCache, updateWorldInfoList, createWorldInfoEntry, METADATA_KEY } from '../../../world-info.js';
+import { executeSlashCommands } from '../../../slash-commands.js';
+import { consolidationView } from './lore-maintenance.js';
 import { SlashCommandParser } from '../../../slash-commands/SlashCommandParser.js';
 import { SlashCommand } from '../../../slash-commands/SlashCommand.js';
 import { SlashCommandArgument, ARGUMENT_TYPE } from '../../../slash-commands/SlashCommandArgument.js';
@@ -17,7 +19,7 @@ import { linkedTranslation } from './lore-translations.js';
 import { createLoreUI } from './lore-ui.js';
 
 const PROMPT = 'archive-lore-recalled', CORE_PROMPT = 'archive-lore-core';
-let ui, recalled = new Set(), activeBooks = [], writing = false;
+let ui, recalled = new Set(), activeBooks = [], writing = false, generationInFlight=false, autoTimer=null, autoAttempt='', autoPending=false;
 const settings = () => extension_settings[NS];
 function saveSettings(patch = {}) {
     extension_settings[NS] = normalizeSettings({ ...extension_settings[NS], ...patch });
@@ -104,12 +106,33 @@ const controller = createLoreController({
     diagnostics,profileInfo:()=>{const profiles=getContext().extensionSettings?.connectionManager?.profiles || [];return profiles.filter(p=>[settings().profile,settings().searchProfile,getContext().extensionSettings?.connectionManager?.selectedProfile].includes(p.id)).map(p=>({id:p.id,name:p.name,model:p.model}));},
     settings, context:chatContext, books, target, initialStart:()=>chatSettings().initialStart || 0,
     ensureBook, loadBook, saveBook,
+    generating:()=>generationInFlight || writing,
+    hideRange:async(range,key)=>{
+        if(chatContext().key!==key)throw Error('채팅방이 바뀌어서 숨기기를 멈췄어.');
+        if(!Number.isInteger(range.start)||!Number.isInteger(range.end)||range.start<0||range.end<range.start||range.end>=chatContext().messages.length)throw Error('숨길 메시지 범위를 확인해 줘.');
+        await executeSlashCommands(`/hide ${range.start}-${range.end}`);
+        if(chatContext().key!==key)throw Error('채팅방이 바뀌어서 숨기기를 멈췄어.');
+        if(chatContext().messages.slice(range.start,range.end+1).some(m=>!m.is_system))throw Error('기억은 저장했지만 자동 숨기기에 실패했어. 수집 버튼으로 재시도해 줘.');
+    },
     newEntry:data=>{const entry=createWorldInfoEntry('',data);if(!entry)throw new Error('새 기억 항목을 만들 수 없어.');return entry;},
     store:createVectorStore(), embed,
     ask:(profile,system,data,signal,tokens)=>ask(getContext(),profile,system,data,signal,tokens),
     countTokens:text=>getContext().getTokenCountAsync(text,0),
-    changed:()=>{void ui?.refresh().catch(error);},
+    changed:()=>{void ui?.refresh().catch(error);if(autoPending&&!controller.state().busy&&!generationInFlight&&!writing)scheduleAutomatic();},
 });
+function scheduleAutomatic() {
+    autoPending=true;
+    clearTimeout(autoTimer);
+    autoTimer=setTimeout(async()=>{
+        if(!settings().autoCollect){autoPending=false;return;}
+        if(generationInFlight||writing||controller.state().busy)return;
+        autoPending=false;
+        const context=chatContext(),stamp=JSON.stringify([context.key,context.messages.map(m=>[m.mes,m.is_user,m.swipe_id])]);
+        if(stamp===autoAttempt)return;
+        autoAttempt=stamp;
+        try{await controller.maybeAutoCollect();}catch(e){error(e);}
+    },250);
+}
 async function saveRecord(id, changes) {
     if(controller.state().busy || writing)throw new Error('진행 중인 작업이 끝난 뒤 수정해 줘.');
     const [book,uid]=JSON.parse(id); if(!books().includes(book))throw new Error('현재 검색 대상이 아닌 로어북이야.');
@@ -146,10 +169,11 @@ async function saveRecord(id, changes) {
         entry.constant=changes.core;
         if(chatContext().key!==key)throw new Error('채팅방이 바뀌어서 저장하지 않았어.');
         await saveBook(book,data);clearPrompts();
-    } finally {writing=false;}
+    } finally {writing=false;if(autoPending)scheduleAutomatic();}
 }
 async function intercept(_chat,_contextSize,abort,type) {
     clearPrompts();
+    generationInFlight=true;
     const context=chatContext();
     const trace=diagnostics.begin({kind:'generation',chatKey:context.key,chatName:context.name,mode:settings().mode,generationType:type,messageCount:context.messages.length});
     if(!settings().enabled || !context.key || !books().length || ['quiet','impersonate'].includes(type)) {
@@ -165,7 +189,7 @@ async function intercept(_chat,_contextSize,abort,type) {
         getContext().setExtensionPrompt(CORE_PROMPT,result.core,extension_prompt_types.IN_CHAT,1,false);
         await trace.event('injection.installed',{slots:[{name:PROMPT,text:result.text,position:'IN_CHAT',depth:1},{name:CORE_PROMPT,text:result.core,position:'IN_CHAT',depth:1}],selected:[...result.selected]});
         pendingGeneration={trace,key:context.key,messageCount:context.messages.length};
-    } catch(e){await trace.finish('error',{message:e.message});clearPrompts();abort(true);error(e);}
+    } catch(e){generationInFlight=false;await trace.finish('error',{message:e.message});clearPrompts();abort(true);error(e);}
 }
 function nativePolicy(lists) {
     if(!settings().enabled)return;
@@ -174,8 +198,12 @@ function nativePolicy(lists) {
     for(const list of Object.values(lists))if(Array.isArray(list))for(let i=0;i<list.length;i++){
         if(!selectedBooks.includes(list[i].world))continue;
         list[i]=materializeEntry(list[i],messages);
-        if(activeBooks.includes(list[i].world) && isCore(list[i]))list[i].disable=true;
     }
+    for(const list of Object.values(lists))if(Array.isArray(list))for(const book of selectedBooks){
+        const mapped=new Map(consolidationView(list.filter(e=>e.world===book),messages).map(e=>[String(e.uid),e]));
+        for(let i=0;i<list.length;i++)if(list[i].world===book)list[i]=mapped.get(String(list[i].uid)) || list[i];
+    }
+    for(const list of Object.values(lists))if(Array.isArray(list))for(const entry of list)if(activeBooks.includes(entry.world)&&isCore(entry))entry.disable=true;
     applyNativePolicy(lists,{enabled:true,keywordActivation:settings().keywordActivation,books:selectedBooks,messages,selected:recalled});
     if(pendingGeneration?.key===chatContext().key)void pendingGeneration.trace.event('native-world-info.policy',{keywordActivation:settings().keywordActivation,entries:Object.values(lists).filter(Array.isArray).flat().filter(e=>selectedBooks.includes(e.world)).map(e=>({book:e.world,uid:e.uid,disabled:e.disable,core:isCore(e)}))});
 }
@@ -200,14 +228,17 @@ function init() {
     document.querySelector('#extensionsMenu')?.append(menu);
     globalThis.archiveLoreInterceptor=intercept;
     eventSource.on(event_types.WORLDINFO_ENTRIES_LOADED,nativePolicy);
-    eventSource.on(event_types.CHAT_CHANGED,()=>{if(pendingGeneration)void pendingGeneration.trace.event('generation.chat-changed');pendingGeneration=null;controller.cancel();controller.clearRecall();clearPrompts();void ui.refresh().catch(error);});
+    eventSource.on(event_types.CHAT_CHANGED,()=>{clearTimeout(autoTimer);autoPending=false;autoAttempt='';generationInFlight=false;controller.discardDraft();if(pendingGeneration)void pendingGeneration.trace.event('generation.chat-changed');pendingGeneration=null;controller.cancel();controller.clearRecall();clearPrompts();void ui.refresh().catch(error);});
     for(const event of [event_types.MESSAGE_EDITED,event_types.MESSAGE_DELETED,event_types.MESSAGE_SWIPED])if(event)eventSource.on(event,()=>{controller.cancel();clearPrompts();});
+    if(event_types.GENERATION_STARTED)eventSource.on(event_types.GENERATION_STARTED,()=>{generationInFlight=true;clearTimeout(autoTimer);});
     if(event_types.MESSAGE_RECEIVED)eventSource.on(event_types.MESSAGE_RECEIVED,async index=>{
+        scheduleAutomatic();
         const run=pendingGeneration,context=chatContext();if(!run || context.key!==run.key)return;
         const message=context.messages[Number(index)];
         if(message && !message.is_user)await run.trace.event('rp.response',{index:Number(index),name:message.name,text:message.mes,swipeId:message.swipe_id});
     });
     for(const name of ['GENERATION_ENDED','GENERATION_STOPPED'])if(event_types[name])eventSource.on(event_types[name],async()=>{
+        generationInFlight=false;if(name==='GENERATION_ENDED')scheduleAutomatic();else {clearTimeout(autoTimer);autoPending=false;}
         const run=pendingGeneration;if(!run)return;pendingGeneration=null;
         const context=chatContext();
         await run.trace.event(name==='GENERATION_STOPPED'?'rp.stopped':'rp.ended',{sameChat:context.key===run.key,messageCount:context.messages.length,latestAssistant:context.key===run.key?context.messages.map((m,index)=>({index,name:m.name,text:m.mes,is_user:m.is_user,is_system:m.is_system})).filter(m=>!m.is_user&&!m.is_system).slice(-1):[]});
@@ -215,11 +246,16 @@ function init() {
     });
     for(const [name,callback,help] of [
         ['al','open','아카이브 로어 열기'],['al-collect','collect','마지막 수집 다음부터 수집. 선택 범위: /al-collect 0-19'],
+        ['al-catchup','catchup','지난 대화를 나눠 수집: /al-catchup 0-245 40'],
         ['al-embed','index','남은 기억 임베딩'],['al-recall','recall','기억 검색 미리보기'],['al-stop','cancel','아카이브 로어 작업 중지'],
     ])SlashCommandParser.addCommandObject(SlashCommand.fromProps({name,helpString:help,
-        unnamedArgumentList:name==='al-collect'?[SlashCommandArgument.fromProps({description:'시작-끝 메시지 번호',typeList:[ARGUMENT_TYPE.STRING],isRequired:false})]:[],
+        unnamedArgumentList:['al-collect','al-catchup'].includes(name)?[SlashCommandArgument.fromProps({description:'시작-끝 메시지 번호',typeList:[ARGUMENT_TYPE.STRING],isRequired:false})]:[],
         callback:async(_args,value)=>{try{
             if(callback==='open')await ui.open();
+            else if(callback==='catchup'){
+                const match=String(value||'').trim().match(/^(\d+)\s*-\s*(\d+)\s+(\d+)$/);if(!match)throw Error('/al-catchup 0-245 40처럼 입력해 줘.');
+                await controller.collect({start:Number(match[1]),end:Number(match[2]),batchSize:Number(match[3])});
+            }
             else if(callback==='collect' && value?.trim()){
                 const match=String(value).trim().match(/^(\d+)\s*-\s*(\d+)$/);if(!match)throw new Error('범위는 0-19처럼 입력해 줘.');await controller.collect({start:Number(match[1]),end:Number(match[2])});
             } else await controller[callback]();

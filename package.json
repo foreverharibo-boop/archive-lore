@@ -4,7 +4,7 @@
     "build": "bun run build.ts",
     "install-hooks": "bun bin/install-hooks.js",
     "postinstall": "bun bin/postinstall.js",
-    "test:archive-lore": "node --test lore-core.test.js lore-diagnostics.test.js lore-relationship.test.js lore-controller.test.js chatSelection.test.js connectionProfileRequest.test.js",
+    "test:archive-lore": "node --test lore-core.test.js lore-automation.test.js lore-diagnostics.test.js lore-relationship.test.js lore-controller.test.js chatSelection.test.js connectionProfileRequest.test.js",
     "test:archive-lore:browser": "node tests/archive-lore-browser.mjs"
   },
   "dependencies": {

@@ -24,14 +24,15 @@ export function createLoreUI(api) {
         const profiles = [['', '현재 연결 프로필'], ...api.profiles().map(p => [p.id, p.name])];
         return `<div class="al-root al-settings">
             ${check('enabled','아카이브 로어 활성화',s.enabled)}
+            <details><summary>서버 실행</summary>${check('serverEnabled','서버에서 실행 · 플러그인 필요',s.serverEnabled)}${button('server-check','서버 연결 확인')}<span data-server-status role="status"></span></details>
             <details open><summary>연결 설정</summary><div class="al-fields">
-            ${field('수집 프로필',select('profile', profiles, s.profile))}
+            ${field('기억 작성 AI 프로필',select('profile', profiles, s.profile))}
             ${field('검색·선별 프로필',select('searchProfile', [['','수집 프로필과 동일'],...profiles.slice(1)], s.searchProfile))}
-            ${field('임베딩 연결',select('embeddingProvider',[['gemini','Google AI Studio'],['vertex','Vertex AI Express'],...(s.embeddingProvider==='openai'?[['openai','OpenAI 호환 API (기존 설정)']]:[])],s.embeddingProvider))}
-            ${field('임베딩 모델',input('embeddingModel',s.embeddingModel))}
+            ${field('임베딩 연결',select('embeddingProvider',[['gemini','Google AI Studio'],['vertex','Vertex AI Express · 임베딩 미지원'],...(s.embeddingProvider==='openai'?[['openai','OpenAI 호환 API (기존 설정)']]:[])],s.embeddingProvider))}
+            ${s.embeddingProvider==='openai'?field('임베딩 모델',input('embeddingModel',s.embeddingModel)):''}
             ${field(s.embeddingProvider==='vertex'?'Vertex AI Express API 키':s.embeddingProvider==='gemini'?'Google AI Studio API 키':'임베딩 API 키',input('embeddingKey',s.embeddingKeys?.[s.embeddingProvider] || '', 'password','autocomplete="off" spellcheck="false"'))}
             <div data-openai ${s.embeddingProvider === 'openai' ? '' : 'hidden'}>${field('임베딩 API 주소',input('embeddingUrl',s.embeddingUrl,'url'))}</div>
-            </div>${button('profiles','프로필 새로고침')}</details>
+            </div><div class="al-actions">${button('embedding-test','임베딩 연결 확인')}${button('profiles','프로필 새로고침')}</div><div data-embedding-status role="status"></div></details>
             <details><summary>수집·검색 설정</summary><div class="al-fields">
             ${field('검색 방식',select('mode',[['dialogue','대화로 검색'],['questions','질문으로 검색']],s.mode))}
             ${field('최근 대화 참고 개수',input('recentCount',s.recentCount,'number','min="1" max="200"'))}
@@ -105,6 +106,11 @@ export function createLoreUI(api) {
         container.addEventListener('click', safe(async event => {
             const target = event.target.closest('[data-action]'); if (!target) return;
             switch (target.dataset.action) {
+                case 'server-check':case 'embedding-test':{
+                    const node=container.querySelector(target.dataset.action==='server-check'?'[data-server-status]':'[data-embedding-status]');node.textContent='연결 확인 중';target.disabled=true;
+                    try{const result=await (target.dataset.action==='server-check'?api.serverCheck():api.embeddingTest());node.textContent=target.dataset.action==='server-check'?`연결됨 · 서버 ${result.version}`:`임베딩 성공 · ${result.dimensions}차원`;}
+                    catch(error){node.textContent=error.message;throw error;}finally{target.disabled=false;}break;
+                }
                 case 'open': await open(); break;
                 case 'expand-prompt': expandPrompt(container,target.dataset.key);break;
                 case 'expand-side':expandPrompt(container,null,target.closest('[data-side]').dataset.side);break;
@@ -177,6 +183,8 @@ export function createLoreUI(api) {
             ${e[NS]?.history?.length ? `<details><summary>변경 전 기록 (${e[NS].history.length})</summary>${[...e[NS].history].reverse().map(h=>`<pre>${escape(h.content)}</pre>`).join('')}</details>`:''}
             </div></details>`;
         }).join('') || '<div class="al-muted">표시할 기억 없음</div>';
+        const serverJobs=api.serverJobs?.()||[];
+        dialog.querySelector('[data-server-jobs]').innerHTML=serverJobs.slice().reverse().map(job=>`<div class="al-record"><span>${escape(job.kind)} · ${escape(job.status)}</span><div>${escape(job.message)}</div>${job.kind==='prepareMaintenance'&&job.status==='completed'&&job.draftAvailable!==false?button('server-draft','초안 열기',`data-id="${escape(job.id)}"`):''}</div>`).join('')||'서버 작업 없음';
         const recall = state.lastRecall;
         dialog.querySelector('[data-recall]').textContent = recall ? `${recall.tokens}토큰 · 후보 ${recall.candidateTotal}구간 · 미임베딩 ${recall.pending}구간${recall.shortened?' · 긴 대화 일부 생략':''}\n${recall.questions.join('\n')}\n\n[코어 · 항상 주입]\n${recall.core || '없음'}\n\n[검색으로 선별한 기억]\n${recall.text || '선별한 기억 없음'}` : '아직 회상한 기록 없음';
         dialog.querySelector('[data-recall-translations]').innerHTML=(recall?.records || []).map(r=>translationHtml(api.translation?.(r.book,r.entry),`${isCore(r.entry)?'코어':'선택된 기억'} 전체 번역 · ${r.entry.comment || r.book}`)).join('');
@@ -197,7 +205,7 @@ export function createLoreUI(api) {
             if(action==='cancel-draft')editor.close();
             if(action==='apply-draft'){
                 const buttons=[...editor.querySelectorAll('button')];buttons.forEach(b=>b.disabled=true);
-                try{await api.controller.applyMaintenance({token:draft.token,title:editor.querySelector('[name="draftTitle"]').value,content:editor.querySelector('textarea').value});selected.clear();editor.close();await refresh();}
+                try{await api.controller.applyMaintenance({token:draft.token,draftJobId:draft.serverJobId,title:editor.querySelector('[name="draftTitle"]').value,content:editor.querySelector('textarea').value});selected.clear();editor.close();await refresh();}
                 finally{buttons.forEach(b=>b.disabled=false);}
             }
         }));
@@ -216,6 +224,7 @@ export function createLoreUI(api) {
         <div class="al-range">${field('시작 번호',input('rangeStart',0,'number','min="0"'))}${field('끝 번호',input('rangeEnd',0,'number','min="0"'))}</div>
         ${field('분할 메시지 개수',input('rangeBatch',normalizeSettings(api.settings()).batchSize,'number','min="1" max="100"'))}
         <div class="al-actions">${button('collect-range','범위 나눠 수집','data-job')}${button('start-here','다음 수집 시작점 지정','data-job')}${button('reindex','전체 임베딩 다시 만들기','data-job')}</div></details>
+        <details class="al-card"><summary>서버 작업 내역</summary>${button('server-refresh','서버 내역 새로고침')}<div data-server-jobs></div></details>
         <details class="al-card"><summary>최근 주입 확인</summary>${button('preview','지금 회상 미리보기','data-job')}<pre data-recall></pre><div data-recall-translations></div></details>
         <details class="al-card"><summary>턴별 진단 기록</summary><div data-log-counts></div><div class="al-actions">${select('logMode',[['all','전체 방식'],['dialogue','대화로 검색'],['questions','질문으로 검색']],'all')}${button('export-logs','진단 TXT 다운로드')}</div><div data-log-list></div></details>
         <section class="al-card"><div class="al-actions al-between"><strong>저장된 기억·사이드 기록</strong>${button('refresh','새로고침')}</div>
@@ -234,6 +243,8 @@ export function createLoreUI(api) {
         dialog.addEventListener('click',safe(async event=>{
             const b=event.target.closest('[data-action]');if(!b)return;
             switch(b.dataset.action){
+                case 'server-refresh':await api.controller.restore(true);break;
+                case 'server-draft':openDraft(await api.controller.getDraft(b.dataset.id));break;
                 case 'close':dialog.close();return;
                 case 'collect':await api.controller.collect();break;
                 case 'index':await api.controller.index();break;

@@ -34,11 +34,13 @@ test('translation bridge uses exact book and UID, marks stale text, and never mu
     assert.equal(linkedTranslation(settings,'A',{...entry,content:'Changed'}).stale,true);
     assert.equal(JSON.stringify(settings),before);
 });
-test('Vertex Express has a separate key and predict response, without silent truncation',async()=>{
+test('Vertex Express is rejected before network access and AI Studio uses its own preserved key',async()=>{
     const settings=normalizeSettings({embeddingProvider:'vertex',embeddingKey:'old-key',embeddingKeys:{vertex:'vertex-key',gemini:'studio-key'}});
-    const spec=embeddingRequest(settings,'text',true);
-    assert.equal(spec.url,'https://aiplatform.googleapis.com/v1/publishers/google/models/gemini-embedding-001:predict');
-    assert.equal(spec.headers['x-goog-api-key'],'vertex-key');assert.equal(spec.body.instances[0].task_type,'RETRIEVAL_QUERY');assert.equal(spec.body.parameters.autoTruncate,false);
-    const vector=await embed(settings,'text',false,undefined,async()=>({ok:true,json:async()=>({predictions:[{embeddings:{values:[1,2]}}]})}));assert.deepEqual(vector,[1,2]);
+    assert.throws(()=>embeddingRequest(settings,'text',true),/Express.*지원 목록/);
+    let calls=0;await assert.rejects(embed(settings,'text',false,undefined,async()=>{calls++;}),/Express/);assert.equal(calls,0);
     assert.equal(embeddingRequest({...settings,embeddingProvider:'gemini'},'text').headers['x-goog-api-key'],'studio-key');
+});
+test('embedding failures expose provider status and redact the entered credential',async()=>{
+    const config=normalizeSettings({embeddingKeys:{gemini:'private-fixture-key'}});
+    await assert.rejects(embed(config,'test',false,undefined,async()=>({ok:false,status:403,text:async()=>JSON.stringify({error:{message:'API key private-fixture-key is restricted'}})})),e=>e.message.includes('403')&&e.message.includes('restricted')&&!e.message.includes('private-fixture-key'));
 });

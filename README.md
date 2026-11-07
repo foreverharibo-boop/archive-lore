@@ -13,7 +13,9 @@
 - 사이드별 프롬프트·이름 편집, 켜기·끄기, 사용자 항목 추가 · 켠 항목은 기억 수집과 같은 요청으로 실행
 - 관계·이별·재회 D+를 RP 날짜로 계산 · 날짜 직접 수정 가능
 - 변경 전 사이드 기록 보존 · 기본 프롬프트 편집 및 가져오기/내보내기
-- AI Studio / Vertex AI Express 임베딩 키 직접 입력 · 제공자별 키 보관
+- AI Studio 임베딩 키 직접 입력 · 기본 모델 자동 적용 · 실제 API 오류 표시
+- 서버 플러그인: 브라우저 종료 후에도 접수된 수집·임베딩·검색·기억 정리 계속 실행
+- 서버 작업·벡터·진단·초안 저장 및 재접속 후 확인
 - 턴별 검색·선별·주입 진단 기록과 TXT 다운로드
 - 로어북 매니저의 기존 번역 표시 · 프롬프트 전체화면 편집
 - SillyTavern 테마를 따르는 모바일 UI · 슬래시 명령어
@@ -22,6 +24,10 @@
 
 [설치·동작·제한 사항](userguides/1%20Memory_Books_AI_Reference_Manual.md) · [기본 프롬프트](prompts/archive-lore-defaults.json)
 
-**0.2.0:** 자동화·브라우저 모의 검사는 완료했으며, 실제 모델의 기억 수집 품질과 사용자 SillyTavern 환경에서의 검증은 아직 필요합니다.
+**0.3.0:** 자동화·브라우저 모의 검사는 완료했으며, 실제 모델의 기억 수집 품질과 사용자 SillyTavern 환경에서의 검증은 아직 필요합니다.
+
+서버 플러그인은 같은 저장소를 SillyTavern의 `plugins/archive-lore-server`에도 설치합니다. 확장과 서버 복사본을 함께 업데이트해 주세요. [설치 명령·서버 모드 안내](userguides/1%20Memory_Books_AI_Reference_Manual.md#server-plugin-installation-and-lifecycle)
+
+**Vertex AI Express 임베딩 선택지 정정:** 공식 Express 지원 목록에 `gemini-embedding-001`이 없습니다. 기존 키는 유지하지만 미지원 요청을 보내지 않습니다. 임베딩에는 Google AI Studio 키를 사용해 주세요. [Google 공식 지원 목록](https://docs.cloud.google.com/vertex-ai/generative-ai/docs/start/express-mode/overview)
 
 Original Memory Books © 2024–2026 Aiko Hanasaki. Archive Lore modifications © 2026 foreverharibo-boop. [AGPL-3.0-only](LICENSE).

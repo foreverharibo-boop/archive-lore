@@ -16,12 +16,16 @@ import { ask, embed, createVectorStore, makeId } from './lore-api.js';
 import { createLoreController } from './lore-controller.js';
 import { createDiagnostics, createDiagnosticStore } from './lore-diagnostics.js';
 import { linkedTranslation } from './lore-translations.js';
+import { proxies } from '../../../openai.js';
+import { createServerClient,serverVectorStore,createServerController,profileTemplate } from './lore-server.js';
+import { matchesRange } from './lore-core.js';
 import { createLoreUI } from './lore-ui.js';
 
 const PROMPT = 'archive-lore-recalled', CORE_PROMPT = 'archive-lore-core';
 let ui, recalled = new Set(), activeBooks = [], writing = false, generationInFlight=false, autoTimer=null, autoAttempt='', autoPending=false;
 const settings = () => extension_settings[NS];
 function saveSettings(patch = {}) {
+    if(Object.hasOwn(patch,'serverEnabled') && controller.state().busy)throw Error('진행 중인 작업이 끝난 뒤 실행 위치를 바꿔 줘.');
     extension_settings[NS] = normalizeSettings({ ...extension_settings[NS], ...patch });
     extension_settings[NS].cacheNamespace ||= makeId();
     saveSettingsDebounced(); clearPrompts();
@@ -102,7 +106,9 @@ const diagnostics = createDiagnostics({store:createDiagnosticStore(),
     warning:message=>toastr.warning(message,'Archive Lore'),
 });
 let pendingGeneration = null;
-const controller = createLoreController({
+const serverCall=createServerClient({headers:getRequestHeaders});
+const vectorStore=serverVectorStore({local:createVectorStore(),call:serverCall,enabled:()=>!!settings()?.serverEnabled});
+const localController = createLoreController({
     diagnostics,profileInfo:()=>{const profiles=getContext().extensionSettings?.connectionManager?.profiles || [];return profiles.filter(p=>[settings().profile,settings().searchProfile,getContext().extensionSettings?.connectionManager?.selectedProfile].includes(p.id)).map(p=>({id:p.id,name:p.name,model:p.model}));},
     settings, context:chatContext, books, target, initialStart:()=>chatSettings().initialStart || 0,
     ensureBook, loadBook, saveBook,
@@ -115,11 +121,44 @@ const controller = createLoreController({
         if(chatContext().messages.slice(range.start,range.end+1).some(m=>!m.is_system))throw Error('기억은 저장했지만 자동 숨기기에 실패했어. 수집 버튼으로 재시도해 줘.');
     },
     newEntry:data=>{const entry=createWorldInfoEntry('',data);if(!entry)throw new Error('새 기억 항목을 만들 수 없어.');return entry;},
-    store:createVectorStore(), embed,
+    store:vectorStore, embed:(config,text,query,signal)=>config.serverEnabled?serverCall('/embedding',{settings:config,text,query}).then(r=>r.vector):embed(config,text,query,signal),
     ask:(profile,system,data,signal,tokens)=>ask(getContext(),profile,system,data,signal,tokens),
     countTokens:text=>getContext().getTokenCountAsync(text,0),
     changed:()=>{void ui?.refresh().catch(error);if(autoPending&&!controller.state().busy&&!generationInFlight&&!writing)scheduleAutomatic();},
 });
+const controller=createServerController({local:localController,enabled:()=>!!settings()?.serverEnabled,settings,context:chatContext,call:serverCall,
+    changed:()=>{void ui?.refresh().catch(error);if(autoPending&&!controller.state().busy&&!generationInFlight&&!writing)scheduleAutomatic();},
+    generating:()=>generationInFlight||writing,countTokens:text=>getContext().getTokenCountAsync(text,0),
+    input:async(kind,options)=>{
+        const key=chatContext().key;if(!key)throw Error('채팅방에서 실행해 줘.');
+        if(kind==='collect')await ensureBook();
+        const c=getContext();if(typeof c.saveChat!=='function')throw Error('실리태번 대화 저장 기능을 찾을 수 없어.');await c.saveChat();
+        if(chatContext().key!==key)throw Error('채팅방이 바뀌어서 접수하지 않았어.');
+        const config=normalizeSettings(settings()),templates={};
+        if(kind!=='index'){
+            templates.collection=await profileTemplate(c,config.profile,proxies);
+            templates.search=config.searchProfile?await profileTemplate(c,config.searchProfile,proxies):templates.collection;
+        }
+        if(chatContext().key!==key)throw Error('채팅방이 바뀌어서 접수하지 않았어.');
+        const data={entries:{}},entryTemplate=createWorldInfoEntry('',data);
+        return {context:structuredClone(chatContext()),chat:{group:!!c.groupId,id:c.getCurrentChatId?.()||c.chatId,avatar:c.characters?.[c.characterId]?.avatar},settings:config,templates,books:books(),target:target(),initialStart:chatSettings().initialStart||0,options,entryTemplate};
+    },
+    sync:async job=>{
+        vectorStore.clear();
+        if(job.chatKey!==chatContext().key)return;
+        for(const source of job.hidden || [])if(matchesRange(source,chatContext().messages)){
+            const indices=(source.indices || []).filter(i=>!chatContext().messages[i]?.is_system);let start=null,end=null;
+            const hide=async()=>{if(start!==null){if(job.chatKey!==chatContext().key)throw new DOMException('채팅방 변경','AbortError');await executeSlashCommands(`/hide ${start}-${end}`);}};
+            for(const index of indices){if(start===null){start=index;end=index;}else if(index===end+1)end=index;else {await hide();start=end=index;}}await hide();
+        }
+        for(const book of job.books||[]){const data=await loadBook(book);worldInfoCache.set(book,structuredClone(data));await eventSource.emit(event_types.WORLDINFO_UPDATED,book,data);}
+        if(!generationInFlight)clearPrompts();
+    },
+});
+const diagnosticView={
+    async list(key){const local=await diagnostics.list(key);return settings()?.serverEnabled?[...local,...await serverCall('/logs',{chatKey:key})].sort((a,b)=>a.started.localeCompare(b.started)):local;},
+    async export(key,mode){const original=await diagnostics.export(key,mode);if(!settings()?.serverEnabled)return original;const runs=(await serverCall('/logs',{chatKey:key})).filter(r=>mode==='all'||r.mode===mode);return original+'\n\n===== SERVER JOB DIAGNOSTICS =====\n'+JSON.stringify(runs,null,2);},
+};
 function scheduleAutomatic() {
     autoPending=true;
     clearTimeout(autoTimer);
@@ -189,7 +228,7 @@ async function intercept(_chat,_contextSize,abort,type) {
         getContext().setExtensionPrompt(CORE_PROMPT,result.core,extension_prompt_types.IN_CHAT,1,false);
         await trace.event('injection.installed',{slots:[{name:PROMPT,text:result.text,position:'IN_CHAT',depth:1},{name:CORE_PROMPT,text:result.core,position:'IN_CHAT',depth:1}],selected:[...result.selected]});
         pendingGeneration={trace,key:context.key,messageCount:context.messages.length};
-    } catch(e){generationInFlight=false;await trace.finish('error',{message:e.message});clearPrompts();abort(true);error(e);}
+    } catch(e){await trace.finish('error',{message:e.message});if(chatContext().key===context.key){generationInFlight=false;clearPrompts();abort(true);error(e);}}
 }
 function nativePolicy(lists) {
     if(!settings().enabled)return;
@@ -209,7 +248,9 @@ function nativePolicy(lists) {
 }
 function init() {
     saveSettings();
-    ui=createLoreUI({settings,saveSettings,controller,context:chatContext,error,diagnostics,
+    ui=createLoreUI({settings,saveSettings,controller,context:chatContext,error,diagnostics:diagnosticView,
+        serverCheck:()=>serverCall('/status'),serverJobs:()=>controller.jobs(),
+        embeddingTest:async()=>{const config=normalizeSettings(settings());return config.serverEnabled?serverCall('/embedding-test',{settings:config}):{dimensions:(await embed(config,'Archive Lore connection test.',false)).length,model:config.embeddingModel};},
         translation:(book,entry)=>linkedTranslation(extension_settings,book,entry),
         profiles:()=>getContext().extensionSettings?.connectionManager?.profiles || [],
         bookNames:()=>[...world_names],books,target,
@@ -218,6 +259,7 @@ function init() {
         setInitialStart:async n=>{if(!Number.isInteger(n)||n<0||n>chatContext().messages.length)throw new Error('시작 번호를 확인해 줘.');await saveChatSettings({initialStart:n});},
         saveRecord,
     });
+    if(settings().serverEnabled)void controller.restore(true).catch(error);
     const settingsNode=document.createElement('div'); settingsNode.id='archive-lore-settings';settingsNode.className='extension_container';
     settingsNode.innerHTML='<div class="inline-drawer"><div class="inline-drawer-toggle inline-drawer-header"><b>Archive Lore</b><div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div></div><div class="inline-drawer-content" data-al-settings></div></div>';
     document.querySelector('#extensions_settings2')?.append(settingsNode);
@@ -228,7 +270,7 @@ function init() {
     document.querySelector('#extensionsMenu')?.append(menu);
     globalThis.archiveLoreInterceptor=intercept;
     eventSource.on(event_types.WORLDINFO_ENTRIES_LOADED,nativePolicy);
-    eventSource.on(event_types.CHAT_CHANGED,()=>{clearTimeout(autoTimer);autoPending=false;autoAttempt='';generationInFlight=false;controller.discardDraft();if(pendingGeneration)void pendingGeneration.trace.event('generation.chat-changed');pendingGeneration=null;controller.cancel();controller.clearRecall();clearPrompts();void ui.refresh().catch(error);});
+    eventSource.on(event_types.CHAT_CHANGED,()=>{clearTimeout(autoTimer);autoPending=false;autoAttempt='';generationInFlight=false;controller.detach();controller.discardDraft();if(pendingGeneration)void pendingGeneration.trace.event('generation.chat-changed');pendingGeneration=null;controller.clearRecall();clearPrompts();void ui.refresh().catch(error);});
     for(const event of [event_types.MESSAGE_EDITED,event_types.MESSAGE_DELETED,event_types.MESSAGE_SWIPED])if(event)eventSource.on(event,()=>{controller.cancel();clearPrompts();});
     if(event_types.GENERATION_STARTED)eventSource.on(event_types.GENERATION_STARTED,()=>{generationInFlight=true;clearTimeout(autoTimer);});
     if(event_types.MESSAGE_RECEIVED)eventSource.on(event_types.MESSAGE_RECEIVED,async index=>{

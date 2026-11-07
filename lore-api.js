@@ -44,11 +44,7 @@ export function embeddingRequest(settings, text, query = false) {
     if (!key) throw new Error('확장 설정에 임베딩 API 키를 입력해 줘.');
     const model = String(settings.embeddingModel || '').replace(/^models\//, '').trim();
     if (!model) throw new Error('임베딩 모델을 입력해 줘.');
-    if (settings.embeddingProvider === 'vertex') return {
-        url: `https://aiplatform.googleapis.com/v1/publishers/google/models/${encodeURIComponent(model)}:predict`,
-        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
-        body: { instances: [{ content: text, task_type: query ? 'RETRIEVAL_QUERY' : 'RETRIEVAL_DOCUMENT' }], parameters: { autoTruncate: false } },
-    };
+    if (settings.embeddingProvider === 'vertex') throw new Error('Vertex AI Express는 현재 임베딩 모델 지원 목록에 없어. Google AI Studio 임베딩 키로 바꿔 줘. 기존 Vertex 키는 그대로 보관돼.');
     if (settings.embeddingProvider === 'gemini') return {
         url: `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:embedContent`,
         headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
@@ -72,11 +68,14 @@ export async function embed(settings, text, query, signal, request = fetch) {
             signal: combined, credentials: 'omit', redirect: 'error' });
     } catch (error) {
         if (signal?.aborted) throw error;
-        throw new Error('임베딩 연결 실패: API 주소·네트워크·브라우저 CORS 지원을 확인해 줘.');
+        throw new Error(combined.aborted ? '임베딩 요청 시간이 초과됐어. 연결 확인 후 다시 시도해 줘.' : '임베딩 연결 실패: 네트워크 또는 브라우저 CORS 제한일 수 있어. 서버 플러그인을 연결해서 다시 시도해 줘.');
     }
     if (!response.ok) {
         const details = typeof response.text === 'function' ? await response.text() : '';
-        throw Object.assign(new Error(`임베딩 API 오류 (${response.status}). 키·모델·사용 한도를 확인해 줘.`), { details });
+        let message;try{const parsed=JSON.parse(details);message=parsed.error?.message || parsed.message;}catch{}
+        const key=settings.embeddingKeys?.[settings.embeddingProvider] || settings.embeddingKey;
+        message=String(message || '키·모델·사용 한도를 확인해 줘.').split(key || '__no_key__').join('[REDACTED]').slice(0,600);
+        throw Object.assign(new Error(`임베딩 API 오류 (${response.status}): ${message}`), { details:message });
     }
     const data = await response.json();
     const vector = settings.embeddingProvider === 'vertex' ? data?.predictions?.[0]?.embeddings?.values
@@ -86,8 +85,8 @@ export async function embed(settings, text, query, signal, request = fetch) {
     return vector;
 }
 export async function embeddingKey(settings, id, chunk) {
-    return digest(JSON.stringify([settings.cacheNamespace, settings.embeddingProvider,
-        settings.embeddingProvider === 'openai' ? settings.embeddingUrl : '', settings.embeddingModel, id, chunk]));
+    return 'embedding-v2:' + JSON.stringify([settings.cacheNamespace, settings.embeddingProvider,
+        settings.embeddingProvider === 'openai' ? settings.embeddingUrl : '', settings.embeddingModel, id, chunk]);
 }
 export function createVectorStore(factory = indexedDB) {
     let opening;
@@ -102,7 +101,12 @@ export function createVectorStore(factory = indexedDB) {
             const db = await database();
             return new Promise((resolve, reject) => {
                 const req = db.transaction('vectors').objectStore('vectors').get(key);
-                req.onsuccess = () => resolve(req.result); req.onerror = () => reject(req.error);
+                req.onsuccess = async () => {
+                    if(req.result || !key.startsWith('embedding-v2:')){resolve(req.result);return;}
+                    try{const raw=key.slice(13),oldKeys=[await digest(raw),'exact-v1:'+raw];let found;
+                        for(const old of oldKeys){found=await new Promise((ok,bad)=>{const r=db.transaction('vectors').objectStore('vectors').get(old);r.onsuccess=()=>ok(r.result);r.onerror=()=>bad(r.error);});if(found)break;}resolve(found);
+                    }catch(error){reject(error);}
+                }; req.onerror = () => reject(req.error);
             });
         },
         async put(key, value) {

@@ -24,6 +24,16 @@ function fixture(t){
 }
 const jsonLines=file=>fs.readFileSync(file,'utf8').trim().split('\n').map(l=>JSON.parse(l));
 const memory=()=>JSON.stringify({entries:[{title:'Hospital',content:'They agreed to visit and arrived at the hospital.',keywords:['hospital']}],sideChanges:[]});
+test('count presence does not load vector payloads or initialize persisted job history',async t=>{
+    const f=fixture(t);await f.service.vectors(f.user).put('saved',[1,2,3]);
+    const jobs=path.join(f.root,'archive-lore-server','jobs');fs.mkdirSync(jobs);fs.writeFileSync(path.join(jobs,randomUUID()+'.json'),'invalid job JSON must not be opened by counting');
+    const service=createJobService(f.dependencies);
+    const original=fs.readFileSync;let reads=0;
+    fs.readFileSync=function(...args){reads++;return original.apply(this,args);};
+    try{assert.deepEqual(await service.vectors(f.user).hasMany(['saved','missing']),[true,false]);assert.equal(reads,0);}
+    finally{fs.readFileSync=original;}
+    const other=fixture(t);assert.deepEqual(await service.vectors(other.user).hasMany(['saved']),[false]);
+});
 test('request-ID cancellation works before submission and before the accepted ID reaches the browser',async t=>{
     const f=fixture(t),early=randomUUID();
     f.service.cancel(f.user,undefined,early);

@@ -20,6 +20,12 @@ The native memory UI controls collection and side prompts. Search settings contr
 
 After a selected book is saved/edited, optional automatic embedding waits for current work/generation to finish and indexes pending chunks. Existing matching cached vectors are reused. The server plugin remains optional and handles Archive Lore retrieval, selection and embedding. **Native Memory Books collection, side prompts and maintenance run in the browser in this version; closing the browser is not supported for those jobs.** Do not assume old standalone server collection controls apply to the new native actions.
 
+## Embedding counts
+
+Opening search tools uses a dedicated, read-only count path instead of the full dashboard. It reads current book entries and checks vector keys; it does not restore jobs, synchronize completed jobs, read collection receipts, copy vectors or call an AI API. The last count for the current chat, selected books and embedding settings appears immediately with a “최근 확인” label while a fresh count runs. The first opening still needs a book/presence lookup. Entry edits, chat edits, settings changes and embedding work invalidate the cached count.
+
+Server counts reflect vectors already present on the server. Browser-only vectors therefore remain pending until indexing is executed; server indexing copies compatible browser vectors before submitting the job so they need not be generated again. Server 0.3.7 checks presence from filenames without loading vector payloads or persisted job history. Update both copies and restart SillyTavern for that optimization. Older plugins without the presence endpoint show an update error instead of silently doing hundreds of vector downloads.
+
 ## RP stop behavior
 
 The RP stop button cancels Archive Lore retrieval (question generation, embeddings and AI selection), native in-flight tasks, and queued automatic embedding. A following generation-ended event does not restart the canceled automatic work. Late recall results cannot install prompts after stopping. Server cancellation also uses the client request ID when submission has not yet returned a job ID; update both extension and server plugin and restart SillyTavern to enable this path (server 0.3.6). Chat switching still detaches persistent server jobs rather than canceling them. Completed saved memories are retained. Cancellation aborts outgoing requests; an external provider may already have processed or billed work before receiving the disconnect.

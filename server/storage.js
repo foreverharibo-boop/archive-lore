@@ -18,5 +18,12 @@ export function inside(root,...parts) {
 export function json(file,fallback) {try{return JSON.parse(fs.readFileSync(file,'utf8'));}catch(e){if(e.code==='ENOENT'&&fallback!==undefined)return fallback;throw e;}}
 export function privateStore(root,folder) {
     const dir=path.join(root,folder);fs.mkdirSync(dir,{recursive:true,mode:0o700});
-    return {get:async key=>json(inside(dir,hash(key)+'.json'),null),put:async(key,value)=>atomic(inside(dir,hash(key)+'.json'),value)};
+    return {
+        get:async key=>json(inside(dir,hash(key)+'.json'),null),
+        hasMany:async keys=>{
+            const files=new Set(fs.readdirSync(dir,{withFileTypes:true}).filter(entry=>entry.isFile()).map(entry=>entry.name));
+            return keys.map(key=>files.has(hash(key)+'.json'));
+        },
+        put:async(key,value)=>atomic(inside(dir,hash(key)+'.json'),value),
+    };
 }

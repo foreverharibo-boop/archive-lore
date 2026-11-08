@@ -124,36 +124,44 @@ export function createServerController({local,enabled,settings,context,input,cal
         if(!enabled())return kind==='index'?local.index(options.force):local[kind](options);
         if(activeRun)throw Error('서버 작업이 진행 중이야. 내역에서 완료를 기다리거나 중지해 줘.');
         const started=Date.now();
+        const clientStages={};
+        const measured=async(name,fn)=>{
+            const start=Date.now();
+            try{return await fn();}finally{clientStages[name]=(clientStages[name]||0)+Date.now()-start;}
+        };
         const epoch=detached,key=context().key;
         const runState={abort:new AbortController(),requestId:makeId(),submitted:false};activeRun=runState;
         local.invalidateEmbeddingCounts?.();
         const signal=runState.abort.signal;
         const check=()=>{signal.throwIfAborted();if(epoch!==detached||key!==context().key)throw new DOMException('채팅방 변경 · 서버 작업은 유지됩니다.','AbortError');};
         try{
-            await withAbort(()=>restore(true),signal);check();
+            await measured('restoreMs',()=>withAbort(()=>restore(true),signal));check();
             if(current&&active(current))throw Error('서버 작업이 진행 중이야. 내역에서 완료를 기다리거나 중지해 줘.');
             clearTimeout(poll);pollingRun=true;
             status='서버 작업 접수 중';current={status:'queued',message:status};changed?.();
             if(kind==='index'){await withAbort(()=>local.prepareEmbedding?.(signal),signal);check();}
-            const payload=await withAbort(()=>input(kind,options),signal);check();
+            const payload=await measured('inputMs',()=>withAbort(()=>input(kind,options),signal));check();
             runState.submitted=true;
-            const job=await withAbort(()=>call('/jobs',{kind,input:payload,requestId:runState.requestId},{signal}),signal);check();current=job;
+            const job=await measured('submitMs',()=>withAbort(()=>call('/jobs',{kind,input:payload,requestId:runState.requestId},{signal}),signal));check();current=job;
             await externalTrace?.event('server.accepted',{id:job.id,kind});
             while(true){
                 check();
                 if(epoch!==detached||key!==context().key)throw new DOMException('다른 채팅방으로 이동했어. 서버 작업은 계속돼.','AbortError');
-                const value=await getJob(job.id,signal);check();
+                const value=await measured('pollMs',()=>getJob(job.id,signal));check();
                 if(epoch!==detached||key!==context().key)throw new DOMException('채팅방 변경 · 서버 작업은 유지됨','AbortError');
                 current=value;status=value.message;changed?.();
                 if(!active(value)){
                     current=null;view=[...view.filter(j=>j.id!==value.id),value];
                     if(value.status!=='completed')throw Error(value.message);
-                    await finish(value);check();let result=value.result;
+                    await externalTrace?.event('server.result-received',{id:value.id,serverStarted:value.started,serverFinished:value.finished,clientStages:{...clientStages}});
+                    await measured('syncMs',()=>finish(value));check();let result=value.result;
                     if(kind==='recall'){
+                        const validationStarted=Date.now();
                         const messages=payload.context.messages;if(messages.length!==context().messages.length || (messages.length&&!matchesRange(sourceRange(messages,0,messages.length-1),context().messages)))throw Error('검색 중 대화가 바뀌어서 주입하지 않았어. 다시 시도해 줘.');
-                        const fitted=await fitInjection(result.lastRecall.units,normalizeSettings(settings()).injectionTokens,countTokens);
+                        clientStages.validationMs=Date.now()-validationStarted;
+                        const fitted=await measured('fitMs',()=>fitInjection(result.lastRecall.units,normalizeSettings(settings()).injectionTokens,countTokens));
                         check();
-                        lastRecall={...result.lastRecall,...fitted,timings:{...result.lastRecall.timings,clientTotalMs:Date.now()-started},records:result.lastRecall.records.filter(r=>r.entry.constant || fitted.units.some(u=>u.entryId===r.id))};result={...result,...fitted,selected:new Set(fitted.units.map(u=>u.entryId))};
+                        lastRecall={...result.lastRecall,...fitted,timings:{...result.lastRecall.timings,clientTotalMs:Date.now()-started,clientStages:{...clientStages}},records:result.lastRecall.records.filter(r=>r.entry.constant || fitted.units.some(u=>u.entryId===r.id))};result={...result,...fitted,selected:new Set(fitted.units.map(u=>u.entryId))};
                         await externalTrace?.event('server.recall',{id:value.id,core:result.core,...fitted,timings:lastRecall.timings});await externalTrace?.finish('success');
                     }
                     check();
@@ -161,7 +169,7 @@ export function createServerController({local,enabled,settings,context,input,cal
                     if(epoch!==detached||key!==context().key)throw new DOMException('채팅방 변경 · 서버 작업은 유지됨','AbortError');
                     return result;
                 }
-                await withAbort(()=>wait(900),signal);
+                await measured('pollSleepMs',()=>withAbort(()=>wait(900),signal));
             }
         }catch(error){
             if(epoch===detached&&key===context().key)status=error.message;

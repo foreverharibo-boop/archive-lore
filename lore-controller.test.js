@@ -331,3 +331,33 @@ test('dashboard counts whole entries, leaving partially embedded long entries pe
     f.host.embed=async()=>[1,0];await f.controller.index();view=await f.controller.dashboard();assert.equal(view.embedded,2);assert.equal(view.pending,0);
     f.book.entries[0].content='Changed fact.';view=await f.controller.dashboard();assert.equal(view.embedded,1);assert.equal(view.pending,1);
 });
+
+test('an empty question plan returns core without vector lookups, query embeddings or selector calls',async()=>{
+    const f=fixture();f.config={mode:'questions'};
+    f.book={entries:{0:{uid:0,content:'Current relationship',constant:true},1:{uid:1,content:'Past event'}}};
+    f.replies.push('{"questions":[]}');
+    f.host.store.get=()=>assert.fail('no vector lookup for an empty plan');
+    f.host.embed=()=>assert.fail('no embedding for an empty plan');
+    const result=await f.controller.recall();
+    assert.equal(result.core,'Current relationship');assert.equal(result.text,'');
+    assert.equal(f.calls.filter(c=>typeof c==='object').length,1);
+});
+
+test('English event anchors reach the selector when all vector lanes prefer unrelated scenes',async()=>{
+    const f=fixture();f.config={mode:'questions',candidateCount:4};
+    f.messages.splice(0,f.messages.length,{mes:'We are sitting on the sofa.'},{is_user:true,mes:'처음 안전교육 때 숙제가 뭐였지?'});
+    f.book={entries:{...Object.fromEntries(Array.from({length:20},(_,i)=>[i,{uid:i,comment:'Evening',content:'They sit on the sofa.'}])),
+        20:{uid:20,comment:'2031-06-20 First training',content:'First safety training. The instructor assigned a thirty-minute drill. The attempt ended after fifteen minutes.'}}};
+    f.host.embed=async(_s,text,query)=>query?[1,0]:text.includes('safety')?[.1,1]:[1,0];
+    await f.controller.index();
+    f.host.ask=async(_p,system,data)=>{
+        if(system.includes('"questions":'))return '{"questions":["What was the first safety training assignment and drill duration?"]}';
+        const assignment=data.memories.find(u=>u.text.includes('thirty-minute'));
+        const outcome=data.memories.find(u=>u.text.includes('fifteen minutes'));
+        assert(assignment);assert(outcome);
+        return JSON.stringify({selections:[{id:assignment.id,priority:3,reason:'original assignment and actual outcome',contextIds:[outcome.id]}]});
+    };
+    const result=await f.controller.recall();
+    assert.match(result.text,/2031-06-20/);assert.match(result.text,/thirty-minute/);assert.match(result.text,/fifteen minutes/);
+    assert(!result.text.includes('sofa'));
+});

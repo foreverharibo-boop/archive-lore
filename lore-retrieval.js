@@ -12,8 +12,37 @@ export function retrievalFocus(messages, count) {
 
 const chunkKey = c => JSON.stringify([c.id,c.index]);
 
+// Retrieval anchors are a supplementary lane, never a reason to inject a memory.
+// Document frequency is measured per entry so long records do not dominate it.
+const stopWords = new Set('a an the and or of to in on at for from with by as is was were are be been being do did does have has had what which who when where how why that this these those it its they their them he his him she her we our us you your about happened remember recall would could should can will then there during into through'.split(' '));
+function anchorTerms(text) {
+    return String(text).toLowerCase().normalize('NFKC').match(/[\p{L}\p{N}]+/gu)?.filter(t=>t.length>1&&!stopWords.has(t)) || [];
+}
+export function rankAnchors(chunks, queries) {
+    const entries=new Map(), terms=new Map();
+    for(const chunk of chunks){
+        const words=new Set(anchorTerms(chunk.text));terms.set(chunkKey(chunk),words);
+        if(!entries.has(chunk.id))entries.set(chunk.id,new Set());
+        for(const word of words)entries.get(chunk.id).add(word);
+    }
+    const frequency=new Map();
+    for(const words of entries.values())for(const word of words)frequency.set(word,(frequency.get(word)||0)+1);
+    const requests=queries.map(q=>[...new Set(anchorTerms(q))]);
+    return chunks.map(chunk=>{
+        const words=terms.get(chunkKey(chunk));let anchorScore=0;
+        for(const query of requests){
+            // Names shared by most entries are not enough to reserve a candidate.
+            const hits=query.filter(t=>words.has(t)&&(frequency.get(t)||0)<=Math.max(1,entries.size*.5));
+            if(hits.length<2)continue;
+            const score=hits.reduce((sum,t)=>sum+Math.log(1+entries.size/(frequency.get(t)||1)),0);
+            anchorScore=Math.max(anchorScore,score);
+        }
+        return {...chunk,anchorScore};
+    }).filter(c=>c.anchorScore>0).sort((a,b)=>b.anchorScore-a.anchorScore);
+}
+
 // Reciprocal ranks combine separate searches without letting any one long older message win by max similarity.
-export function rankFocusedChunks(chunks, { focus = [], context = [], questions = [] }) {
+export function rankFocusedChunks(chunks, { focus = [], context = [], questions = [] }, queryTexts = []) {
     const lanes = [['focus',focus,.65],['questions',questions,.25],['context',context,.1]].filter(([,q])=>q.length);
     const rows = new Map();
     for (const [lane, vectors, weight] of lanes) {
@@ -27,6 +56,10 @@ export function rankFocusedChunks(chunks, { focus = [], context = [], questions 
             rows.set(key,row);
         });
     }
+    rankAnchors(chunks,queryTexts).forEach((chunk,index)=>{
+        const key=chunkKey(chunk),row=rows.get(key)||{...chunk,score:0};
+        row.anchorRank=index+1;row.anchorScore=chunk.anchorScore;rows.set(key,row);
+    });
     return [...rows.values()].sort((a,b)=>b.score-a.score);
 }
 
@@ -39,6 +72,14 @@ export function chooseCandidates(ranked, limit, mode = 'dialogue') {
     };
     const focused = ranked.filter(r=>r.focusRank).sort((a,b)=>a.focusRank-b.focusRank);
     const questioned = ranked.filter(r=>r.questionsRank).sort((a,b)=>a.questionsRank-b.questionsRank);
+    const anchored = ranked.filter(r=>r.anchorRank).sort((a,b)=>a.anchorRank-b.anchorRank);
+    // Reserve distinct event records, not multiple chunks of the same event.
+    const anchorEntries=new Set();
+    for(const row of anchored){
+        if(selected.length>=Math.ceil(limit/4))break;
+        if(anchorEntries.has(row.id))continue;
+        add(row,true);anchorEntries.add(row.id);
+    }
     if (mode === 'questions' && questioned.length) {
         // Preserve the question's top hits before fused ranks or per-entry diversity can displace them.
         for (const row of questioned) { if (selected.length>=Math.ceil(limit/2)) break; add(row,false); }
@@ -81,7 +122,8 @@ export function reviewBatches(units, budget = 10000) {
     const entries=new Map(), batches=[];
     for(const unit of units){if(!entries.has(unit.entryId))entries.set(unit.entryId,[]);entries.get(unit.entryId).push(unit);}
     let batch=[], cost=0;
-    const size=u=>estimateTokens(JSON.stringify(u));
+    // Measure exactly what the selector sees; source hashes/book paths stay local.
+    const size=u=>estimateTokens(JSON.stringify(selectorUnit(u,`e${units.length}`)));
     for(const entry of entries.values()) {
         entry.sort((a,b)=>a.index-b.index);
         const total=entry.reduce((sum,u)=>sum+size(u),0);
@@ -103,4 +145,15 @@ export function reviewBatches(units, budget = 10000) {
     }
     if(batch.length)batches.push(batch);
     return batches;
+}
+
+function selectorUnit(unit,entryId) {
+    return {id:unit.id,entryId,title:unit.title,index:unit.index,text:unit.text};
+}
+export function selectorMemories(units) {
+    const entries=new Map();
+    return units.map(unit=>{
+        if(!entries.has(unit.entryId))entries.set(unit.entryId,`e${entries.size}`);
+        return selectorUnit(unit,entries.get(unit.entryId));
+    });
 }

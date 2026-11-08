@@ -151,3 +151,49 @@ test('transitive attribution dependencies cannot be orphaned by client re-budget
     const smaller=await fitInjection(result.units,result.tokens-1,t=>t.length);
     assert(!smaller.text.includes('Her ring'));assert(smaller.text.includes('His ring reads B A.'));
 });
+
+test('event anchors reserve a buried first occurrence despite misleading vector ranks',async()=>{
+    const {rankAnchors}=await import('./lore-retrieval.js');
+    const ranked=Array.from({length:24},(_,i)=>({id:'background-'+i,index:0,score:1-i/100,focusRank:i+1,questionsRank:i+1,
+        text:'Avery and Robin sit on the sofa and talk about their day.'}));
+    const first={id:'first',index:0,score:.1,focusRank:25,questionsRank:25,
+        text:'2031-06-20. First safety training. The instructor assigned a thirty-minute evacuation drill. Robin stopped after fifteen minutes.'};
+    const followup={id:'later',index:0,score:.2,focusRank:24,questionsRank:24,
+        text:'2031-06-27. Second safety training. Robin reported failing the drill after fifteen minutes.'};
+    ranked.push(followup,first);
+    const anchors=rankAnchors(ranked,['What was the first safety training assignment and drill duration?']);
+    anchors.forEach((row,i)=>Object.assign(ranked.find(r=>r.id===row.id),{anchorRank:i+1,anchorScore:row.anchorScore}));
+    const result=chooseCandidates(ranked,8,'questions');
+    assert(result.some(r=>r.id==='first'));assert.equal(result.length,8);
+    assert.equal(new Set(result.map(r=>r.id+':'+r.index)).size,8);
+    assert.deepEqual(rankAnchors(ranked,['What did Avery and Robin do?']),[],'shared names cannot reserve the whole book');
+});
+
+test('compact review keeps every source sentence and identity without sending source hashes or book paths',async()=>{
+    const {selectorMemories,reviewBatches}=await import('./lore-retrieval.js');
+    const {estimateTokens}=await import('./lore-core.js');
+    const units=Array.from({length:60},(_,index)=>({id:'u'+index,entryId:'private-book-name-'.repeat(20)+(index<30?'one':'two'),
+        book:'private-book-name',title:index<30?'2031-06-20 First training':'2031-06-27 Second training',index,
+        text:'The instructor assigned a thirty-minute drill; the attempt lasted fifteen minutes.',source:{start:0,end:30,hashes:Array(30).fill('hash')}}));
+    const payload=selectorMemories(units),batches=reviewBatches(units,1000);
+    assert.deepEqual(payload.map(u=>[u.id,u.title,u.index,u.text]),units.map(u=>[u.id,u.title,u.index,u.text]));
+    assert.equal(new Set(payload.map(u=>u.entryId)).size,2);
+    assert(!JSON.stringify(payload).includes('private-book'));assert(!JSON.stringify(payload).includes('hash'));
+    assert(estimateTokens(JSON.stringify(payload))<estimateTokens(JSON.stringify(units))/3);
+    assert.equal(new Set(batches.flat().map(u=>u.id)).size,60);
+    assert(batches.every(b=>estimateTokens(JSON.stringify(selectorMemories(b)))<=1000));
+    const selected=selectedUnits(JSON.stringify({selections:[{id:'u0',priority:3,reason:'assignment',contextIds:['u1']}]}),units);
+    const result=await fitInjection(selected,3000);
+    assert.equal(result.units[0].entryId,units[0].entryId);assert.deepEqual(result.units[0].source,units[0].source);
+    assert(result.text.includes('2031-06-20'));
+});
+
+test('revision-three defaults migrate without overwriting customized prompts or changing stored embeddings',async()=>{
+    const {PREVIOUS_QUESTIONS,PREVIOUS_SELECT}=await import('./lore-prompts.js');
+    const migrated=normalizeSettings({promptRevision:3,prompts:{questions:PREVIOUS_QUESTIONS,select:PREVIOUS_SELECT}});
+    assert.equal(migrated.promptRevision,4);assert.equal(migrated.prompts.questions,DEFAULT_PROMPTS.questions);
+    assert.equal(migrated.prompts.select,DEFAULT_PROMPTS.select);
+    assert.match(migrated.prompts.questions,/English/);assert.match(migrated.prompts.select,/original conditions/);
+    const custom=normalizeSettings({promptRevision:3,prompts:{questions:'My custom questions',select:'My custom selector'}});
+    assert.equal(custom.prompts.questions,'My custom questions');assert.equal(custom.prompts.select,'My custom selector');
+});

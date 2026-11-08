@@ -72,7 +72,12 @@ export function createJobService({sanitize,ask,embedRequest=embed}) {
             countTokens:async text=>estimateTokens(text),diagnostics,profileInfo:()=>Object.entries(input.templates||{}).map(([role,p])=>({role,model:p.model,source:p.chat_completion_source})),
             hideRange:async(range)=>{const chat=readChat(s,input),source=sourceRange(chat.messages,range.start,range.end);for(let i=range.start;i<=range.end;i++)chat.lines[chat.offset+i].is_system=true;
                 if(fs.readFileSync(chat.file,'utf8')!==chat.raw)throw Error('채팅 파일이 바뀌어서 숨기기를 멈췄어.');backup(s,job,chat.file,chat.raw);atomic(chat.file,chat.lines.map(l=>JSON.stringify(l)).join('\n')+'\n');job.hidden.push(source);save(s,job);},
-            changed:()=>{job.message=clean(controller.state().status);save(s,job);},
+            changed:()=>{
+                const message=clean(controller.state().status);
+                // Identical selection progress must not rewrite the entire saved chat each batch.
+                if(message===job.message)return;
+                job.message=message;save(s,job);
+            },
         };
         let restoredDraft=false;const controller=createLoreController(host);s.controllers.set(job.id,controller);
         try{

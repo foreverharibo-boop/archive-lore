@@ -150,6 +150,46 @@ try{
     assert(await page.locator('#stmb-profile-model').isVisible());
     await page.setViewportSize({width:390,height:900});
     await page.goto('http://127.0.0.1:'+server.address().port);await page.waitForFunction(()=>window.ready);
+    // Reproduce host !important controls overriding only half of a custom palette.
+    await page.addStyleTag({content: `
+        body.host-light :is(.menu_button,.text_pole,select,.select2-selection) {background:#fff!important;color:#e6e9f4!important;-webkit-text-fill-color:#e6e9f4!important;text-shadow:0 0 3px white!important;}
+        body.host-dark :is(.menu_button,.text_pole,select,.select2-selection) {background:#101218!important;color:#222224!important;-webkit-text-fill-color:#222224!important;text-shadow:0 0 3px black!important;}
+    `});
+    const luminance=rgb=>{
+        const values=rgb.match(/[\d.]+/g).slice(0,3).map(Number).map(v=>{v/=255;return v<=.04045?v/12.92:((v+.055)/1.055)**2.4;});
+        return values[0]*.2126+values[1]*.7152+values[2]*.0722;
+    };
+    const contrast=(a,b)=>{const x=luminance(a),y=luminance(b);return (Math.max(x,y)+.05)/(Math.min(x,y)+.05);};
+    for(const host of ['host-light','host-dark'])for(const palette of ['rose','lavender','sage','midnight']){
+        await page.evaluate(({host,palette})=>{
+            document.body.className=host;prefsSettings={moduleSettings:{archiveLorePalette:palette}};mountPreferences();
+            const footer=document.createElement('div');footer.className='popup-controls';footer.innerHTML='<button class="menu_button" id="test-close"><span>닫기</span></button><button class="menu_button" disabled>진행 중</button>';
+            document.querySelector('#content').append(footer);
+            const sample=document.createElement('div');sample.innerHTML='<div class="al-feature-home"><button class="menu_button al-feature-button" id="al-native-collect">지금 수집</button><button class="menu_button al-feature-button" id="test-text-action">설정</button></div><input class="text_pole" value="입력한 텍스트"><textarea class="text_pole">입력한 본문</textarea><span class="select2-selection"><span class="select2-selection__rendered">선택한 프로필</span></span>';document.querySelector('#content').append(sample);
+        },{host,palette});
+        for(const selector of ['.al-native-preferences button','#test-close','#al-native-collect','#al-layout','input.text_pole','textarea','.select2-selection']){
+            const style=await page.locator(selector).evaluate(el=>{const s=getComputedStyle(el);return {bg:s.backgroundColor,fg:s.color,fill:s.webkitTextFillColor,shadow:s.textShadow};});
+            assert(contrast(style.bg,style.fg)>=4.5,host+' '+palette+' '+selector+' must remain readable');
+            assert.equal(style.fg,style.fill);assert.equal(style.shadow,'none');
+        }
+        assert.equal(await page.locator('#test-close span').evaluate(el=>getComputedStyle(el).color),await page.locator('#test-close').evaluate(el=>getComputedStyle(el).color));
+        const normal=await page.locator('#test-close').evaluate(el=>getComputedStyle(el).backgroundColor);
+        await page.locator('#test-close').hover();
+        const hovered=await page.locator('#test-close').evaluate(el=>({bg:getComputedStyle(el).backgroundColor,fg:getComputedStyle(el).color}));
+        assert.notEqual(hovered.bg,normal);assert(contrast(hovered.bg,hovered.fg)>=4.5);
+        await page.locator('#test-close').focus();
+        assert.notEqual(await page.locator('#test-close').evaluate(el=>getComputedStyle(el).outlineStyle),'none');
+        assert.equal(await page.locator('#test-text-action').evaluate(el=>getComputedStyle(el).backgroundColor),'rgba(0, 0, 0, 0)');
+        assert(await page.locator('.popup-controls button:disabled').isDisabled());
+        await page.mouse.move(0,0);
+        if(host==='host-light')await page.screenshot({path:'/tmp/archive-lore-palette-'+palette+'.png',fullPage:true});
+    }
+    // Default and Original still inherit ST, rather than picking up a custom palette.
+    for(const layout of ['archive','original']){
+        await page.evaluate(layout=>{prefsSettings={moduleSettings:{archiveLoreLayout:layout,archiveLorePalette:layout==='original'?'midnight':'default'}};mountPreferences();},layout);
+        assert.equal(await page.locator('#al-layout').evaluate(el=>getComputedStyle(el).backgroundColor),'rgb(16, 18, 24)');
+    }
+    await page.evaluate(()=>{document.body.className='';prefsSettings={moduleSettings:{}};});
     // Persistent destination and palettes, then untouched original template/actions.
     for(const width of [320,1000]){
         await page.setViewportSize({width,height:900});await page.evaluate(()=>mountPreferences());

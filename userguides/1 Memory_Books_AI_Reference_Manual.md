@@ -3058,3 +3058,56 @@ switches and skipped after-memory work, retry limits and chat-change protection;
 the browser layout fixture checks mobile widths and larger text, profile action
 placement, embedding counts and subscription disposal. Live provider and Termux
 behavior still requires verification in the user's installation.
+
+
+### Archive Lore: immediate home, shared destinations and appearance (2026-11-08)
+
+The main wand menu now renders from settings, scene endpoints and saved progress.
+It does not await scene compilation/tokenization, preset-file initialization or
+manual-group filter reconciliation before displaying. The selected-scene token
+estimate is loaded when its section is expanded (after the initial paint when
+visible in Original mode). Preset text is loaded when View Prompt is expanded.
+Late detail responses are ignored after closing, switching chats/profiles or
+replacing the content. Collection still runs its full validation and compilation.
+
+Open **설정 → 로어북 연결·테마** in the Archive Lore home. In Original mode, use
+**아카이브 로어 추가 기능 → 로어북 연결·테마**. Apply the destination and appearance
+with **적용**. These are persistent extension settings, not chat metadata:
+
+- **기존 메모리북 연결 방식** (default): preserves native chat/manual bindings,
+  character locks and existing migration/search behavior.
+- **채팅 로어북 따라가기**: follows the current chat's ST lorebook binding.
+- **캐릭터의 월드 로어북 따라가기**: follows the solo character's primary world
+  lorebook. A new chat with that character uses the same book. An absent binding
+  or a group chat does not silently fall back to a different book.
+- **지정한 월드 로어북 계속 사용**: uses one explicitly selected existing world
+  lorebook across chats and characters. No new chat binding is required.
+
+Explicit routes govern native collection, automatic collection, catch-up,
+canonical memory lookup, tier counts, side-record defaults, review defaults and
+Archive Lore retrieval. Explicit group/narrator member books remain additional
+native destinations; side-record per-prompt overrides retain their native meaning.
+Missing/unreadable routed books fail validation instead of auto-creating or
+silently falling back to a chat book. Applying a route does not overwrite ST's
+chat/world bindings. A manual character lock must be released before choosing an
+explicit route. Destination changes are blocked during collection/search work.
+A shared book shares stored memories; each chat still has its own collection
+checkpoint. Existing memories are not moved or merged when changing this setting.
+
+**아카이브 로어** keeps the three-tab home. **오리지널 메모리북** renders the native
+Memory Books template, original controls/listeners and original footer buttons;
+Archive Lore collection shortcuts, retrieval, migration and preferences are
+appended separately. The original template is not run through the custom layout
+or help-text transformations. Both layouts use the same settings and data.
+
+Archive Lore palettes: **실리태번 기본**, **로즈**, **라벤더**, **세이지**,
+**미드나잇**. Colors are scoped to Archive Lore popup surfaces; Original mode
+inherits SillyTavern styling and retains the selected custom palette for later.
+Update the extension and reload the page for the rebuilt native bundle. This
+change requires no new server-plugin version.
+
+Validation covers persistent/character/chat routing, missing-book rejection,
+explicit member destinations, constant-time endpoint previews, original markup
+and event preservation, palette persistence, mobile widths and stale lazy-load
+results. Browser checks use a host-style fixture; live provider/Termux latency is
+not simulated and no fixed opening time is promised.

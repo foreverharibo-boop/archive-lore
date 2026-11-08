@@ -1,3 +1,6 @@
+import { nativePreferences, createNativePreferences, appendOriginalTools, BOOK_MODES } from './lore-native-preferences.js';
+import { scenePreview, mountLazyDetails } from './lore-native-lazy.js';
+import { getArchiveLoreBookRoute } from './utils.js';
 import { captureSettingsForm, acknowledgeSettingsControl, changedSettingsForm } from './lore-native-settings.js';
 import { titleFormatLabel } from './lore-native-title.js';
 import { createHomeContext } from './lore-native-home.js';
@@ -892,6 +895,8 @@ function getCurrentNarratorConfig() {
 }
 
 function getCurrentCanonicalLorebookName() {
+  const route=getArchiveLoreBookRoute();
+  if(route)return route.name;
   const settings = initializeSettings();
   if (settings.moduleSettings.manualModeEnabled) {
     return getCurrentManualLorebookResolution({ settings, markers: getSceneMarkers() || {} }).lorebookName || "";
@@ -1760,11 +1765,9 @@ async function validateStmbCatchupNonInteractive(settings, chunks) {
 
   const isManualMode = !!moduleSettings.manualModeEnabled;
   const stmbData = isManualMode ? getSceneMarkers() || {} : null;
-  const lorebookName = isManualMode
-    ? getCurrentManualLorebookResolution({ settings, markers: stmbData }).lorebookName
-    : chat_metadata?.[METADATA_KEY] || null;
+  const lorebookName = getCurrentCanonicalLorebookName();
   const canAutoCreateLorebook =
-    !isManualMode && !!moduleSettings.autoCreateLorebook;
+    !getArchiveLoreBookRoute() && !isManualMode && !!moduleSettings.autoCreateLorebook;
 
   if (!lorebookName && !canAutoCreateLorebook) {
     return __st_t_tag`/stmb-catchup is non-interactive. Select a valid ${isManualMode ? "manual" : "chat-bound"} lorebook before running it.`;
@@ -4488,10 +4491,11 @@ function getCurrentChatLorebookNames(settings) {
     const name = String(value || "").trim();
     if (name) names.add(name);
   };
-  add(chat_metadata?.[METADATA_KEY]);
+  const route=getArchiveLoreBookRoute();
+  add(route ? route.name : chat_metadata?.[METADATA_KEY]);
   const markers = getSceneMarkers() || {};
   if (settings?.moduleSettings?.manualModeEnabled) {
-    add(getCurrentManualLorebookResolution({ settings, markers }).lorebookName);
+    if(!route)add(getCurrentManualLorebookResolution({ settings, markers }).lorebookName);
     const groupSnapshot = createManualGroupLorebookBindingSnapshot(markers);
     Object.values(groupSnapshot.bindings || {}).forEach(add);
   }
@@ -7266,11 +7270,12 @@ function updateLorebookStatusDisplay() {
 
   const stmbData = getSceneMarkers() || {};
   const isManualMode = settings.moduleSettings.manualModeEnabled;
+  const route = getArchiveLoreBookRoute();
 
   // Update mode badge
   const modeBadge = document.querySelector("#stmb-mode-badge");
   if (modeBadge) {
-    modeBadge.textContent = isManualMode
+    modeBadge.textContent = route ? BOOK_MODES.find(([id])=>id===route.mode)?.[1] : isManualMode
       ? translate("Manual", "STMemoryBooks_Manual")
       : translate("Automatic (Chat-bound)", "STMemoryBooks_AutomaticChatBound");
   }
@@ -7278,9 +7283,7 @@ function updateLorebookStatusDisplay() {
   // Update active lorebook display
   const activeLorebookSpan = document.querySelector("#stmb-active-lorebook");
   if (activeLorebookSpan) {
-    const currentLorebook = isManualMode
-      ? getCurrentManualLorebookResolution({ settings, markers: stmbData }).lorebookName
-      : chat_metadata?.[METADATA_KEY];
+    const currentLorebook = getCurrentCanonicalLorebookName();
 
     activeLorebookSpan.textContent =
       currentLorebook ||
@@ -7304,7 +7307,8 @@ function updateLorebookStatusDisplay() {
     const infoText = automaticInfo.querySelector("small");
     if (infoText) {
       const chatBoundLorebook = chat_metadata?.[METADATA_KEY] ?? null;
-      infoText.innerHTML = chatBoundLorebook
+      if(route)infoText.textContent = `저장·검색 대상 · ${route.name || "연결된 로어북 없음"}`;
+      else infoText.innerHTML = chatBoundLorebook
         ? __st_t_tag`Using chat-bound lorebook "<strong>${chatBoundLorebook}</strong>"`
         : translate(
             "No chat-bound lorebook. Memories will require lorebook selection.",
@@ -8142,14 +8146,14 @@ function populateInlineButtons() {
     button.addEventListener("click", buttonConfig.action);
     promptButtonsContainer.appendChild(button);
   });
-  if (globalThis.archiveLoreFork) organizeMemoryBooks(currentPopupInstance?.dlg, {
+  if (globalThis.archiveLoreFork) {
+  const actions = {
     'al-context-panel': () => createHomeContext({
       settings, markers:getSceneMarkers(), length:chat.length,
-      book:settings.moduleSettings.manualModeEnabled
-        ? getCurrentManualLorebookResolution({settings,markers:getSceneMarkers()}).lorebookName
-        : chat_metadata?.[METADATA_KEY],
+      book:getCurrentCanonicalLorebookName(),
       books:[...getCurrentChatLorebookNames(settings)],
       changeBook:async()=>{
+        if(getArchiveLoreBookRoute())return showArchiveLorePreferences();
         if(isMemoryProcessing())throw new Error('수집이 끝난 뒤 로어북을 변경해 주세요.');
         const manual=settings.moduleSettings.manualModeEnabled;
         const character=characters?.[this_chid];
@@ -8174,11 +8178,16 @@ function populateInlineButtons() {
     'al-native-range': () => globalThis.archiveLoreSearch.openRange(),
     'al-native-consolidate': () => showSummaryConsolidationPopup({ showGoBack: true }),
     'al-native-books': () => globalThis.archiveLoreSearch.openRecords(),
+    'al-preferences': () => showArchiveLorePreferences(),
     'al-search-settings': () => globalThis.archiveLoreSearch.openSettings(),
     'al-search-tools': () => globalThis.archiveLoreSearch.openTools(),
     'al-migrate': (report) => globalThis.archiveLoreMigration(report),
     'al-native-clear': () => {clearScene();return refreshPopupContent();},
-  }, currentPopupInstance.content);
+  };
+  if(nativePreferences(settings).layout==='original')appendOriginalTools(currentPopupInstance.dlg,actions,currentPopupInstance.content);
+  else organizeMemoryBooks(currentPopupInstance.dlg,actions,currentPopupInstance.content);
+  }
+
 
 }
 
@@ -10984,11 +10993,12 @@ function initializeSettingsPopupSelect2(popupInstance = currentPopupInstance) {
 
 async function buildSettingsTemplateData({ includeSidePromptSets = false } = {}) {
   const settings = initializeSettings();
-  await SummaryPromptManager.firstRunInitIfMissing(settings);
-  const sceneData = await getSceneData({
+  const lightweight = globalThis.archiveLoreFork && !includeSidePromptSets;
+  if(!lightweight)await SummaryPromptManager.firstRunInitIfMissing(settings);
+  const sceneMarkers = getSceneMarkers();
+  const sceneData = lightweight ? scenePreview(sceneMarkers,chat) : await getSceneData({
     includeHiddenMessages: !!settings.moduleSettings.unhideBeforeMemory,
   });
-  const sceneMarkers = getSceneMarkers();
 
   // Build Regex script options (Global, Scoped, Preset), include disabled too.
   const selectedRegexOutgoing = Array.isArray(
@@ -11076,6 +11086,8 @@ async function buildSettingsTemplateData({ includeSidePromptSets = false } = {})
   return {
     aiReferenceManualUrl: aiReferenceManual.url,
     aiReferenceManualFilename: aiReferenceManual.filename,
+    archiveLoreRoute: getArchiveLoreBookRoute(),
+    lazyScene: lightweight,
     hasScene: !!sceneData,
     sceneData: sceneData,
     highestMemoryProcessed: sceneMarkers?.highestMemoryProcessed,
@@ -11113,8 +11125,8 @@ async function buildSettingsTemplateData({ includeSidePromptSets = false } = {})
       settings.moduleSettings.maxTokens ?? DEFAULT_MAX_TOKENS,
 
     // Lorebook status information
-    lorebookMode: isManualMode ? "Manual" : "Automatic (Chat-bound)",
-    currentLorebookName: isManualMode ? manualLorebook : chatBoundLorebook,
+    lorebookMode: getArchiveLoreBookRoute() ? BOOK_MODES.find(([id])=>id===getArchiveLoreBookRoute().mode)?.[1] : isManualMode ? "Manual" : "Automatic (Chat-bound)",
+    currentLorebookName: getCurrentCanonicalLorebookName(),
     manualLorebookName: manualLorebook,
     chatBoundLorebookName: chatBoundLorebook,
     availableLorebooks: world_names ?? [],
@@ -11197,7 +11209,7 @@ async function buildSettingsTemplateData({ includeSidePromptSets = false } = {})
                   : 0.7,
             },
       titleFormat: selectedProfile.titleFormat || defaultProfileTitleFormat,
-      effectivePrompt:
+      effectivePrompt: lightweight ? (selectedProfile.prompt || '') :
         selectedProfile.prompt && selectedProfile.prompt.trim()
           ? selectedProfile.prompt
           : selectedProfile.preset
@@ -11210,14 +11222,56 @@ async function buildSettingsTemplateData({ includeSidePromptSets = false } = {})
 /**
  * Show main settings popup
  */
+function mountArchiveLoreLazyDetails(popup) {
+  const settings=initializeSettings(),profile=settings.profiles[settings.defaultProfile];
+  const markers=getSceneMarkers(),start=markers?.sceneStart,end=markers?.sceneEnd;
+  const context=getContext(),chatId=context.chatId,chatRef=chat;
+  const selectedIndex=popup.content.querySelector('#stmb-profile-select')?.value;
+  const isCurrent=()=>currentPopupInstance===popup && popup.dlg.hasAttribute('open') && chat===chatRef && getContext().chatId===chatId && popup.content.querySelector('#stmb-profile-select')?.value===selectedIndex && settings.profiles[settings.defaultProfile]===profile && getSceneMarkers()?.sceneStart===start && getSceneMarkers()?.sceneEnd===end;
+  mountLazyDetails(popup.content,{
+    isCurrent,
+    hiddenSceneWarning:translate('More than 50% of the messages in this scene are hidden. Please ensure that the scene selection is correct.','STMemoryBooks_MostlyHiddenSceneWarning'),
+    loadPrompt:async()=>{await SummaryPromptManager.firstRunInitIfMissing(settings);return getEffectivePromptAsync(profile);},
+    loadScene:()=>{
+      const current=getSceneMarkers();
+      if(current?.sceneStart!==start || current?.sceneEnd!==end)return null;
+      return getSceneData({includeHiddenMessages:!!settings.moduleSettings.unhideBeforeMemory});
+    },
+  });
+}
+
+async function showArchiveLorePreferences() {
+  const settings=initializeSettings();let popup;
+  const panel=createNativePreferences({settings,books:[...world_names],activeBook:getCurrentCanonicalLorebookName(),save:async patch=>{
+    const before=nativePreferences(settings);
+    const routeChanged=patch.archiveLoreBookMode!==before.mode || (patch.archiveLoreBookMode==='fixed' && patch.archiveLoreBook!==before.book);
+    if(routeChanged && (isMemoryProcessing() || globalThis.archiveLoreSearch?.controller.state().busy))throw new Error('작업이 끝난 뒤 연결을 변경해 주세요.');
+    if(patch.archiveLoreBookMode==='fixed' && !world_names.includes(patch.archiveLoreBook))throw new Error('선택한 로어북을 찾을 수 없습니다. 다시 선택해 주세요.');
+    const locked=getCharacterMemoryBookLock(settings.characterMemoryBookLocks,characters?.[this_chid]?.avatar);
+    if(routeChanged && patch.archiveLoreBookMode!=='legacy' && settings.moduleSettings.manualModeEnabled && locked)throw new Error('캐릭터 로어북 잠금을 해제한 뒤 연결 방식을 변경해 주세요.');
+    Object.assign(settings.moduleSettings,patch);saveSettingsDebounced();
+    if(routeChanged){
+      globalThis.archiveLoreSearch?.clearPrompts();
+      globalThis.archiveLoreSearch?.controller.invalidateEmbeddingCounts();
+      void refreshMemoryTierMacroCache();
+    }
+    await popup.complete(POPUP_RESULT.CANCELLED);
+    const main=currentPopupInstance;
+    if(main){await main.complete(POPUP_RESULT.CANCELLED);void showSettingsPopup();}
+  }});
+  popup=markStmbPopup(new Popup(panel,POPUP_TYPE.TEXT,'',{wide:true,allowVerticalScrolling:true,okButton:false,cancelButton:translate('Close','STMemoryBooks_Close')}));
+  await popup.show();
+}
+
 async function showSettingsPopup() {
   const settings = initializeSettings();
-  try {
-    await reconcileCurrentManualGroupStloFilters(settings);
-  } catch (error) {
-    console.warn("STMemoryBooks: Failed to reconcile existing STLO character filters:", error);
-    toastr.warning(error?.message || String(error), "STMemoryBooks");
-  }
+  if(currentPopupInstance?.dlg?.hasAttribute('open'))return;
+  // Group filter reconciliation belongs to the background, not opening the menu.
+  const reconcile=()=>reconcileCurrentManualGroupStloFilters(settings).catch(error=>{
+    console.warn('STMemoryBooks: Failed to reconcile existing STLO character filters:',error);
+    toastr.warning(error?.message || String(error),'STMemoryBooks');
+  });
+  if(!globalThis.archiveLoreFork)await reconcile();
   const templateData = await buildSettingsTemplateData();
 
   const content = DOMPurify.sanitize(settingsTemplate(templateData));
@@ -11292,7 +11346,7 @@ async function showSettingsPopup() {
     wide: true,
     large: true,
     allowVerticalScrolling: true,
-    customButtons: globalThis.archiveLoreFork ? [] : customButtons,
+    customButtons: globalThis.archiveLoreFork && nativePreferences(settings).layout!=='original' ? [] : customButtons,
     cancelButton: translate("Close", "STMemoryBooks_Close"),
     okButton: false,
     onClose: handleSettingsPopupClose,
@@ -11310,7 +11364,13 @@ async function showSettingsPopup() {
     populateInlineButtons();
     initializeSettingsPopupSelect2(currentPopupInstance);
     captureSettingsForm(currentPopupInstance.dlg);
-    await currentPopupInstance.show();
+    const openedPopup=currentPopupInstance;
+    const closed=openedPopup.show();
+    if(globalThis.archiveLoreFork){
+      mountArchiveLoreLazyDetails(openedPopup);
+      requestAnimationFrame(()=>{if(currentPopupInstance===openedPopup)void reconcile();});
+    }
+    await closed;
   } catch (error) {
     console.error("STMemoryBooks: Error showing settings popup:", error);
     currentPopupInstance = null;
@@ -12464,7 +12524,7 @@ function handleSettingsFormPopupClose(popup) {
  */
 function handleSettingsPopupClose(popup) {
   handleSettingsFormPopupClose(popup);
-  currentPopupInstance = null;
+  if(currentPopupInstance===popup)currentPopupInstance = null;
 }
 
 /**
@@ -12476,9 +12536,11 @@ async function refreshPopupContent() {
   }
 
   try {
-    persistMainPopupSettings(currentPopupInstance.dlg);
+    const popup=currentPopupInstance;
+    persistMainPopupSettings(popup.dlg);
     const settings = initializeSettings();
     const templateData = await buildSettingsTemplateData();
+    if(currentPopupInstance!==popup || !popup.dlg.hasAttribute("open"))return;
     const newHtml = DOMPurify.sanitize(settingsTemplate(templateData));
 
     // Update the popup content directly
@@ -12509,6 +12571,7 @@ async function refreshPopupContent() {
     populateInlineButtons();
     initializeSettingsPopupSelect2(currentPopupInstance);
     captureSettingsForm(currentPopupInstance.dlg);
+    if(globalThis.archiveLoreFork)mountArchiveLoreLazyDetails(currentPopupInstance);
   } catch (error) {
     console.error("STMemoryBooks: Error refreshing popup content:", error);
   }
@@ -14856,6 +14919,7 @@ $(document).ready(() => {
 if (globalThis.archiveLoreFork) globalThis.archiveLoreMemoryBooks = {
   initialize: init, open: showSettingsPopup, settings: initializeSettings, busy: isMemoryProcessing,
   collect: collectNextArchiveLore, collectRange: runSceneMemoryRange, catchup: handleStmbCatchupCommand, stop: stmbStopAllInFlight,
+  route: getArchiveLoreBookRoute,
   books: () => [...getCurrentChatLorebookNames(initializeSettings())],
   refresh: refreshPopupContent,
   async saveMigrationPrompts(config, templates, setKey) {

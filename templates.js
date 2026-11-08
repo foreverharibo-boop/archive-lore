@@ -39,7 +39,7 @@ export const settingsTemplate = Handlebars.compile(`
 <span data-i18n="STMemoryBooks_End">End</span>: <span data-i18n="STMemoryBooks_Message">Message</span> #{{sceneData.sceneEnd}} ({{sceneData.endSpeaker}})
 {{sceneData.endExcerpt}}
 
-<span data-i18n="STMemoryBooks_Messages">Messages</span>: {{sceneData.messageCount}} | <span data-i18n="STMemoryBooks_EstimatedTokens">Estimated tokens</span>: {{sceneData.estimatedTokens}}</code></pre>
+<span data-i18n="STMemoryBooks_Messages">Messages</span>: {{sceneData.messageCount}} | <span data-i18n="STMemoryBooks_EstimatedTokens">Estimated tokens</span>: {{#if lazyScene}}<span data-al-scene-tokens>{{sceneData.estimatedTokens}}</span>{{else}}{{sceneData.estimatedTokens}}{{/if}}</code></pre>
                 {{#if sceneData.hasMostlyHiddenMessages}}
                 <small class="warning">⚠️ <span data-i18n="STMemoryBooks_MostlyHiddenSceneWarning">More than 50% of the messages in this scene are hidden. Please ensure that the scene selection is correct.</span></small>
                 {{/if}}
@@ -92,10 +92,14 @@ export const settingsTemplate = Handlebars.compile(`
 
             <div id="stmb-automatic-info" class="marginTop5" style="display: {{#if manualModeEnabled}}none{{else}}block{{/if}};">
                 <small class="opacity50p">
+                    {{#if archiveLoreRoute}}
+                        저장·검색 대상 · {{#if archiveLoreRoute.name}}{{archiveLoreRoute.name}}{{else}}연결된 로어북 없음{{/if}}
+                    {{else}}
                     {{#if chatBoundLorebookName}}
                         <span data-i18n="STMemoryBooks_UsingChatBound">Using chat-bound lorebook</span> "{{chatBoundLorebookName}}"
                     {{else}}
                         <span data-i18n="STMemoryBooks_NoChatBound">No chat-bound lorebook. Memories will require lorebook selection.</span>
+                    {{/if}}
                     {{/if}}
                 </small>
             </div>

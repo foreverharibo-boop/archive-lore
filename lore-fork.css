@@ -121,6 +121,26 @@
     .al-fork-surface #stmb-sp-set-controls tr {display:grid;grid-template-columns:1fr auto;align-items:center;}
     .al-fork-surface #stmb-sp-set-controls td:first-child {grid-column:1/-1;}
 }
+/* The native layout has its own fixed palette. The original CSS uses ST variables;
+   bind them locally to a classic dark palette based on upstream fallback colors. */
+.al-original-memorybooks[data-al-palette="memorybooks"] {
+    --SmartThemeBlurTintColor:#171717;--SmartThemeBodyColor:#dcdcd2;--SmartThemeBorderColor:#55534e;
+    --SmartThemeQuoteColor:#e18a24;--SmartThemeEmColor:#c8bfae;--SmartThemeChatTintColor:#252525;
+    --SmartThemeShadowColor:#00000080;--SmartThemeGreenColor:#8fc991;--SmartThemeRedColor:#ee9a92;
+    --al-control-bg:#242424;--al-control-fg:#dcdcd2;--al-action-bg:#e18a24;--al-action-fg:#171717;--al-action-hover:#f0a747;--al-focus:#e18a24;
+    color-scheme:dark;
+}
+.al-original-memorybooks[data-al-palette="memorybooks"] :is(.info-block,.stmb-box,.stmb-section-title) {
+    background:var(--SmartThemeChatTintColor)!important;color:var(--SmartThemeBodyColor)!important;border-color:var(--SmartThemeBorderColor)!important;text-shadow:none!important;
+}
+.al-original-memorybooks[data-al-palette="memorybooks"] :is(#stmb-scene,#stmb-profile-summary) {
+    background:color-mix(in srgb,var(--SmartThemeBodyColor) 20%,var(--SmartThemeBlurTintColor))!important;
+    color:var(--SmartThemeBodyColor)!important;border-color:var(--SmartThemeBorderColor)!important;
+}
+.al-original-memorybooks[data-al-palette="memorybooks"] :is(#stmb-scene-block,#stmb-summary-prompt) {
+    color:var(--SmartThemeEmColor)!important;-webkit-text-fill-color:var(--SmartThemeEmColor)!important;background:inherit!important;text-shadow:none!important;
+}
+.al-original-memorybooks[data-al-palette="memorybooks"] :is(a,#stmb-summary-api,#stmb-summary-model,#stmb-summary-temp,#stmb-summary-title) {color:var(--SmartThemeQuoteColor)!important;text-shadow:none!important;}
 /* Complete local palettes: host themes may force white controls with !important.
    Background and foreground must win together, including the popup footer. */
 .al-fork-surface[data-al-palette="rose"] {
@@ -141,30 +161,30 @@
     color-scheme:dark;
 }
 .al-fork-surface:is([data-al-palette="rose"],[data-al-palette="lavender"],[data-al-palette="sage"]) {color-scheme:light;}
-.al-fork-surface[data-al-palette]:not([data-al-palette="default"]) {background:var(--SmartThemeBlurTintColor)!important;color:var(--SmartThemeBodyColor)!important;text-shadow:none;}
-.al-fork-surface[data-al-palette]:not([data-al-palette="default"]) :is(.text_pole,select,textarea,#al-quick-profile,.select2-selection,.select2-dropdown,.select2-search__field) {
+:is(.al-fork-surface,.al-original-memorybooks)[data-al-palette]:not([data-al-palette="default"]) {background:var(--SmartThemeBlurTintColor)!important;color:var(--SmartThemeBodyColor)!important;text-shadow:none;}
+:is(.al-fork-surface,.al-original-memorybooks)[data-al-palette]:not([data-al-palette="default"]) :is(.text_pole,select,textarea,#al-quick-profile,.select2-selection,.select2-dropdown,.select2-search__field) {
     background:var(--al-control-bg)!important;color:var(--al-control-fg)!important;-webkit-text-fill-color:var(--al-control-fg)!important;
     border-color:var(--SmartThemeBorderColor)!important;text-shadow:none!important;box-shadow:none!important;
 }
-.al-fork-surface[data-al-palette]:not([data-al-palette="default"]) :is(option,.select2-selection__rendered,.select2-results__option) {
+:is(.al-fork-surface,.al-original-memorybooks)[data-al-palette]:not([data-al-palette="default"]) :is(option,.select2-selection__rendered,.select2-results__option) {
     background:var(--al-control-bg)!important;color:var(--al-control-fg)!important;-webkit-text-fill-color:var(--al-control-fg)!important;text-shadow:none!important;
 }
-.al-fork-surface[data-al-palette]:not([data-al-palette="default"]) :is(.menu_button:not(.al-feature-button),.al-button,#al-native-collect) {
+:is(.al-fork-surface,.al-original-memorybooks)[data-al-palette]:not([data-al-palette="default"]) :is(.menu_button:not(.al-feature-button),.al-button,#al-native-collect) {
     background:var(--al-action-bg)!important;color:var(--al-action-fg)!important;-webkit-text-fill-color:var(--al-action-fg)!important;
     border-color:var(--SmartThemeBorderColor)!important;text-shadow:none!important;box-shadow:none!important;
 }
-.al-fork-surface[data-al-palette]:not([data-al-palette="default"]) :is(.menu_button:not(.al-feature-button),.al-button,#al-native-collect):hover:not(:disabled):not([aria-disabled="true"]) {
+:is(.al-fork-surface,.al-original-memorybooks)[data-al-palette]:not([data-al-palette="default"]) :is(.menu_button:not(.al-feature-button),.al-button,#al-native-collect):hover:not(:disabled):not([aria-disabled="true"]) {
     background:var(--al-action-hover)!important;
 }
-.al-fork-surface[data-al-palette]:not([data-al-palette="default"]) :is(.menu_button,.al-button) :is(span,i,svg) {color:inherit!important;-webkit-text-fill-color:inherit!important;text-shadow:none!important;}
-.al-fork-surface[data-al-palette]:not([data-al-palette="default"]) :is(button,.menu_button,input,select,textarea,.select2-selection):focus-visible {outline:2px solid var(--al-focus)!important;outline-offset:3px;}
-.al-fork-surface[data-al-palette]:not([data-al-palette="default"]) :is(input,textarea)::placeholder {color:var(--al-control-fg)!important;-webkit-text-fill-color:var(--al-control-fg)!important;opacity:.7;}
-.al-fork-surface[data-al-palette]:not([data-al-palette="default"]) :is(.menu_button,.al-button,input,select,textarea):disabled {opacity:.55;cursor:not-allowed;}
+:is(.al-fork-surface,.al-original-memorybooks)[data-al-palette]:not([data-al-palette="default"]) :is(.menu_button,.al-button) :is(span,i,svg) {color:inherit!important;-webkit-text-fill-color:inherit!important;text-shadow:none!important;}
+:is(.al-fork-surface,.al-original-memorybooks)[data-al-palette]:not([data-al-palette="default"]) :is(button,.menu_button,input,select,textarea,.select2-selection):focus-visible {outline:2px solid var(--al-focus)!important;outline-offset:3px;}
+:is(.al-fork-surface,.al-original-memorybooks)[data-al-palette]:not([data-al-palette="default"]) :is(input,textarea)::placeholder {color:var(--al-control-fg)!important;-webkit-text-fill-color:var(--al-control-fg)!important;opacity:.7;}
+:is(.al-fork-surface,.al-original-memorybooks)[data-al-palette]:not([data-al-palette="default"]) :is(.menu_button,.al-button,input,select,textarea):disabled {opacity:.55;cursor:not-allowed;}
 /* Keep text-only navigation clear even when the host forces button backgrounds. */
-.al-fork-surface[data-al-palette]:not([data-al-palette="default"]) :is(.al-feature-button:not(#al-native-collect),.al-home-tabs button) {
+:is(.al-fork-surface,.al-original-memorybooks)[data-al-palette]:not([data-al-palette="default"]) :is(.al-feature-button:not(#al-native-collect),.al-home-tabs button) {
     background:transparent!important;color:var(--SmartThemeBodyColor)!important;-webkit-text-fill-color:var(--SmartThemeBodyColor)!important;text-shadow:none!important;
 }
-.al-fork-surface[data-al-palette]:not([data-al-palette="default"]) .select2-results__option--highlighted {
+:is(.al-fork-surface,.al-original-memorybooks)[data-al-palette]:not([data-al-palette="default"]) .select2-results__option--highlighted {
     background:var(--al-action-bg)!important;color:var(--al-action-fg)!important;-webkit-text-fill-color:var(--al-action-fg)!important;
 }
 .al-native-preferences {display:grid;gap:12px;min-width:0;text-align:left;}

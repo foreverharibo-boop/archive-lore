@@ -184,11 +184,29 @@ try{
         await page.mouse.move(0,0);
         if(host==='host-light')await page.screenshot({path:'/tmp/archive-lore-palette-'+palette+'.png',fullPage:true});
     }
-    // Default and Original still inherit ST, rather than picking up a custom palette.
+    // Default inherits ST; Original uses a fixed classic palette independent of it.
     for(const layout of ['archive','original']){
         await page.evaluate(layout=>{prefsSettings={moduleSettings:{archiveLoreLayout:layout,archiveLorePalette:layout==='original'?'midnight':'default'}};mountPreferences();},layout);
-        assert.equal(await page.locator('#al-layout').evaluate(el=>getComputedStyle(el).backgroundColor),'rgb(16, 18, 24)');
+        assert.equal(await page.locator('#al-layout').evaluate(el=>getComputedStyle(el).backgroundColor),layout==='original'?'rgb(36, 36, 36)':'rgb(16, 18, 24)');
     }
+    const originalColors=[];
+    for(const host of ['host-light','host-dark']){
+        await page.evaluate(host=>{
+            document.body.className=host;mountOriginal();
+            const scene=document.createElement('div');scene.id='stmb-scene';scene.innerHTML='<div class="stmb-box"><pre id="stmb-scene-block">Scene excerpt</pre></div>';
+            const footer=document.createElement('div');footer.className='popup-controls';footer.innerHTML='<button class="menu_button">닫기</button>';
+            document.querySelector('#content').append(scene,footer);
+            document.documentElement.style.setProperty('--SmartThemeChatTintColor',host==='host-light'?'#fff':'#ff00ff');
+            document.documentElement.style.setProperty('--SmartThemeEmColor',host==='host-light'?'#0f0':'#f00');
+        },host);
+        const colors=await page.evaluate(()=>Object.fromEntries(['#content','#stmb-scene','.stmb-box','#stmb-scene-block','#stmb-profile-select','.popup-controls .menu_button'].map(selector=>{const s=getComputedStyle(document.querySelector(selector));return [selector,{background:s.backgroundColor,color:s.color}];})));
+        originalColors.push(colors);
+        assert(contrast(colors['#stmb-scene-block'].color,colors['.stmb-box'].background)>=4.5);
+        assert(contrast(colors['.popup-controls .menu_button'].color,colors['.popup-controls .menu_button'].background)>=4.5);
+        assert.equal(colors['#content'].background,'rgb(23, 23, 23)');
+    }
+    assert.deepEqual(originalColors[0],originalColors[1],'native screen colors must not change with the host theme');
+    await page.evaluate(()=>{document.documentElement.style.removeProperty('--SmartThemeChatTintColor');document.documentElement.style.removeProperty('--SmartThemeEmColor');});
     await page.evaluate(()=>{document.body.className='';prefsSettings={moduleSettings:{}};});
     // Persistent destination and palettes, then untouched original template/actions.
     for(const width of [320,1000]){
@@ -209,7 +227,7 @@ try{
         await page.screenshot({path:'/tmp/archive-lore-preferences-'+width+'.png',fullPage:true});
         await page.evaluate(()=>mountOriginal());
         assert.equal(await page.locator('.al-feature-home').count(),0);assert.equal(await page.locator('.al-original-addons').count(),1);
-        assert.equal(await page.locator('#content').getAttribute('data-al-palette'),'default');
+        assert.equal(await page.locator('#content').getAttribute('data-al-palette'),'memorybooks');
         assert(await page.getByRole('heading',{name:'📕 Memory Books',exact:true}).isVisible());
         await page.locator('#stmb-profile-buttons button').click();assert((await page.evaluate(()=>originalClicks))>0);
         await page.locator('#al-preferences').click();assert((await page.evaluate(()=>preferenceClicks))>0);

@@ -3101,8 +3101,8 @@ appended separately. The original template is not run through the custom layout
 or help-text transformations. Both layouts use the same settings and data.
 
 Archive Lore palettes: **실리태번 기본**, **로즈**, **라벤더**, **세이지**,
-**미드나잇**. Colors are scoped to Archive Lore popup surfaces; Original mode
-inherits SillyTavern styling and retains the selected custom palette for later.
+**미드나잇**. Colors are scoped to extension popup surfaces. Original mode uses its own fixed
+classic palette and retains the selected Archive Lore palette for later.
 Update the extension and reload the page for the rebuilt native bundle. This
 change requires no new server-plugin version.
 
@@ -3122,8 +3122,8 @@ controls white-on-white. Rose, Lavender and Sage use pastel action fills with da
 text. Midnight keeps its dark surface, adds dark input backgrounds with light
 text, and uses blue action fills with dark text. Hover and keyboard focus remain
 visible; disabled controls retain their disabled state and subdued appearance.
-Text-only navigation remains transparent. Default ST and Original MemoryBooks
-continue inheriting the host theme.
+Text-only navigation remains transparent. Default ST continues inheriting the
+host theme; Original MemoryBooks uses the fixed palette documented below.
 
 The browser regression fixture tests all four custom palettes against forced
 light and dark host control styles, including footer buttons, input text fill,
@@ -3147,3 +3147,23 @@ preference callback cannot close an unrelated newly opened home.
 functions with real templates and an asynchronous popup fixture: selecting each
 layout, native action/footer presence, repeated round trips, close/reopen
 persistence and unsaved routing isolation at mobile and desktop widths.
+
+
+#### Original layout: fixed classic palette
+
+Original MemoryBooks now pins its colors locally instead of inheriting the host's
+palette. It retains the native layout, controls and footer. Its dark gray surface
+(`#171717`), light text (`#dcdcd2`) and orange accent (`#e18a24`) are based on
+fallback colors present in upstream historical styles. This is a fork-specific
+fixed palette, not a claim that upstream ships a theme-independent palette or an
+exact reconstruction of any user's prior screen. Upstream itself references
+SillyTavern theme variables and mixes those colors for individual panels.
+
+The main surface, scene excerpt, profile panel, inputs, actions and footer are
+scoped under `.al-original-memorybooks[data-al-palette="memorybooks"]`.
+The local chat-background and emphasis variables are pinned too, preventing host
+colors from leaking into nested boxes or code text. Shared accessible control
+rules apply without enabling Archive Lore's custom layout/spacing. The Archive
+Lore default choice still follows ST; its other palettes retain their behavior.
+Browser checks compare original-mode computed colors under opposing host themes,
+check text contrast, and verify switching away restores the remembered palette.

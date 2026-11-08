@@ -3071,7 +3071,7 @@ Late detail responses are ignored after closing, switching chats/profiles or
 replacing the content. Collection still runs its full validation and compilation.
 
 Open **설정 → 로어북 연결·테마** in the Archive Lore home. In Original mode, use
-**아카이브 로어 추가 기능 → 로어북 연결·테마**. Apply the destination and appearance
+**아카이브 로어 추가 기능 → 로어북 연결·테마**. Choose **화면 구성** to switch screens immediately. Save destination/color changes
 with **적용**. These are persistent extension settings, not chat metadata:
 
 - **기존 메모리북 연결 방식** (default): preserves native chat/manual bindings,
@@ -3130,3 +3130,20 @@ light and dark host control styles, including footer buttons, input text fill,
 hover, focus, disabled state, original/default isolation and at least 4.5:1 normal
 text contrast for the tested action and input pairs. Only extension CSS changes
 are required for this correction; update the extension and reload the page.
+
+
+#### Original MemoryBooks screen switching
+
+**화면 구성 → 오리지널 메모리북** now immediately saves the layout and opens a
+fresh native Memory Books home, including its original template and footer
+controls. This is separate from palette selection and does not need the shared
+Apply button. Switching screens does not submit unsaved lorebook destination
+choices. Original tools keep their listeners; Archive Lore additions remain in
+the appended extra-tools section. Selecting Archive Lore again restores its
+three-tab home and remembered palette. Dialog teardown is awaited, and a late
+preference callback cannot close an unrelated newly opened home.
+
+`npm run test:fork:layout-switch` exercises the production preference/open/close
+functions with real templates and an asynchronous popup fixture: selecting each
+layout, native action/footer presence, repeated round trips, close/reopen
+persistence and unsaved routing isolation at mobile and desktop widths.

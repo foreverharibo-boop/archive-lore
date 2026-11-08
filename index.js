@@ -11241,8 +11241,19 @@ function mountArchiveLoreLazyDetails(popup) {
 }
 
 async function showArchiveLorePreferences() {
-  const settings=initializeSettings();let popup;
-  const panel=createNativePreferences({settings,books:[...world_names],activeBook:getCurrentCanonicalLorebookName(),save:async patch=>{
+  const settings=initializeSettings(),main=currentPopupInstance;let popup;
+  const reopenHome=async()=>{
+    await popup.complete(POPUP_RESULT.CANCELLED);
+    // A late callback must not close a different home opened in the meantime.
+    if(!main || currentPopupInstance!==main)return;
+    await main.complete(POPUP_RESULT.CANCELLED);
+    if(!currentPopupInstance)void showSettingsPopup();
+  };
+  const panel=createNativePreferences({settings,books:[...world_names],activeBook:getCurrentCanonicalLorebookName(),switchLayout:async layout=>{
+    settings.moduleSettings.archiveLoreLayout=layout;
+    saveSettingsDebounced();
+    await reopenHome();
+  },save:async patch=>{
     const before=nativePreferences(settings);
     const routeChanged=patch.archiveLoreBookMode!==before.mode || (patch.archiveLoreBookMode==='fixed' && patch.archiveLoreBook!==before.book);
     if(routeChanged && (isMemoryProcessing() || globalThis.archiveLoreSearch?.controller.state().busy))throw new Error('작업이 끝난 뒤 연결을 변경해 주세요.');
@@ -11255,9 +11266,7 @@ async function showArchiveLorePreferences() {
       globalThis.archiveLoreSearch?.controller.invalidateEmbeddingCounts();
       void refreshMemoryTierMacroCache();
     }
-    await popup.complete(POPUP_RESULT.CANCELLED);
-    const main=currentPopupInstance;
-    if(main){await main.complete(POPUP_RESULT.CANCELLED);void showSettingsPopup();}
+    await reopenHome();
   }});
   popup=markStmbPopup(new Popup(panel,POPUP_TYPE.TEXT,'',{wide:true,allowVerticalScrolling:true,okButton:false,cancelButton:translate('Close','STMemoryBooks_Close')}));
   await popup.show();

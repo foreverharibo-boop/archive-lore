@@ -184,10 +184,10 @@ try{
         await page.mouse.move(0,0);
         if(host==='host-light')await page.screenshot({path:'/tmp/archive-lore-palette-'+palette+'.png',fullPage:true});
     }
-    // Default inherits ST; Original uses a fixed classic palette independent of it.
+    // Original preserves the same host/upstream styling as the unmodified MemoryBooks UI.
     for(const layout of ['archive','original']){
         await page.evaluate(layout=>{prefsSettings={moduleSettings:{archiveLoreLayout:layout,archiveLorePalette:layout==='original'?'midnight':'default'}};mountPreferences();},layout);
-        assert.equal(await page.locator('#al-layout').evaluate(el=>getComputedStyle(el).backgroundColor),layout==='original'?'rgb(36, 36, 36)':'rgb(16, 18, 24)');
+        assert.equal(await page.locator('#al-layout').evaluate(el=>getComputedStyle(el).backgroundColor),'rgb(16, 18, 24)');
     }
     const originalColors=[];
     for(const host of ['host-light','host-dark']){
@@ -201,11 +201,13 @@ try{
         },host);
         const colors=await page.evaluate(()=>Object.fromEntries(['#content','#stmb-scene','.stmb-box','#stmb-scene-block','#stmb-profile-select','.popup-controls .menu_button'].map(selector=>{const s=getComputedStyle(document.querySelector(selector));return [selector,{background:s.backgroundColor,color:s.color}];})));
         originalColors.push(colors);
-        assert(contrast(colors['#stmb-scene-block'].color,colors['.stmb-box'].background)>=4.5);
-        assert(contrast(colors['.popup-controls .menu_button'].color,colors['.popup-controls .menu_button'].background)>=4.5);
-        assert.equal(colors['#content'].background,'rgb(23, 23, 23)');
+        // Remove all fork CSS and compare the same nodes against the upstream stylesheet.
+        await page.evaluate(()=>new Promise(resolve=>{const link=document.querySelector('link[href="/lore-fork.css"]');link.onload=resolve;link.href='/style.build.css';}));
+        const upstreamColors=await page.evaluate(()=>Object.fromEntries(['#content','#stmb-scene','.stmb-box','#stmb-scene-block','#stmb-profile-select','.popup-controls .menu_button'].map(selector=>{const s=getComputedStyle(document.querySelector(selector));return [selector,{background:s.backgroundColor,color:s.color}];})));
+        assert.deepEqual(colors,upstreamColors,'original mode must preserve upstream panel, input and footer colors');
+        await page.evaluate(()=>new Promise(resolve=>{const link=document.querySelector('link[href="/style.build.css"]');link.onload=resolve;link.href='/lore-fork.css';}));
     }
-    assert.deepEqual(originalColors[0],originalColors[1],'native screen colors must not change with the host theme');
+    assert.notDeepEqual(originalColors[0],originalColors[1],'native styles must retain upstream theme-variable behavior');
     await page.evaluate(()=>{document.documentElement.style.removeProperty('--SmartThemeChatTintColor');document.documentElement.style.removeProperty('--SmartThemeEmColor');});
     await page.evaluate(()=>{document.body.className='';prefsSettings={moduleSettings:{}};});
     // Persistent destination and palettes, then untouched original template/actions.
@@ -227,7 +229,7 @@ try{
         await page.screenshot({path:'/tmp/archive-lore-preferences-'+width+'.png',fullPage:true});
         await page.evaluate(()=>mountOriginal());
         assert.equal(await page.locator('.al-feature-home').count(),0);assert.equal(await page.locator('.al-original-addons').count(),1);
-        assert.equal(await page.locator('#content').getAttribute('data-al-palette'),'memorybooks');
+        assert.equal(await page.locator('#content').getAttribute('data-al-palette'),'default');
         assert(await page.getByRole('heading',{name:'📕 Memory Books',exact:true}).isVisible());
         await page.locator('#stmb-profile-buttons button').click();assert((await page.evaluate(()=>originalClicks))>0);
         await page.locator('#al-preferences').click();assert((await page.evaluate(()=>preferenceClicks))>0);

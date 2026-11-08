@@ -23,7 +23,7 @@ export function applyNativeTheme(root, settings) {
     const {layout,palette}=nativePreferences(settings);
     root.classList.toggle('al-fork-surface',layout!=='original');
     root.classList.toggle('al-original-memorybooks',layout==='original');
-    root.dataset.alPalette=layout==='original'?'memorybooks':palette;
+    root.dataset.alPalette=layout==='original'?'default':palette;
 }
 export function createNativePreferences({settings,books=[],activeBook='',save,switchLayout}) {
     const p=nativePreferences(settings), box=document.createElement('section');box.className='al-native-preferences';
@@ -40,7 +40,7 @@ export function createNativePreferences({settings,books=[],activeBook='',save,sw
     const status=document.createElement('small');status.textContent='현재 대상 · '+(activeBook || '연결된 로어북 없음');box.append(status);
     const help=document.createElement('small');help.textContent='지정한 책은 모든 새 채팅에서도 유지됩니다. 캐릭터 모드는 해당 캐릭터에 연결된 월드 로어북을 따릅니다. 수집 위치는 채팅별로 따로 저장됩니다. 그룹 채팅은 채팅 연결이나 지정한 책을 선택해 주세요.';box.append(help);
     const layout=field('화면 구성','al-layout',[['archive','아카이브 로어'],['original','오리지널 메모리북']],p.layout);
-    const layoutHelp=document.createElement('small');layoutHelp.textContent='오리지널 메모리북은 원래 메모리북의 화면·메뉴·하단 버튼을 불러옵니다. 색상은 실리태번 테마와 별도로 고정되며, 화면 구성은 선택하면 바로 전환됩니다.';box.append(layoutHelp);
+    const layoutHelp=document.createElement('small');layoutHelp.textContent='오리지널 메모리북은 원래 메모리북의 화면·메뉴·하단 버튼을 불러옵니다. 원본 스타일을 사용하며 아카이브 로어의 색상을 덧씌우지 않습니다. 화면 구성은 선택하면 바로 전환됩니다.';box.append(layoutHelp);
     const palette=field('아카이브 로어 색상','al-palette',PALETTES,p.palette);
     const message=document.createElement('p');message.setAttribute('role','status');box.append(message);
     const sync=()=>{book.parentElement.hidden=mode.value!=='fixed';palette.parentElement.hidden=layout.value==='original';};sync();

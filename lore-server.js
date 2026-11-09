@@ -19,7 +19,7 @@ export async function profileTemplate(context,profileId,proxies=[]) {
 }
 export function createServerClient({headers,request=fetch}) {
     return async function call(route,body={},options={}) {
-        const timeoutMs=route.startsWith('/embedding')?70000:route==='/jobs/get'?60000:30000;
+        const timeoutMs=route==='/logs/export'?120000:route.startsWith('/embedding')?70000:route==='/jobs/get'?60000:30000;
         const signal=options.signal?AbortSignal.any([options.signal,AbortSignal.timeout(timeoutMs)]):AbortSignal.timeout(timeoutMs);
         signal.throwIfAborted();
         let response;
@@ -31,6 +31,7 @@ export function createServerClient({headers,request=fetch}) {
             throw Object.assign(new Error(`${detail} [${route}]`,{cause}),{code:timedOut?'SERVER_TIMEOUT':'SERVER_NETWORK',route});
         }
         if(response.status===404)throw Object.assign(Error('서버 기능을 찾을 수 없어. 아카이브 로어 서버 플러그인을 설치·업데이트하고 실리 서버를 재시작해 줘.'),{status:404});
+        if(options.blob&&response.ok){const data=await response.blob();signal.throwIfAborted();return data;}
         let data;try{data=await response.json();}catch{throw Error('서버 플러그인 응답을 읽을 수 없어. 서버 버전과 로그인 상태를 확인해 줘.');}
         signal.throwIfAborted();
         if(!response.ok||data.error)throw Error(data.error || `서버 오류 (${response.status})`);return data;

@@ -4,6 +4,20 @@ import assert from 'node:assert/strict';
 import {profileTemplate,serverVectorStore,createServerClient,createServerController} from './lore-server.js';
 import {embeddingKey} from './lore-api.js';
 const deferred=()=>{let resolve;const promise=new Promise(r=>resolve=r);return {promise,resolve};};
+test('diagnostic download consumes a Blob without parsing the full server JSON in browser memory',async()=>{
+    const blob=new Blob(['[{"events":[1,2,3]}]']);
+    const call=createServerClient({headers:()=>({}),request:async(url,options)=>{
+        assert.equal(url,'/api/plugins/archive-lore-server/logs/export');
+        assert.deepEqual(JSON.parse(options.body),{chatKey:'chat',mode:'questions'});
+        return {ok:true,status:200,blob:async()=>blob,json:()=>assert.fail('must not parse event bodies')};
+    }});
+    const result=await call('/logs/export',{chatKey:'chat',mode:'questions'},{blob:true});
+    assert.equal(result,blob);
+    const combined=new Blob(['local\n===== SERVER JOB DIAGNOSTICS =====\n',result]);
+    assert.match(await combined.text(),/\[\{"events":\[1,2,3\]\}\]$/);
+    const missing=createServerClient({headers:()=>({}),request:async()=>({status:404,ok:false})});
+    await assert.rejects(missing('/logs/export',{}, {blob:true}),e=>e.status===404);
+});
 test('105 count lookups only query presence and never read local vectors or upload them',async()=>{
     const routes=[];const store=serverVectorStore({enabled:()=>true,local:{get:()=>assert.fail('no local reads')},call:async(route,body)=>{
         routes.push(route);assert.equal(route,'/vectors/has');return {present:body.keys.map(()=>false)};

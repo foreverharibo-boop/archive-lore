@@ -171,8 +171,8 @@ const controller=createServerController({local:localController,enabled:()=>!!set
     },
 });
 const diagnosticView={
-    async list(key){const local=await diagnostics.list(key);return settings()?.serverEnabled?[...local,...await serverCall('/logs',{chatKey:key})].sort((a,b)=>a.started.localeCompare(b.started)):local;},
-    async export(key,mode){const original=await diagnostics.export(key,mode);if(!settings()?.serverEnabled)return original;const runs=(await serverCall('/logs',{chatKey:key})).filter(r=>mode==='all'||r.mode===mode);return original+'\n\n===== SERVER JOB DIAGNOSTICS =====\n'+JSON.stringify(runs,null,2);},
+    async list(key){const local=await diagnostics.list(key);return settings()?.serverEnabled?[...local,...await serverCall('/logs/list',{chatKey:key})].sort((a,b)=>a.started.localeCompare(b.started)):local;},
+    async export(key,mode){const original=await diagnostics.export(key,mode);if(!settings()?.serverEnabled)return original;const server=await serverCall('/logs/export',{chatKey:key,mode},{blob:true});return new Blob([original,'\n\n===== SERVER JOB DIAGNOSTICS =====\n',server],{type:'text/plain;charset=utf-8'});},
 };
 function scheduleAutomatic() {
     if(globalThis.archiveLoreFork || generationStopped)return;

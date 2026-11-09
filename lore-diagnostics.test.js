@@ -26,6 +26,12 @@ test('failed diagnostic storage retains an exportable in-memory copy and warns',
     assert((await d.export('x')).includes('keep all'));assert.equal(warnings.length,1);
     assert.equal(redact({url:'https://example.test?key=secret',password:'hidden'}).password,'[REDACTED]');
 });
+test('successfully persisted diagnostics are read back from the store, without retaining old full snapshots',async()=>{
+    const rows=new Map();const d=createDiagnostics({store:{put:async r=>rows.set(r.id,r),list:async()=>[...rows.values()]}});
+    const trace=d.begin({chatKey:'chat'});await trace.event('large',{text:'saved'});await trace.finish('success');
+    const persisted=rows.get(trace.id);assert.equal((await d.list('chat'))[0],persisted);
+    rows.clear();assert.deepEqual(await d.list('chat'),[]);
+});
 test('translation bridge uses exact book and UID, marks stale text, and never mutates manager records',()=>{
     const entry={uid:1,content:'Hello'},record={language:'Korean',text:'안녕',sourceHash:managerSourceHash('Hello')};
     const settings={'simple-lorebook':{translations:{'A␟1':record}}};const before=JSON.stringify(settings);

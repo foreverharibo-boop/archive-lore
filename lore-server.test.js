@@ -253,3 +253,15 @@ test('completed job with a missing source chat is not synchronized or repeatedly
     await controller.restore(true);await controller.restore(true);
     assert.equal(gets,1);assert.equal(syncs,0);
 });
+
+test('hot vectors are bounded in browser memory and evictions reload from server without embedding',async()=>{
+    const disk=new Map(),reads=[];let localReads=0;
+    const store=serverVectorStore({enabled:()=>true,local:{get:async()=>{localReads++;return null;}},call:async(route,{key,vector})=>{
+        if(route==='/vectors/put'){disk.set(key,vector);return {ok:true};}
+        reads.push(key);return {vector:disk.get(key)};
+    }});
+    for(let i=0;i<140;i++)await store.put('key'+i,[i,1]);
+    assert.deepEqual(await store.get('key139'),[139,1]);assert.equal(reads.length,0);
+    assert.deepEqual(await store.get('key0'),[0,1]);assert.deepEqual(reads,['key0']);assert.equal(localReads,0);
+    store.clear();assert.deepEqual(await store.get('key139'),[139,1]);assert.equal(disk.size,140);
+});

@@ -45,7 +45,15 @@ export function createJobService({sanitize,ask,embedRequest=embed}) {
         }
         pruneJobs(s);cleanDiagnostics(root);s.lastPrune=Date.now();users.set(owner,s);return s;
     }
-    const save=(s,job)=>{const stored=structuredClone(job);if(stored.input?.settings){delete stored.input.settings.embeddingKey;delete stored.input.settings.embeddingKeys;}for(const template of Object.values(stored.input?.templates||{}))delete template.proxy_password;atomic(inside(s.jobsDir,job.id+'.json'),stored);if(!['queued','running'].includes(job.status))s.jobs.set(job.id,archived(job));};
+    const save=(s,job)=>{
+        // A restarted job is marked interrupted, never replayed from its saved input.
+        // Keep review settings and draft/result data, not whole chat/preset payloads.
+        const stored=structuredClone({...job,input:{context:{key:job.input.context.key},books:job.input.books,
+            chat:job.input.chat,settings:job.input.settings,options:job.input.options,target:job.input.target}});
+        if(stored.input.settings){delete stored.input.settings.embeddingKey;delete stored.input.settings.embeddingKeys;}
+        atomic(inside(s.jobsDir,job.id+'.json'),stored);
+        if(!['queued','running'].includes(job.status))s.jobs.set(job.id,archived(job));
+    };
     const publicJob=job=>({id:job.id,kind:job.kind,status:job.status,message:job.message,chatKey:job.input.context.key,started:job.started,finished:job.finished,hidden:job.hidden||[],books:job.input.books,result:job.result,draftAvailable:job.archived?job.draftAvailable:!!job.draftState});
     function chatFile(s,input) {
         const d=input.chat;if(!d||typeof d.id!=='string'||!d.id)throw Error('채팅 파일 정보가 없어.');

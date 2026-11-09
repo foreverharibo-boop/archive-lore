@@ -5,6 +5,7 @@ import {isRollbackBaseMemory, getRollbackEntryRange, collectConsolidationRollbac
     validateAndExpandLinkedRollbackSelections, applySidePromptRestoration,
     reconcileSidePromptHistoryStates, fingerprintRollbackEntry} from './memoryRollback.js';
 import {getSidePromptHistoryStreamKey} from './sidePromptHistory.js';
+import {maintainArchiveDisplayOrder} from './lore-display-order.js';
 
 export const COLLECTION_UNDO_PENDING='archiveLorePendingCollectionUndo';
 const same=(a,b)=>a?.start===b?.start && a?.end===b?.end;
@@ -37,6 +38,7 @@ export function planCollectionUndo(books,{chatId,messages,checkpoint}) {
     if(issues.length)throw Error('연결된 기억 사본이 빠져 있어서 되돌리기를 멈췄어. 연결된 로어북을 확인해 줘.');
     const rows=[];
     for(const state of states) {
+        const rowsBefore=rows.length;
         const data=state.data, streams=new Set();
         // Range-only legacy receipts cannot distinguish repeated runs of the
         // same stream. Never guess and delete several independent collections.
@@ -81,6 +83,7 @@ export function planCollectionUndo(books,{chatId,messages,checkpoint}) {
         }
         if(streams.size)reconcileSidePromptHistoryStates({entries:Object.fromEntries(Object.entries(data.entries || {})
             .filter(([,e])=>streams.has(getSidePromptHistoryStreamKey(e.STMB_sidePromptHistory))))});
+        if(rows.length>rowsBefore)maintainArchiveDisplayOrder(data);
         if(data[NS])for(const field of ['receipts','storyDates'])if(Array.isArray(data[NS][field]))
             data[NS][field]=data[NS][field].filter(r=>!same(r.source,range)||!matchesRange(r.source,messages));
     }

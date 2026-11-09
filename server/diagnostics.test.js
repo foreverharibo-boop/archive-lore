@@ -82,13 +82,15 @@ test('80 MiB of logs and 80 MiB of completed job inputs fit a 64 MiB Node heap w
     for await(const chunk of diagnosticStream(rows)){const b=Buffer.from(chunk);expected.update(b);bytes+=b.length;}
     const script=`import {createJobService} from ${JSON.stringify(new URL('./jobs.js',import.meta.url).href)};
         import {createHash} from 'node:crypto';
+        import {diagnosticFiles,diagnosticStream} from ${JSON.stringify(new URL('./diagnostics.js',import.meta.url).href)};
         const user={profile:{handle:'owner'},directories:{root:${JSON.stringify(f.root)}}};
         const service=createJobService({sanitize:s=>s});
-        if(service.list(user).length!==40)throw Error('missing jobs');
-        if(JSON.stringify([...service.state(user).jobs.values()]).length>100000)throw Error('retained full history');
-        if((await service.logList(user,'chat-a')).length!==40)throw Error('missing runs');
+        const rows=await diagnosticFiles(${JSON.stringify(root)},'chat-a');
         const hash=createHash('sha256');let bytes=0;
-        for await(const chunk of await service.logStream(user,'chat-a')){const b=Buffer.from(chunk);hash.update(b);bytes+=b.length;}
+        for await(const chunk of diagnosticStream(rows)){const b=Buffer.from(chunk);hash.update(b);bytes+=b.length;}
+        if(service.list(user).length!==20)throw Error('retention must keep 20 jobs');
+        if(JSON.stringify([...service.state(user).jobs.values()]).length>100000)throw Error('retained full history');
+        if((await service.logList(user,'chat-a')).length>=40)throw Error('diagnostic byte limit not enforced');
         console.log(JSON.stringify({bytes,hash:hash.digest('hex')}));`;
     const child=spawnSync(process.execPath,['--max-old-space-size=64','--input-type=module','-e',script],{encoding:'utf8',timeout:30000});
     assert.equal(child.status,0,child.stderr);assert.deepEqual(JSON.parse(child.stdout),{bytes,hash:expected.digest('hex')});

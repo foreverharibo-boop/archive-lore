@@ -42,6 +42,7 @@ export function normalizeSettings(value = {}) {
         enabled: value.enabled !== false,
         autoEmbed: value.autoEmbed !== false,
         serverEnabled: value.serverEnabled === true,
+        diagnosticsDetailed: value.diagnosticsDetailed === true,
         sideTemplates: normalizeSides(value.sideTemplates),
         autoCollect:value.autoCollect===true,autoMode:value.autoMode==='tokens'?'tokens':'messages',
         autoMessages:integer(value.autoMessages ?? 20,20,1,1000),autoTokens:integer(value.autoTokens ?? 6000,6000,100,100000),

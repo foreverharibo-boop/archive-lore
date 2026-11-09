@@ -3255,6 +3255,38 @@ model-dependent. Offline regression tests verify requests, candidate coverage,
 budgeting and injection wiring; they do not measure live provider latency or prove
 that an RP model will follow every instruction.
 
+#### Bounded history and foreground polling (server 0.3.13)
+
+`diagnosticsDetailed` defaults to false. Timing/error traces retain stages,
+numeric counts, timing breakdowns and bounded error messages, but omit dialogue,
+memory text, API bodies and installed prompt text. The Server settings tab has
+an explicit full-diagnostic opt-in. Each trace captures its mode at creation;
+full traces fall back to summary fields after a 2 MiB estimated body budget and
+mark `detailTruncated`. At most 500 events are retained with an omitted counter.
+
+On writes/access, browser diagnostics and server diagnostics each retain up to
+20 runs for up to 3 days, with a 20 MiB budget per store (browser size is an
+estimate). Server jobs plus their backup folders share a 100 MiB budget and the
+same age/count limits. Expired completed/interrupted jobs, unapplied drafts and
+their job-specific backup folders are removed. Active jobs and the current
+writer/result are protected, so one in-flight or latest oversized item can
+temporarily exceed the budget. Cleanup also applies to old files created before
+this version. It never deletes source chats, worlds, vectors or unrelated files.
+There is no background timer when the extension/server is not being used.
+
+Server polling wakes immediately on a visible/focus/pageshow/online event and
+cleans up listeners on timeout or abort. This does not prevent the operating
+system from suspending a browser. Long poll waits include a `server.poll-delay`
+record. Input preparation reports `server.input-stage` for chat save, collection
+profile, search profile and snapshot creation. Chat saving and original-source
+validation still run; an unmeasured save delay is not assumed fixed.
+
+Outgoing server snapshots keep every current message's full `mes`, `name`,
+`send_date`, `is_user`, `is_system` and `original_avatar`, excluding historical
+swipes and unrelated extension payloads. Source fingerprints remain identical.
+Both extension and plugin must be updated, followed by server restart and page
+reload. New defaults apply without requiring users to change settings.
+
 #### Diagnostic export and completed-job memory (server 0.3.12)
 
 Completed jobs retain only small history summaries in RAM. The original input,

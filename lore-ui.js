@@ -42,6 +42,7 @@ export function createLoreUI(api) {
             <nav class="al-tabs al-settings-tabs" aria-label="설정 분류">${[['connection','연결'],['collection','수집·검색'],['prompts','프롬프트'],['server','서버']].map(([id,label])=>button('settings-tab',label,`data-settings-tab="${id}" aria-pressed="${id==='connection'}"`)).join('')}</nav>
             <section data-settings-pane="server" hidden>
             <details><summary>서버 실행</summary>${check('serverEnabled','서버에서 실행 · 플러그인 필요',s.serverEnabled)}${button('server-check','서버 연결 확인')}<span data-server-status role="status"></span></details>
+            <details><summary>진단 기록</summary>${check('diagnosticsDetailed','상세 진단 · 대화·AI 요청 내용 포함',s.diagnosticsDetailed)}<p class="al-muted">기본은 시간·오류만 기록해요. 브라우저 진단·서버 진단·완료 작업은 각각 최근 20개·최대 3일 보관하며, 용량이 크면 더 일찍 정리해요. 오래된 작업의 미적용 초안·복구 사본도 함께 정리해요. 원본 채팅·로어북·임베딩은 삭제하지 않아요.</p></details>
             </section><section data-settings-pane="connection"><details open><summary>기억 작성·검색 AI</summary><div class="al-fields">
             ${field('기억 작성 AI 프로필',select('profile', profiles, s.profile))}
             ${field('검색·선별 프로필',select('searchProfile', [['','기억 작성 AI와 동일'],...profiles.slice(1)], s.searchProfile))}

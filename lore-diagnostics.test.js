@@ -8,7 +8,7 @@ import { normalizeSettings } from './lore-core.js';
 
 test('diagnostic TXT persists ordered stages, separates chats/modes and removes keys',async()=>{
     const rows=new Map(), store={put:async r=>rows.set(r.id,structuredClone(r)),list:async key=>[...rows.values()].filter(r=>r.chatKey===key)};
-    const diagnostics=createDiagnostics({store,secrets:()=>['test-secret-key']});
+    const diagnostics=createDiagnostics({store,detailed:()=>true,secrets:()=>['test-secret-key']});
     const trace=diagnostics.begin({kind:'generation',chatKey:'a',mode:'questions'});
     await trace.event('ai.request',{data:'recent dialogue',embeddingKey:'test-secret-key'});
     await trace.event('ai.response',{text:'echo test-secret-key',authorization:'Bearer hello'});
@@ -21,7 +21,7 @@ test('diagnostic TXT persists ordered stages, separates chats/modes and removes 
     assert(exported.indexOf('ai.request')<exported.indexOf('ai.response'));
 });
 test('failed diagnostic storage retains an exportable in-memory copy and warns',async()=>{
-    const warnings=[];const d=createDiagnostics({store:{put:async()=>{throw Error('quota');},list:async()=>{throw Error('quota');}},warning:t=>warnings.push(t)});
+    const warnings=[];const d=createDiagnostics({detailed:()=>true,store:{put:async()=>{throw Error('quota');},list:async()=>{throw Error('quota');}},warning:t=>warnings.push(t)});
     const t=d.begin({chatKey:'x',kind:'collection'});await t.event('saved',{text:'keep all'});await t.finish('success');
     assert((await d.export('x')).includes('keep all'));assert.equal(warnings.length,1);
     assert.equal(redact({url:'https://example.test?key=secret',password:'hidden'}).password,'[REDACTED]');

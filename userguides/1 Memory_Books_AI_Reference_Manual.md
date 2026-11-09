@@ -3216,22 +3216,41 @@ all choices restores that behavior. These preferences are global search settings
 separate from side-record collection categories.
 
 `selectionFocus` stores allowlisted, deduplicated IDs (`affection`, `meaning`,
-`boundaries`, `preferences`, `details`). In dialogue and question modes, the shared
-controller appends the selected guidance to the original-unit selector only;
-custom selector prompts are preserved. Current-question relevance remains primary.
-Essential event facts, attribution, chronology, conditions, refusal and negation
-remain required context regardless of checked categories. Preferences never create
-new facts, force a category quota or expand the existing injection budget. For
-recollection questions, a relevant confession or emotional turning point can be a
-direct fact rather than being discarded in favor of repetitive actions.
+`boundaries`, `preferences`, `details`). Empty choices preserve the previous
+planner, search ranking, selector request and recalled-record formatting. They
+still allow relevant emotional facts; no response guidance is added.
 
-Question planning, candidate search, collection, embeddings and saved memories are
-unchanged; no extra AI call is added. Plain embedding mode bypasses the selector,
-so the controls are disabled with an explanation while retaining saved choices.
-Settings and selection-plan diagnostics record the choices. Persistent server
-jobs carry the normalized setting and use the same selector guidance; update both
-checkouts and restart ST to use server plugin **0.3.9**, then reload the browser.
-Selection remains model-dependent; the preferences are guidance, not a guarantee
-that every relevant sentence will be selected.
-Offline tests and replay of recorded candidates measure request packing and
-candidate coverage, not live provider latency or final RP response quality.
+With choices enabled, question mode uses its existing planner call (maximum four
+questions): a direct factual question followed by queries for the chosen aspects
+of the same request. Dialogue mode adds one context-bound supplementary search;
+a single-question plan also receives this fallback. An empty plan stays empty.
+Supplementary query embeddings can add latency; no extra AI completion is added.
+At most a third of candidate slots are reserved for aspect search; the remaining
+slots retain direct-request coverage. Saved documents and embeddings are unchanged.
+
+The original-unit selector keeps custom prompts and essential event context,
+attribution, chronology, conditions, refusals and negation. It reports allowlisted
+`focusMatches` and prioritizes supported reasons or turning points over repetitive
+examples. Cross-batch ordering groups matching events within each fact priority.
+No category is mandatory, and relevance to the current request remains primary.
+
+A separate `archive-lore-guidance` prompt directs the RP model to emphasize the
+chosen aspects supported by the recalled evidence, preserve character/user agency,
+and avoid invented feelings, guessed elapsed years or treating temporary past
+agreements as permanent. It is explicitly labeled as instructions, not historical
+facts, and never becomes saved memory. The guidance and recalled text share the
+existing injection-token cap (core remains separate as before). If no evidence is
+selected, no guidance is injected; if guidance would crowd out all facts, it is
+omitted. Server results are re-budgeted with the client's tokenizer while retaining
+required context. Changing focus/mode during recall rejects stale results.
+
+Plain embedding mode retains its original behavior and disables focus controls
+without deleting saved choices. Diagnostics record choices, supplementary queries,
+selection matches, separate prompt slots and token totals. The recall preview shows
+response guidance separately. All prompt slots are cleared on cancellation/change.
+
+Update both extension and server-plugin checkouts, restart SillyTavern to load
+server plugin **0.3.10**, and reload the browser. Selection and final response remain
+model-dependent. Offline regression tests verify requests, candidate coverage,
+budgeting and injection wiring; they do not measure live provider latency or prove
+that an RP model will follow every instruction.

@@ -226,7 +226,7 @@ export function reviewUnits(candidates) {
     }
     return units;
 }
-export function selectedUnits(response, offered) {
+export function selectedUnits(response, offered, selectionFocus = []) {
     const data = parseJson(response);
     const allowed = new Map(offered.map(u => [u.id, u]));
     if (!data || (!Array.isArray(data.selections) && !Array.isArray(data.ids))) throw new Error('기억 선별 응답 형식이 올바르지 않아.');
@@ -242,7 +242,7 @@ export function selectedUnits(response, offered) {
         if (!row || !allowed.has(row.id) || seen.has(row.id)
             || ![2,3].includes(row.priority) || typeof row.reason !== 'string' || !row.reason.trim()) return false;
         seen.add(row.id); return true;
-    }).map(row=>({...allowed.get(row.id),priority:row.priority,reason:row.reason.trim().slice(0,240),selectionFormat:ranked?'ranked':'legacy',requiredContext:[...new Set(row.contextIds || [])].filter(id=>id!==row.id).map(id=>allowed.get(id))}))
+    }).map(row=>({...allowed.get(row.id),priority:row.priority,reason:row.reason.trim().slice(0,240),selectionFormat:ranked?'ranked':'legacy',...(selectionFocus.length?{focusMatches:normalizeSelectionFocus(row.focusMatches).filter(id=>selectionFocus.includes(id))}:{}),requiredContext:[...new Set(row.contextIds || [])].filter(id=>id!==row.id).map(id=>allowed.get(id))}))
         .sort((a,b)=>b.priority-a.priority).slice(0,24);
 }
 export function formatInjection(units) {

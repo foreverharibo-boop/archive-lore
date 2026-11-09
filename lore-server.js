@@ -1,6 +1,7 @@
 // Archive Lore © 2026 foreverharibo-boop — AGPL-3.0-only
+import {fitFocusedInjection} from './lore-focus-injection.js';
 import { makeId } from './lore-api.js';
-import { normalizeSettings,fitInjection,matchesRange,sourceRange } from './lore-core.js';
+import { normalizeSettings,matchesRange,sourceRange } from './lore-core.js';
 import { automaticReady } from './lore-automation.js';
 import { withAbort } from './lore-cancellation.js';
 export async function profileTemplate(context,profileId,proxies=[]) {
@@ -159,7 +160,9 @@ export function createServerController({local,enabled,settings,context,input,cal
                         const validationStarted=Date.now();
                         const messages=payload.context.messages;if(messages.length!==context().messages.length || (messages.length&&!matchesRange(sourceRange(messages,0,messages.length-1),context().messages)))throw Error('검색 중 대화가 바뀌어서 주입하지 않았어. 다시 시도해 줘.');
                         clientStages.validationMs=Date.now()-validationStarted;
-                        const fitted=await measured('fitMs',()=>fitInjection(result.lastRecall.units,normalizeSettings(settings()).injectionTokens,countTokens));
+                        const config=normalizeSettings(settings()),requested=normalizeSettings(payload.settings||config);
+                        if(config.mode!==requested.mode || JSON.stringify(config.selectionFocus)!==JSON.stringify(requested.selectionFocus))throw Error('검색 중 기억 선별 설정이 바뀌어서 주입하지 않았어. 다시 시도해 줘.');
+                        const fitted=await measured('fitMs',()=>fitFocusedInjection(result.lastRecall.units,config,countTokens));
                         check();
                         lastRecall={...result.lastRecall,...fitted,timings:{...result.lastRecall.timings,clientTotalMs:Date.now()-started,clientStages:{...clientStages}},records:result.lastRecall.records.filter(r=>r.entry.constant || fitted.units.some(u=>u.entryId===r.id))};result={...result,...fitted,selected:new Set(fitted.units.map(u=>u.entryId))};
                         await externalTrace?.event('server.recall',{id:value.id,core:result.core,...fitted,timings:lastRecall.timings});await externalTrace?.finish('success');

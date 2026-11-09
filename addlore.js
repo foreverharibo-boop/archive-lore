@@ -31,7 +31,8 @@ import { fingerprintRollbackEntry } from './memoryRollback.js';
 const MODULE_NAME = 'STMemoryBooks-AddLore';
 
 /** Save a staged side-prompt update and publish it only after SillyTavern accepts it. */
-async function saveSidePromptLorebookChecked(name, data) {
+export async function saveSidePromptLorebookChecked(name, data) {
+    if(globalThis.archiveLoreUndoing)throw Error('직전 수집 되돌리기가 진행 중이라 저장을 멈췄어. 완료 후 다시 실행해 줘.');
     const response = await fetch('/api/worldinfo/edit', {
         method: 'POST', headers: getRequestHeaders(), body: JSON.stringify({ name, data }),
     });
@@ -71,10 +72,14 @@ function applySidePromptHistory(data, title, history, entry, createEntry) {
     if (latest) {
         const priorEntry = structuredClone(latest);
         for (const old of resolved.versions) updateVersion(old, old !== latest);
+        stamp(latest, latest[SIDE_PROMPT_HISTORY_KEY]?.sequence || 1);
+        latest.comment = history.append || latest[SIDE_PROMPT_HISTORY_KEY].sequence > 1
+            ? formatSidePromptVersionTitle(history.titleBase, latest[SIDE_PROMPT_HISTORY_KEY].sequence) : title;
         return { entry: latest, created: false, priorEntry };
     }
     const next = createEntry();
     if (!next) throw new Error(i18n('addlore.upsert.errors.createFailed', 'Failed to create lorebook entry'));
+    stamp(next, 1);
     next.comment = title;
     return { entry: next, created: true };
 }
@@ -560,6 +565,9 @@ export async function addMemoryToLorebook(memoryResult, lorebookValidation, opti
         if (!lorebookValidation?.valid || !lorebookValidation.data) {
             throw new Error(i18n('addlore.errors.invalidLorebookValidation', 'Invalid lorebook validation data'));
         }
+        // Stage separately: a rejected save must not publish a phantom memory in cache.
+        const originalLorebookData=lorebookValidation.data;
+        if (globalThis.archiveLoreFork) lorebookValidation = {...lorebookValidation, data: structuredClone(lorebookValidation.data)};
 
         const settings = extension_settings.STMemoryBooks || {};
         let titleFormat = memoryResult.titleFormat;
@@ -611,7 +619,11 @@ export async function addMemoryToLorebook(memoryResult, lorebookValidation, opti
         if (options.applyCharacterFilters === false || isCharacterAwarenessDisabled({}, effectiveMemoryResult.metadata)) {
             delete newEntry.characterFilter;
         }
-        await saveWorldInfo(lorebookValidation.name, lorebookValidation.data, true);
+        if(globalThis.archiveLoreFork) {
+            newEntry.STMB_collectedAt = new Date().toISOString();
+            await saveSidePromptLorebookChecked(lorebookValidation.name, lorebookValidation.data);
+            Object.assign(originalLorebookData,lorebookValidation.data);
+        } else await saveWorldInfo(lorebookValidation.name, lorebookValidation.data, true);
 
         // Update highest memory processed tracking
         if (options.updateHighestMemoryProcessed !== false) {
@@ -1386,7 +1398,8 @@ export async function upsertLorebookEntriesBatch(lorebookName, lorebookData, ite
 
         if (sidePromptHistory && protectedHistory) {
             entry[SIDE_PROMPT_HISTORY_KEY] = protectedHistory;
-            entry.comment = formatSidePromptVersionTitle(sidePromptHistory.titleBase, protectedHistory.sequence);
+            entry.comment = sidePromptHistory.append || protectedHistory.sequence > 1
+                ? formatSidePromptVersionTitle(sidePromptHistory.titleBase, protectedHistory.sequence) : title;
             entry.group = protectedGroup;
             entry.disable = false;
         }
@@ -1507,7 +1520,8 @@ export async function upsertLorebookEntryByTitle(lorebookName, lorebookData, tit
 
     if (sidePromptHistory && protectedHistory) {
         entry[SIDE_PROMPT_HISTORY_KEY] = protectedHistory;
-        entry.comment = formatSidePromptVersionTitle(sidePromptHistory.titleBase, protectedHistory.sequence);
+        entry.comment = sidePromptHistory.append || protectedHistory.sequence > 1
+            ? formatSidePromptVersionTitle(sidePromptHistory.titleBase, protectedHistory.sequence) : title;
         entry.group = protectedGroup;
         entry.disable = false;
     }

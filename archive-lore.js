@@ -148,6 +148,7 @@ const controller=createServerController({local:localController,enabled:()=>!!set
     generating:()=>generationInFlight||writing,countTokens:text=>getContext().getTokenCountAsync(text,0),
     input:async(kind,options,report=async()=>{})=>{
         const step=async(name,work)=>{const start=Date.now();try{return await work();}finally{await report(name,Date.now()-start);}};
+        if(globalThis.archiveLoreUndoing)throw Error('직전 수집 되돌리기가 끝난 뒤 실행해 줘.');
         const key=chatContext().key;if(!key)throw Error('채팅방에서 실행해 줘.');
         if(kind==='collect')await ensureBook();
         const c=getContext();if(typeof c.saveChat!=='function')throw Error('실리태번 대화 저장 기능을 찾을 수 없어.');await step('save-chat',()=>c.saveChat());

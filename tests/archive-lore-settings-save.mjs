@@ -57,12 +57,12 @@ try{
  const page=await browser.newPage();const errors=[];page.on('pageerror',e=>{errors.push(e.message);console.error(e);});page.on('console',m=>{if(m.type()==='error')console.error(m.text());});
  await page.goto('http://127.0.0.1:'+server.address().port);await page.waitForFunction(()=>window.ready);
  // A nested profile editor saves while the parent still shows its old format.
- await page.evaluate(()=>{try{mount();setTitle('[[000]] {{archiveLoreTitle}}');flush();reopen();}catch(e){console.error(e.stack||String(e));throw Error(e.message||String(e));}});
- assert.equal(await page.locator('#stmb-title-format-select').inputValue(),'[[000]] {{archiveLoreTitle}}');
+ await page.evaluate(()=>{try{mount();setTitle('{{archiveLoreTitle}}');flush();reopen();}catch(e){console.error(e.stack||String(e));throw Error(e.message||String(e));}});
+ assert.equal(await page.locator('#stmb-title-format-select').inputValue(),'{{archiveLoreTitle}}');
  // Switching the active profile must preserve both profiles' own formats.
  await page.evaluate(()=>{settings.defaultProfile=1;flush();mount();});
  assert.equal(await page.locator('#stmb-title-format-select').inputValue(),'[[00]] {{title}}');
- assert.equal(await page.evaluate(()=>settings.profiles[0].titleFormat),'[[000]] {{archiveLoreTitle}}');
+ assert.equal(await page.evaluate(()=>settings.profiles[0].titleFormat),'{{archiveLoreTitle}}');
  // Custom native formats support any numbering width, including edits not yet blurred.
  await page.locator('#stmb-title-format-select').selectOption('custom');
  await page.locator('#stmb-custom-title-format').fill('[00] - {{title}}');

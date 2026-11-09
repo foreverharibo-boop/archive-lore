@@ -7,6 +7,7 @@ import {buildSidePromptHistoryRequest,resolveSidePromptHistory,validateSidePromp
     formatSidePromptVersionTitle,SIDE_PROMPT_HISTORY_KEY} from './sidePromptHistory.js';
 import {fingerprintRollbackEntry,applySidePromptRestoration} from './memoryRollback.js';
 import {buildSidePromptRegenerationSnapshot} from './memoryRegeneration.js';
+import {isArchiveLoreDateFormat, ARCHIVE_LORE_TITLE_FORMAT} from './lore-native-title.js';
 
 const src=fs.readFileSync(new URL('./addlore.js',import.meta.url),'utf8');
 function extract(name) {const a=src.search(new RegExp('(?:export )?(?:async )?function '+name+'\\('));return src.slice(a,src.indexOf('\n}',a)+2).replace(/^export /,'');}
@@ -20,6 +21,7 @@ function harness() {
         createWorldInfoEntry:(_name,data)=>{let uid=0;while(Object.hasOwn(data.entries,uid))uid++;return data.entries[uid]={uid};},
         getEntryByTitle:(data,title)=>Object.values(data.entries).find(e=>e.comment===title),
         extension_settings:{STMemoryBooks:{moduleSettings:{refreshEditor:false}}},i18n:(_key,fallback)=>fallback,
+        isArchiveLoreDateFormat, getNextEntryNumber:data=>Math.max(0,...Object.values(data.entries).map(e=>e.STMB_memoryNumber||0))+1,
         generateEntryTitle:()=> 'Story',sanitizeTitle:s=>s,populateLorebookEntry:(e,m,title)=>Object.assign(e,{content:m.content,comment:title,stmemorybooks:true}),
         isCharacterAwarenessDisabled:()=>false,updateHighestMemoryProcessed:()=>state.progress++,
         toastr:{success:()=>state.notifications++,error(){}},getAutoHideRanges:()=>({mode:'none'}),reloadEditor:async()=>{},MODULE_NAME:'test'};
@@ -143,4 +145,17 @@ test('title numbering and insertion order settings never overwrite editor positi
     assert.equal(entry.displayIndex,2031);assert.equal(entry.order,900);
     const summaryOverrides={};scope.applyLorebookEntrySettings(summaryOverrides,{}, {orderNumber:1});
     assert.equal(Object.hasOwn(summaryOverrides,'displayIndex'),false);
+});
+
+test('two same-date collections create separate memories with persistent internal sequence',async()=>{
+ const {scope,state}=harness();
+ scope.extension_settings.STMemoryBooks.titleFormat=ARCHIVE_LORE_TITLE_FORMAT;
+ scope.generateEntryTitle=()=> '2029-10-23';
+ const data={entries:{0:{uid:0,comment:'2029-10-22',stmemorybooks:true,STMB_memoryNumber:24}}};
+ for(let index=0;index<2;index++)assert.equal((await scope.addMemoryToLorebook({content:'Memory '+index,metadata:{}},{valid:true,name:'book',data},{refreshEditor:false})).success,true);
+ assert.equal(Object.keys(state.disk.entries).length,3);
+ assert.equal(state.disk.entries[1].comment,'2029-10-23');
+ assert.equal(state.disk.entries[2].comment,'2029-10-23');
+ assert.equal(state.disk.entries[1].STMB_memoryNumber,25);
+ assert.equal(state.disk.entries[2].STMB_memoryNumber,26);
 });

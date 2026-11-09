@@ -1389,19 +1389,20 @@ export async function upsertLorebookEntriesBatch(lorebookName, lorebookData, ite
             entry[k] = v;
         }
 
-        if (typeof it.metadataFactory === 'function') {
-            const generatedMetadata = it.metadataFactory({ entry, priorEntry, created }) || {};
-            for (const [k, v] of Object.entries(generatedMetadata)) {
-                entry[k] = v;
-            }
-        }
-
         if (sidePromptHistory && protectedHistory) {
             entry[SIDE_PROMPT_HISTORY_KEY] = protectedHistory;
             entry.comment = sidePromptHistory.append || protectedHistory.sequence > 1
                 ? formatSidePromptVersionTitle(sidePromptHistory.titleBase, protectedHistory.sequence) : title;
             entry.group = protectedGroup;
             entry.disable = false;
+        }
+
+        // Snapshot the final saved state, including an inherited side's activation.
+        if (typeof it.metadataFactory === 'function') {
+            const generatedMetadata = it.metadataFactory({ entry, priorEntry, created }) || {};
+            for (const [k, v] of Object.entries(generatedMetadata)) {
+                entry[k] = v;
+            }
         }
 
         results.push({ title, uid: entry.uid, created });
@@ -1511,19 +1512,20 @@ export async function upsertLorebookEntryByTitle(lorebookName, lorebookData, tit
         entry[k] = v;
     }
 
-    if (typeof metadataFactory === 'function') {
-        const generatedMetadata = metadataFactory({ entry, priorEntry, created }) || {};
-        for (const [k, v] of Object.entries(generatedMetadata)) {
-            entry[k] = v;
-        }
-    }
-
     if (sidePromptHistory && protectedHistory) {
         entry[SIDE_PROMPT_HISTORY_KEY] = protectedHistory;
         entry.comment = sidePromptHistory.append || protectedHistory.sequence > 1
             ? formatSidePromptVersionTitle(sidePromptHistory.titleBase, protectedHistory.sequence) : title;
         entry.group = protectedGroup;
         entry.disable = false;
+    }
+
+    // Snapshot the final saved state, including an inherited side's activation.
+    if (typeof metadataFactory === 'function') {
+        const generatedMetadata = metadataFactory({ entry, priorEntry, created }) || {};
+        for (const [k, v] of Object.entries(generatedMetadata)) {
+            entry[k] = v;
+        }
     }
 
     if (sidePromptHistory) await saveSidePromptLorebookChecked(lorebookName, lorebookData);

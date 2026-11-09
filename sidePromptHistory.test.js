@@ -52,3 +52,41 @@ test('legacy output is adopted once and latest history can be updated without ap
     assert.equal(resolveSidePromptHistory({ entries: { 1: latest } }, request).latest, latest);
     assert.equal(request.append, false);
 });
+
+const importedHistory = () => buildSidePromptHistoryRequest(
+    { key: 'archive-lore-imported-relationship', name: 'Relationship', settings: { lorebook: { entryTitleOverride: 'Relationship' } } },
+    {}, { chatId: 'new imported', chatRef: { type: 'character', avatarUrl: 'ava', fileName: 'new imported' } },
+    'Relationship', ['Relationship (STMB SidePrompt)'],
+);
+const inheritedEntry = () => ({ uid: 108, comment: 'Relationship (STMB SidePrompt)', content: 'Established facts',
+    STMB_sidePromptRegeneration: { templateKey: 'archive-lore-imported-relationship', chatId: 'old imported' } });
+
+test('overwrite carries forward a unique legacy side after chat import, including a fixed title override', () => {
+    const h = importedHistory(), old = inheritedEntry(), book = { entries: { 108: old } };
+    assert.equal(resolveSidePromptHistory(book, h).latest, old);
+    assert.equal(resolveSidePromptHistory(book, { ...h, append: true }).latest, null);
+    const unrelated = { ...old, STMB_sidePromptRegeneration: { ...old.STMB_sidePromptRegeneration, templateKey: 'another-prompt' } };
+    assert.equal(resolveSidePromptHistory({ entries: { 108: unrelated } }, h).latest, null);
+    assert.equal(resolveSidePromptHistory({ entries: { 108: { ...old, stmemorybooks: true } } }, h).latest, null);
+});
+
+test('overwrite carries forward stamped history after import without merging macro targets or characters', () => {
+    const h = importedHistory(), old = inheritedEntry();
+    old.STMB_sidePromptHistory = { ...h, version: 1, sequence: 1, chatId: 'old imported', chatKey: JSON.stringify(['character', 'ava', 'old imported']) };
+    const book = { entries: { 108: old } };
+    assert.equal(resolveSidePromptHistory(book, h).latest, old);
+    assert.equal(resolveSidePromptHistory(book, { ...h, append: true }).latest, null);
+    assert.equal(resolveSidePromptHistory(book, { ...h, titleBase: 'Another target', legacyTitles: ['Another target (STMB SidePrompt)'] }).latest, null);
+    assert.equal(resolveSidePromptHistory(book, { ...h, chatKey: JSON.stringify(['character', 'other-avatar', h.chatId]) }).latest, null);
+});
+
+test('current-chat output wins over an inherited duplicate; ambiguous inheritance is rejected', () => {
+    const h = importedHistory(), old = inheritedEntry();
+    const current = { ...old, uid: 115, STMB_sidePromptHistory: { ...h, version: 1, sequence: 1 } };
+    assert.equal(resolveSidePromptHistory({ entries: { 108: old, 115: current } }, h).latest, current);
+    const legacyCurrent = { ...old, uid: 115, STMB_sidePromptRegeneration: { ...old.STMB_sidePromptRegeneration, chatId: h.chatId } };
+    assert.equal(resolveSidePromptHistory({ entries: { 108: old, 115: legacyCurrent } }, h).latest, legacyCurrent);
+    assert.throws(() => resolveSidePromptHistory({ entries: { 108: old, 109: { ...old, uid: 109 } } }, h));
+    const stamped = chatId => ({ ...old, STMB_sidePromptHistory: { ...h, version: 1, sequence: 1, chatId, chatKey: JSON.stringify(['character', 'ava', chatId]) } });
+    assert.throws(() => resolveSidePromptHistory({ entries: { 108: stamped('old-a'), 109: stamped('old-b') } }, h));
+});

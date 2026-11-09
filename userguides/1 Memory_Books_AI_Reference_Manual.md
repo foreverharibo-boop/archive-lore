@@ -3204,5 +3204,34 @@ SillyTavern theme or custom CSS.
 
 Update both the extension and the server-plugin checkout, restart SillyTavern,
 and refresh the browser. Server plugin version **0.3.8** includes these changes.
+
+#### Memory selection emphasis
+
+Search settings include a collapsible **기억 선별 중점** section with five optional,
+independently selectable aspects: 애정·감정 (affection/emotions), 의미·관계 변화
+(meaning/relationship changes), 약속·경계 (promises/boundaries), 취향·반응
+(preferences/reactions), and 구체적 장면 (concrete scene details). The default is
+an empty selection, retaining the existing automatic selector request. Clearing
+all choices restores that behavior. These preferences are global search settings,
+separate from side-record collection categories.
+
+`selectionFocus` stores allowlisted, deduplicated IDs (`affection`, `meaning`,
+`boundaries`, `preferences`, `details`). In dialogue and question modes, the shared
+controller appends the selected guidance to the original-unit selector only;
+custom selector prompts are preserved. Current-question relevance remains primary.
+Essential event facts, attribution, chronology, conditions, refusal and negation
+remain required context regardless of checked categories. Preferences never create
+new facts, force a category quota or expand the existing injection budget. For
+recollection questions, a relevant confession or emotional turning point can be a
+direct fact rather than being discarded in favor of repetitive actions.
+
+Question planning, candidate search, collection, embeddings and saved memories are
+unchanged; no extra AI call is added. Plain embedding mode bypasses the selector,
+so the controls are disabled with an explanation while retaining saved choices.
+Settings and selection-plan diagnostics record the choices. Persistent server
+jobs carry the normalized setting and use the same selector guidance; update both
+checkouts and restart ST to use server plugin **0.3.9**, then reload the browser.
+Selection remains model-dependent; the preferences are guidance, not a guarantee
+that every relevant sentence will be selected.
 Offline tests and replay of recorded candidates measure request packing and
 candidate coverage, not live provider latency or final RP response quality.

@@ -1,6 +1,7 @@
 // Archive Lore modifications Copyright (C) 2026 foreverharibo-boop
 // SPDX-License-Identifier: AGPL-3.0-only
 import { normalizeSides } from './lore-side-config.js';
+import { normalizeSelectionFocus } from './lore-selection-focus.js';
 import { fingerprintChatMessage } from './chatSelection.js';
 import { COLLECT_PROMPT, SIDE_PROMPT, QUESTIONS_PROMPT, SELECT_PROMPT, LEGACY_QUESTIONS, LEGACY_SELECT, PREVIOUS_QUESTIONS, PREVIOUS_SELECT } from './lore-prompts.js';
 import { LEGACY_COLLECT, LEGACY_SIDE } from './lore-prompts-v1.js';
@@ -17,7 +18,7 @@ export const DEFAULTS = Object.freeze({
     enabled: true, profile: '', searchProfile: '', embeddingProvider: 'gemini',
     embeddingUrl: 'https://api.openai.com/v1', embeddingModel: 'gemini-embedding-001', embeddingKey: '',
     mode: 'dialogue', recentCount: 10, injectionTokens: 3000, batchSize: 20,
-    keywordActivation: false, candidateCount: 16, autoEmbed: true, prompts: DEFAULT_PROMPTS,
+    keywordActivation: false, candidateCount: 16, selectionFocus: Object.freeze([]), autoEmbed: true, prompts: DEFAULT_PROMPTS,
 });
 export function integer(value, fallback, min, max) {
     const number = Number(value);
@@ -55,6 +56,7 @@ export function normalizeSettings(value = {}) {
         injectionTokens: integer(value.injectionTokens ?? 3000, 3000, 256, 32000),
         batchSize: integer(value.batchSize ?? 20, 20, 1, 100),
         candidateCount: integer(value.candidateCount ?? 16, 16, 1, 40),
+        selectionFocus: normalizeSelectionFocus(value.selectionFocus),
         prompts: Object.fromEntries(Object.entries(DEFAULT_PROMPTS).map(([key, fallback]) =>
             [key, typeof value.prompts?.[key] === 'string' && value.prompts[key].trim() ? value.prompts[key] : fallback])),
     };

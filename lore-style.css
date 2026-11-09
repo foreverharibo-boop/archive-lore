@@ -29,6 +29,8 @@
 .al-root .al-check { display: flex !important; flex-direction: row !important; align-items: center; gap: 9px; margin: 12px 0; font-size: inherit; }
 .al-root .al-check input { flex: 0 0 auto; width: 15px; height: 15px; margin: 0; accent-color: var(--al-fg); }
 .al-root .al-check span { overflow-wrap: anywhere; }
+.al-root .al-selection-focus { border: 0; padding: 0; margin: 0; min-width: 0; }
+.al-root .al-selection-focus:disabled { opacity: .55; }
 .al-root .al-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 12px 0; }
 .al-root .al-between { justify-content: space-between; }
 .al-root .al-muted, .al-root small { opacity: .6; font-size: 11px; }

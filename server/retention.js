@@ -1,7 +1,27 @@
 // Archive Lore server — AGPL-3.0-only
 import fs from 'node:fs';
-import {inside} from './storage.js';
+import {inside,atomic} from './storage.js';
 import {expiredHistory,DIAGNOSTIC_BYTES,JOB_BYTES} from '../lore-retention.js';
+export const LEGACY_HISTORY_RESET='legacy-history-reset-v1.json';
+// Run before this process accepts any work for the user. No job/diagnostic body
+// is parsed, and the completion marker is written only after all three owned
+// history directories have been emptied. A failed reset is safely retried.
+export function resetLegacyHistory(root) {
+    const marker=inside(root,LEGACY_HISTORY_RESET);
+    if(fs.existsSync(marker))return false;
+    for(const name of ['diagnostics','jobs','backups']) {
+        const dir=inside(root,name);
+        if(!fs.existsSync(dir))continue;
+        if(fs.lstatSync(dir).isSymbolicLink()||!fs.statSync(dir).isDirectory())throw Error('이전 기록 폴더가 일반 폴더가 아니어서 정리를 중지했어: '+name);
+        for(const entry of fs.readdirSync(dir,{withFileTypes:true})) {
+            // Do not resolve child symlinks: unlink the link itself, never its target.
+            const file=dir+'/'+entry.name;
+            fs.rmSync(file,{recursive:entry.isDirectory()&&!entry.isSymbolicLink(),force:true});
+        }
+    }
+    atomic(marker,{version:1,completed:new Date().toISOString()});
+    return true;
+}
 export function pruneDiagnostics(root,protectedFile) {
     const dir=inside(root,'diagnostics');if(!fs.existsSync(dir))return;
     const rows=fs.readdirSync(dir).filter(name=>/^[a-f0-9]{64}\.json$/.test(name)).map(name=>{

@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID, webcrypto } from 'node:crypto';
 import { atomic,inside,json,privateStore,hash } from './storage.js';
-import {pruneDiagnostics,pruneJobs} from './retention.js';
+import {pruneDiagnostics,pruneJobs,resetLegacyHistory} from './retention.js';
 import { createLoreController } from '../lore-controller.js';
 import { createDiagnostics } from '../lore-diagnostics.js';
 import { diagnosticFiles,diagnosticStream } from './diagnostics.js';
@@ -25,6 +25,7 @@ export function createJobService({sanitize,ask,embedRequest=embed}) {
         const owner=fs.realpathSync(user.directories.root);
         if(!vectorStores.has(owner)){
             const root=inside(owner,'archive-lore-server');fs.mkdirSync(root,{recursive:true,mode:0o700});
+            resetLegacyHistory(root);
             vectorStores.set(owner,privateStore(root,'vectors'));
         }
         return vectorStores.get(owner);

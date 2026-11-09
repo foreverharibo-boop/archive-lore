@@ -3255,6 +3255,34 @@ model-dependent. Offline regression tests verify requests, candidate coverage,
 budgeting and injection wiring; they do not measure live provider latency or prove
 that an RP model will follow every instruction.
 
+#### One-time legacy history reset (server 0.3.14)
+
+After updating both checkouts, restart the server and reload the extension.
+Before accepting work for an authenticated user, the plugin empties only that
+user's `archive-lore-server/diagnostics/`, `jobs/` and `backups/` directories.
+All pre-update history is removed regardless of age, including interrupted jobs,
+unapplied maintenance drafts, malformed files and orphaned backup copies. Source
+chats, lorebooks, settings and embedding vectors are preserved. The reset reads
+directory entries rather than parsing potentially large history bodies.
+
+`legacy-history-reset-v1.json` is written atomically after successful cleanup;
+subsequent restarts preserve new records and use the bounded retention below.
+Failure prevents service initialization and leaves cleanup retryable. Child
+symlinks are unlinked without following targets; linked history directories are
+rejected. The authenticated `/status` call triggers cleanup even from the home
+screen when server mode is enabled, before any old jobs are loaded.
+
+On page initialization, browser IndexedDB `archive-lore-diagnostics` upgrades to
+schema 2 and clears the old `runs` store once in the upgrade transaction. New
+writes wait for that transaction. Close older SillyTavern tabs if they block the
+upgrade, then reload. Other browsers/origins clear their own records when opened
+with this version. Separately downloaded TXT files are outside managed storage
+and are not deleted. No cleanup occurs on the phone until the update is loaded.
+
+Regression tests cover first-run deletion, repeated-start preservation, malformed
+history, symlink confinement, authenticated startup and simulated IndexedDB
+upgrade/blocked-tab lifecycle; they do not substitute for an Android browser test.
+
 #### Bounded history and foreground polling (server 0.3.13)
 
 `diagnosticsDetailed` defaults to false. Timing/error traces retain stages,
@@ -3302,8 +3330,9 @@ initialize job history. `/logs/export` filters by the current chat and selected
 mode, then streams complete diagnostic files in 64 KiB chunks with HTTP
 backpressure. The browser downloads a Blob instead of parsing and re-stringifying
 all server events. The legacy `/logs` URL streams the same JSON array for older
-clients. Empty chat keys return no logs. Existing diagnostic files are neither
-deleted nor truncated. Server dashboard rows show headers; TXT includes events.
+clients. Empty chat keys return no logs. Export itself neither deletes nor
+truncates files; the later retention/reset policies above govern their lifetime.
+Server dashboard rows show headers; TXT includes events.
 
 Regression coverage includes 80 MiB of diagnostic bodies plus 80 MiB of stored job
 inputs processed in a Node child with a 64 MiB heap; exported bytes are verified

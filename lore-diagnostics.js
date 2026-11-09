@@ -22,9 +22,17 @@ export function redact(value, secrets = []) {
 export function createDiagnosticStore(factory = indexedDB) {
     let opening;
     const db = () => opening ||= new Promise((resolve, reject) => {
-        const request = factory.open('archive-lore-diagnostics', 1);
-        request.onupgradeneeded = () => request.result.createObjectStore('runs', { keyPath: 'id' }).createIndex('chatKey', 'chatKey');
-        request.onsuccess = () => resolve(request.result);
+        const request = factory.open('archive-lore-diagnostics', 2);let blocked=false;
+        request.onupgradeneeded = event => {
+            if(event.oldVersion<1)request.result.createObjectStore('runs', { keyPath: 'id' }).createIndex('chatKey', 'chatKey');
+            else if(event.oldVersion<2)request.transaction.objectStore('runs').clear();
+        };
+        request.onblocked=()=>{blocked=true;opening=null;reject(Error('이전 진단 기록 정리를 위해 다른 실리 웹앱 탭을 닫고 새로고침해 줘.'));};
+        request.onsuccess = () => {
+            if(blocked){request.result.close();return;}
+            request.result.onversionchange=()=>{request.result.close();opening=null;};
+            resolve(request.result);
+        };
         request.onerror = () => { opening = null; reject(request.error); };
     });
     const prune=async protectedId=>{
@@ -42,6 +50,7 @@ export function createDiagnosticStore(factory = indexedDB) {
         });
     };
     return {
+        ready:db,
         async put(run) {
             const database = await db();
             await new Promise((resolve, reject) => {
@@ -70,7 +79,7 @@ export function createDiagnostics({ store, secrets = () => [], warning = () => {
         queue = queue.then(() => store.put(snapshot)).then(() => {
             if(memory.get(run.id)===snapshot)memory.delete(run.id);
         }).catch(() => {
-            if (!warned) warning('진단 기록을 브라우저에 저장하지 못했어. 창을 닫기 전에 TXT로 내려받아 줘.');
+            if (!warned) warning('진단 기록을 브라우저에 저장하지 못했어. 다른 실리 탭을 닫고 새로고침해 줘.');
             warned = true;
         });
         return queue;

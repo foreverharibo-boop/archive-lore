@@ -29,3 +29,14 @@ test('migrated source exclusions affect only transient WI entries, even with sea
     assert.equal(lists.character[0].disable,true);
     assert.equal(lists.chat[0].disable,false);
 });
+
+test('home context with a residual chat id cannot become a selectable Archive Lore chat',()=>{
+    let current={chatId:'old imported',characters:[],chat:[]};
+    const context=fn('chatContext','function chatSettings', {getContext:()=>current});
+    assert.equal(context().key,'');
+    current={...current,characterId:0,characters:[{avatar:'신.png'}]};
+    assert.equal(context().key,JSON.stringify(['신.png','old imported']));
+    current={chatId:'group-chat',groupId:'group',chat:[]};
+    assert.equal(context().key,JSON.stringify(['group','group-chat']));
+    current={characterId:0,characters:[{avatar:'신.png'}],chat:[]};assert.equal(context().key,'');
+});

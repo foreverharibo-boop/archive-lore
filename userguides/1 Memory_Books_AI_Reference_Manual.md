@@ -3254,3 +3254,19 @@ server plugin **0.3.10**, and reload the browser. Selection and final response r
 model-dependent. Offline regression tests verify requests, candidate coverage,
 budgeting and injection wiring; they do not measure live provider latency or prove
 that an RP model will follow every instruction.
+
+#### Completed-job recovery without a selected chat (server 0.3.11)
+
+The home/recent-chats screen does not restore server jobs. A chat identity requires
+both a selected character/group and a chat ID; a leftover ID is insufficient.
+Restoration filters returned job summaries to the current chat key. The server
+also treats an explicitly empty chat key as an empty list, not all chat histories.
+This prevents startup/dashboard refreshes from reopening completed tasks belonging
+to an old imported chat and reporting ENOENT while the user is elsewhere.
+
+Completed collection/index history remains readable when its original chat file
+is missing (including after rename). The response sets `sourceChatMissing` and
+returns no hide flags; the client skips synchronization and repeated recovery for
+that job during the session. Stored jobs, lorebooks and chats are not rewritten or
+deleted. Other read/parse failures still surface, and new work still requires a
+valid source chat. Update both checkouts, restart ST, and reload the browser.

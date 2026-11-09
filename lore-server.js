@@ -100,13 +100,15 @@ export function createServerController({local,enabled,settings,context,input,cal
     }
     async function finish(job){
         if(job.status!=='completed'||applied.has(job.id)||canceledIds.has(job.id))return;
+        // Historical results can outlive a renamed/deleted source chat. Never replay them.
+        if(job.sourceChatMissing){applied.add(job.id);return;}
         if(applying.has(job.id))return applying.get(job.id);
         const pending=Promise.resolve().then(()=>sync(job)).then(()=>applied.add(job.id));
         applying.set(job.id,pending);
         try{await pending;}finally{applying.delete(job.id);}
     }
     async function restore(force=false,notify=true){
-        if(!enabled())return [];
+        if(!enabled() || !context().key){clearTimeout(poll);view=[];current=null;lastList=0;return view;}
         const epoch=detached,key=context().key;
         if(restoring?.epoch===epoch&&restoring.key===key)return restoring.promise;
         const task={epoch,key,promise:null};
@@ -114,7 +116,7 @@ export function createServerController({local,enabled,settings,context,input,cal
         restoring=task;return task.promise;
     }
     async function restoreOnce(force,notify){if(!force&&Date.now()-lastList<2500)return view;
-        const key=context().key,epoch=cancelEpoch,chatEpoch=detached;const jobs=await call('/jobs/list',{chatKey:key});if(key!==context().key||epoch!==cancelEpoch||chatEpoch!==detached)return view;
+        const key=context().key,epoch=cancelEpoch,chatEpoch=detached;const jobs=(await call('/jobs/list',{chatKey:key})).filter(job=>job.chatKey===key);if(key!==context().key||epoch!==cancelEpoch||chatEpoch!==detached)return view;
         view=jobs;lastList=Date.now();current=jobs.find(active)||null;
         for(const job of jobs.filter(j=>j.status==='completed'&&['collect','index','applyMaintenance'].includes(j.kind)&&!applied.has(j.id)).slice(-1)){const fresh=await getJob(job.id);if(key!==context().key)break;await finish(fresh);}
         if(current){status=current.message;scheduleRestore();}else status=jobs.at(-1)?.message || status;

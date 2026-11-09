@@ -36,7 +36,7 @@ function saveSettings(patch = {}) {
 function chatContext() {
     const c = getContext(), char = c.characters?.[c.characterId];
     const id = c.getCurrentChatId?.() || c.chatId;
-    return { key: id ? JSON.stringify([c.groupId || char?.avatar || '', id]) : '',
+    return { key: id && (c.groupId || char?.avatar) ? JSON.stringify([c.groupId || char.avatar, id]) : '',
         name: c.groupId ? c.name2 || '그룹 대화' : `${c.name2 || ''} × ${c.name1 || ''}`, messages: c.chat || [] };
 }
 function chatSettings() { return getContext().chatMetadata?.[NS] || {}; }

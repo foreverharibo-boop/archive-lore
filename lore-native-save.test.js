@@ -16,13 +16,14 @@ function harness() {
         SIDE_PROMPT_HISTORY_KEY,resolveSidePromptHistory,validateSidePromptHistoryRequest,formatSidePromptVersionTitle,fingerprintRollbackEntry,
         getRequestHeaders:()=>({}),worldInfoCache:state.cache,eventSource:{emit:async()=>{}},event_types:{WORLDINFO_UPDATED:'update'},
         fetch:async(_url,options)=>{state.writes++;if(state.fail)return {ok:false,status:500,statusText:'failed'};state.disk=JSON.parse(options.body).data;return {ok:true};},
-        createWorldInfoEntry:(_name,data)=>{const uid=Math.max(-1,...Object.keys(data.entries).map(Number))+1;return data.entries[uid]={uid};},
+        saveWorldInfo:async(_name,data)=>{state.disk=structuredClone(data);state.writes++;},
+        createWorldInfoEntry:(_name,data)=>{let uid=0;while(Object.hasOwn(data.entries,uid))uid++;return data.entries[uid]={uid};},
         getEntryByTitle:(data,title)=>Object.values(data.entries).find(e=>e.comment===title),
         extension_settings:{STMemoryBooks:{moduleSettings:{refreshEditor:false}}},i18n:(_key,fallback)=>fallback,
         generateEntryTitle:()=> 'Story',sanitizeTitle:s=>s,populateLorebookEntry:(e,m,title)=>Object.assign(e,{content:m.content,comment:title,stmemorybooks:true}),
         isCharacterAwarenessDisabled:()=>false,updateHighestMemoryProcessed:()=>state.progress++,
         toastr:{success:()=>state.notifications++,error(){}},getAutoHideRanges:()=>({mode:'none'}),reloadEditor:async()=>{},MODULE_NAME:'test'};
-    vm.createContext(scope);vm.runInContext(['saveSidePromptLorebookChecked','applySidePromptHistory','upsertLorebookEntryByTitle','upsertLorebookEntriesBatch','addMemoryToLorebook'].map(extract).join('\n'),scope);
+    vm.createContext(scope);vm.runInContext(['createLorebookEntryAtEnd','saveSidePromptLorebookChecked','applySidePromptHistory','upsertLorebookEntryByTitle','upsertLorebookEntriesBatch','addMemoryToLorebook'].map(extract).join('\n'),scope);
     return {state,scope};
 }
 const template={key:'relationship',name:'Relationship',settings:{}};
@@ -95,4 +96,51 @@ for (const batch of [false, true]) test(`imported chat reuses legacy and stamped
     assert.equal(state.disk.entries[1].STMB_sidePromptRegeneration.priorContent,'Updated facts');
     assert.equal(state.disk.entries[1].STMB_sidePromptHistory.chatId,next.chatId);
     assert.deepEqual(originalBook.entries[1],original);
+});
+
+test('new memories append after custom display positions even when SillyTavern reuses a low UID',async()=>{
+    const {state,scope}=harness();
+    const data={entries:{3:{uid:3,comment:'Earlier memory',displayIndex:2030,content:'Keep me'},4:{uid:4,comment:'Side',displayIndex:4}}};
+    const before=structuredClone(data);
+    assert.equal((await scope.addMemoryToLorebook({content:'New memory',metadata:{}},{valid:true,name:'book',data},{refreshEditor:false})).success,true);
+    assert.equal(state.disk.entries[0].displayIndex,2031);
+    assert.deepEqual(data.entries[3],before.entries[3]);
+    assert.deepEqual(data.entries[4],before.entries[4]);
+});
+
+for(const batch of [false,true])test(`new sides append, overwrites stay put and explicit versions append (${batch?'batch':'single'})`,async()=>{
+    const {state,scope}=harness();
+    state.disk.entries={5:{uid:5,comment:'Existing',displayIndex:2030,order:100}};
+    const save=async(content,h=history())=>{
+        const item={title:'Relationship (STMB SidePrompt)',content,sidePromptHistory:h};
+        return batch
+            ? scope.upsertLorebookEntriesBatch('book',structuredClone(state.disk),[item],{refreshEditor:false})
+            : scope.upsertLorebookEntryByTitle('book',structuredClone(state.disk),item.title,item.content,{...item,refreshEditor:false});
+    };
+    await save('First');assert.equal(state.disk.entries[0].displayIndex,2031);
+    await save('Second');assert.equal(state.disk.entries[0].displayIndex,2031);assert.equal(Object.keys(state.disk.entries).length,2);
+    await save('Third',{...history(),append:true});assert.equal(state.disk.entries[1].displayIndex,2032);
+    assert.equal(state.disk.entries[0].displayIndex,2031);assert.equal(state.disk.entries[5].displayIndex,2030);
+});
+
+test('batched summary-style upserts append in saved order and preserve position on update',async()=>{
+    const {state,scope}=harness();state.disk.entries={8:{uid:8,displayIndex:500,comment:'Existing'}};
+    const items=['[ARC 001]','[ARC 002]'].map((title,index)=>({title,content:'Summary',entryOverrides:{order:index+1,stmemorybooks:true}}));
+    await scope.upsertLorebookEntriesBatch('book',state.disk,items,{refreshEditor:false});
+    assert.equal(state.disk.entries[0].displayIndex,501);assert.equal(state.disk.entries[1].displayIndex,502);
+    await scope.upsertLorebookEntriesBatch('book',state.disk,[{...items[0],content:'Updated'}],{refreshEditor:false});
+    assert.equal(state.disk.entries[0].displayIndex,501);assert.equal(state.disk.entries[0].order,1);
+});
+
+test('title numbering and insertion order settings never overwrite editor position',()=>{
+    const scope={normalizeLorebookEntrySettings:s=>s,computeLorebookEntryOrder:(s,n)=>s.orderMode==='manual'?s.orderValue:n,
+        CONTROLLED_WORLD_INFO_DEFAULT_FIELDS:[],getWorldInfoDefaultValue:()=>null};
+    vm.createContext(scope);vm.runInContext(extract('applyLorebookEntrySettings'),scope);
+    const entry={displayIndex:2031};
+    scope.applyLorebookEntrySettings(entry,{constVectMode:'link',position:1,orderMode:'auto'},{orderNumber:24});
+    assert.equal(entry.displayIndex,2031);assert.equal(entry.order,24);
+    scope.applyLorebookEntrySettings(entry,{constVectMode:'link',position:1,orderMode:'manual',orderValue:900},{orderNumber:25});
+    assert.equal(entry.displayIndex,2031);assert.equal(entry.order,900);
+    const summaryOverrides={};scope.applyLorebookEntrySettings(summaryOverrides,{}, {orderNumber:1});
+    assert.equal(Object.hasOwn(summaryOverrides,'displayIndex'),false);
 });

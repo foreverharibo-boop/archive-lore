@@ -2948,7 +2948,9 @@ In the fork, built-in summary/consolidation/side prompt instructions are English
 
 ### Archive Lore event title format
 
-The title format selector includes **아카이브 로어 · [번호] 작중 날짜 · 사건 제목** (`[[000]] {{archiveLoreTitle}}`). Selecting it adds an English title instruction to memory collection without changing the JSON schema: the AI returns the event's established fictional date and a short English title; the extension adds the sequence number. Unknown dates are omitted. Date ranges are allowed when established in the collected scene. This is AI extraction, not a calendar calculation; generated dates should be checked against the source. Existing profiles are not switched automatically. Native `{{date}}` and `{{time}}` still refer to real-world creation time. Existing stored titles are not renamed.
+The title format selector includes **아카이브 로어 · 작중 날짜만** (`{{archiveLoreTitle}}`). Collection and regeneration use only the established fictional date, such as `2029-10-23` or `2029-10-23–2029-10-24`, without a visible sequence number or event description. The exact former Archive Lore preset (`[[000]] {{archiveLoreTitle}}`) migrates automatically; other presets and custom formats remain unchanged. Unknown or invalid dates render as `날짜 미상`, never today's date. This is AI extraction, not a calendar calculation; generated dates should be checked against the source. Native `{{date}}` and `{{time}}` still refer to real-world creation time. Existing stored titles are not renamed.
+
+Date-only memories keep their sequence in `STMB_memoryNumber`, so subsequent collection, regeneration and automatic/reverse insertion order retain their numbering semantics. `order` is insertion priority, not the visible list position, and vectorization does not set this number. Manual insertion order still uses the profile's configured value. No recollection or re-embedding is required for the title-format update.
 
 The fork-only “기본 통합 프롬프트 복원” shortcut has been removed from the consolidation prompt manager. Native built-in prompt recreation and JSON import/export remain available.
 

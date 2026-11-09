@@ -2,7 +2,7 @@ import { nativePreferences, createNativePreferences, appendOriginalTools, BOOK_M
 import { scenePreview, mountLazyDetails } from './lore-native-lazy.js';
 import { getArchiveLoreBookRoute } from './utils.js';
 import { captureSettingsForm, acknowledgeSettingsControl, changedSettingsForm } from './lore-native-settings.js';
-import { titleFormatLabel } from './lore-native-title.js';
+import { titleFormatLabel, migrateArchiveLoreTitleFormat } from './lore-native-title.js';
 import { createHomeContext } from './lore-native-home.js';
 import { advanceCollectionCheckpoint, nextCollectionRange } from './lore-native-progress.js';
 import {COLLECTION_UNDO_PENDING,planCollectionUndo,saveCollectionUndo} from './lore-collection-undo.js';
@@ -2519,6 +2519,9 @@ function getSPTriggersSummary(tpl) {
 function initializeSettings() {
   extension_settings.STMemoryBooks =
     extension_settings.STMemoryBooks || deepClone(defaultSettings);
+  if (globalThis.archiveLoreFork && migrateArchiveLoreTitleFormat(extension_settings.STMemoryBooks)) {
+    saveSettingsDebounced();
+  }
 
   const lockNormalization = ensureCharacterMemoryBookLocks(extension_settings.STMemoryBooks);
   if (lockNormalization.changed) {

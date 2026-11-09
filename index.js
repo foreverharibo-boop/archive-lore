@@ -3,6 +3,7 @@ import { scenePreview, mountLazyDetails } from './lore-native-lazy.js';
 import { getArchiveLoreBookRoute } from './utils.js';
 import { captureSettingsForm, acknowledgeSettingsControl, changedSettingsForm } from './lore-native-settings.js';
 import { titleFormatLabel, migrateArchiveLoreTitleFormat } from './lore-native-title.js';
+import { installArchiveDisplayOrderAction } from './lore-display-order.js';
 import { createHomeContext } from './lore-native-home.js';
 import { advanceCollectionCheckpoint, nextCollectionRange } from './lore-native-progress.js';
 import {COLLECTION_UNDO_PENDING,planCollectionUndo,saveCollectionUndo} from './lore-collection-undo.js';
@@ -14751,6 +14752,13 @@ async function init() {
 
   // Create UI now that extensions menu is available
   createUI();
+  if (globalThis.archiveLoreFork) installArchiveDisplayOrderAction({
+    document, getBook: getCurrentLorebookEditorName, loadBook: loadWorldInfo,
+    saveBook: saveSidePromptLorebookChecked, refresh: reloadEditor,
+    busy: () => isMemoryProcessing() || getStmbInFlightCount() || globalThis.archiveLoreUndoing
+      || globalThis.archiveLoreSearch?.controller.state().busy,
+    notify: (message, type) => toastr[type](message, '아카이브 로어'),
+  });
   refreshNarratorCastDrawer();
 
   // Apply locale to any initial DOM injected by this module

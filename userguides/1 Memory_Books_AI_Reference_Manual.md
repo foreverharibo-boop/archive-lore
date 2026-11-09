@@ -2907,7 +2907,11 @@ Archive Lore overwrite-mode lookup also handles a changed chat ID after import o
 
 ### Archive Lore: editor display order
 
-New memories, side outputs and native summary upserts receive a display index after the target lorebook's existing entries. This remains true when a deleted UID is reused. Title sequence numbers no longer set `displayIndex`; applying lorebook settings or updating a side output preserves its existing position. The separate insertion-priority `order` setting keeps its existing automatic/manual/reverse behavior. The editor's selected sort still controls the visible list: **Custom** uses display indexes, while title/priority/UID sorts use their own fields. Existing books are not automatically reordered. **UID ascending** can show older entries by allocated ID without recollection or re-embedding; reused IDs are not a reliable historical timestamp.
+Archive Lore owns the saved custom display order: a new memory or ordinary summary follows the existing ordinary entries and precedes side outputs. Existing ordinary entries retain their display indexes, including manually arranged order; their UID is not treated as a creation timestamp. Side outputs keep their relative display order and move below the ordinary entries as needed. Overwriting a side keeps the same UID. The rule runs in Archive Lore's native memory/side/summary saves and during collection undo, without depending on Lorebook Manager.
+
+For an existing book, select it in SillyTavern's editor and click **사이드 아래로 정리**, provided by Archive Lore itself. It moves only side display positions, selects native **Custom** sorting, and requires no recollection or re-embedding. Merely opening a book does not write anything. The action checks for a switched book, active collection, or intervening edits before saving. Other explicitly chosen sorts (such as title or UID) continue to take precedence over saved display indexes.
+
+Insertion priority `order`, content, activation and vectors remain unchanged. Valid side rollback fingerprints are refreshed after a display-only move; a fingerprint already invalidated by unrelated edits is never repaired implicitly. Lorebook Manager's former `UID ↑ · 사이드 맨 아래` mode is removed; saved selections of that mode migrate to native Custom.
 
 ### Archive Lore: focused retrieval and original-sentence selection
 

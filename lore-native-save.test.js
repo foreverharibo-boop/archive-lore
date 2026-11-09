@@ -8,6 +8,7 @@ import {buildSidePromptHistoryRequest,resolveSidePromptHistory,validateSidePromp
 import {fingerprintRollbackEntry,applySidePromptRestoration} from './memoryRollback.js';
 import {buildSidePromptRegenerationSnapshot} from './memoryRegeneration.js';
 import {isArchiveLoreDateFormat, ARCHIVE_LORE_TITLE_FORMAT} from './lore-native-title.js';
+import {maintainArchiveDisplayOrder} from './lore-display-order.js';
 
 const src=fs.readFileSync(new URL('./addlore.js',import.meta.url),'utf8');
 function extract(name) {const a=src.search(new RegExp('(?:export )?(?:async )?function '+name+'\\('));return src.slice(a,src.indexOf('\n}',a)+2).replace(/^export /,'');}
@@ -21,7 +22,7 @@ function harness() {
         createWorldInfoEntry:(_name,data)=>{let uid=0;while(Object.hasOwn(data.entries,uid))uid++;return data.entries[uid]={uid};},
         getEntryByTitle:(data,title)=>Object.values(data.entries).find(e=>e.comment===title),
         extension_settings:{STMemoryBooks:{moduleSettings:{refreshEditor:false}}},i18n:(_key,fallback)=>fallback,
-        isArchiveLoreDateFormat, getNextEntryNumber:data=>Math.max(0,...Object.values(data.entries).map(e=>e.STMB_memoryNumber||0))+1,
+        maintainArchiveDisplayOrder, isArchiveLoreDateFormat, getNextEntryNumber:data=>Math.max(0,...Object.values(data.entries).map(e=>e.STMB_memoryNumber||0))+1,
         generateEntryTitle:()=> 'Story',sanitizeTitle:s=>s,populateLorebookEntry:(e,m,title)=>Object.assign(e,{content:m.content,comment:title,stmemorybooks:true}),
         isCharacterAwarenessDisabled:()=>false,updateHighestMemoryProcessed:()=>state.progress++,
         toastr:{success:()=>state.notifications++,error(){}},getAutoHideRanges:()=>({mode:'none'}),reloadEditor:async()=>{},MODULE_NAME:'test'};
@@ -158,4 +159,21 @@ test('two same-date collections create separate memories with persistent interna
  assert.equal(state.disk.entries[2].comment,'2029-10-23');
  assert.equal(state.disk.entries[1].STMB_memoryNumber,25);
  assert.equal(state.disk.entries[2].STMB_memoryNumber,26);
+});
+
+test('actual collection appends before sides and repeated side overwrites retain UID and valid undo',async()=>{
+ const {scope,state}=harness();
+ await scope.upsertLorebookEntryByTitle('book',state.disk,'Relationship (STMB SidePrompt)','First side',{sidePromptHistory:history(),metadataFactory:factory,refreshEditor:false});
+ const sideUid=Object.values(state.disk.entries)[0].uid;
+ const data=structuredClone(state.disk);
+ assert.equal((await scope.addMemoryToLorebook({content:'New memory',metadata:{}},{valid:true,name:'book',data},{refreshEditor:false})).success,true);
+ assert.equal(data.entries[1].displayIndex,0);
+ assert.equal(data.entries[sideUid].displayIndex,1);
+ assert.equal(data.entries[sideUid].STMB_sidePromptRegeneration.writtenFingerprint,fingerprintRollbackEntry(data.entries[sideUid],{excludeSidePromptSnapshot:true}));
+ await scope.upsertLorebookEntryByTitle('book',data,'Relationship (STMB SidePrompt)','Updated side',{sidePromptHistory:history(),metadataFactory:factory,refreshEditor:false});
+ assert.equal(Object.keys(state.disk.entries).length,2);
+ assert.equal(state.disk.entries[sideUid].content,'Updated side');
+ assert.equal(state.disk.entries[sideUid].displayIndex,1);
+ assert.equal(applySidePromptRestoration(state.disk,{entryKey:String(sideUid)}).changed,true);
+ assert.equal(state.disk.entries[sideUid].content,'First side');
 });

@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 import {buildSidePromptHistoryRequest,resolveSidePromptHistory,validateSidePromptHistoryRequest,
     formatSidePromptVersionTitle,SIDE_PROMPT_HISTORY_KEY} from './sidePromptHistory.js';
-import {fingerprintRollbackEntry} from './memoryRollback.js';
+import {fingerprintRollbackEntry,applySidePromptRestoration} from './memoryRollback.js';
 import {buildSidePromptRegenerationSnapshot} from './memoryRegeneration.js';
 
 const src=fs.readFileSync(new URL('./addlore.js',import.meta.url),'utf8');
@@ -62,4 +62,37 @@ test('explicit version history still appends and disables the older version',asy
     const {state,scope}=harness();const h={...history(),append:true};
     for(const content of ['first','second'])await scope.upsertLorebookEntryByTitle('book',structuredClone(state.disk),template.name+' (STMB SidePrompt)',content,{sidePromptHistory:h,metadataFactory:factory,refreshEditor:false});
     assert.equal(Object.keys(state.disk.entries).length,2);assert.equal(state.disk.entries[0].disable,true);assert.equal(state.disk.entries[1].disable,false);assert.equal(state.disk.entries[1].STMB_sidePromptHistory.sequence,2);
+});
+
+for (const batch of [false, true]) test(`imported chat reuses legacy and stamped side UID, preserves facts for generation and undo (${batch ? 'batch' : 'single'})`,async()=>{
+    const {state,scope}=harness();
+    const tpl={...template,settings:{lorebook:{entryTitleOverride:'Relationship'}}};
+    const h=history(tpl),title='Relationship (STMB SidePrompt)';
+    const original={uid:1,comment:title,content:'Established earlier facts',STMB_sidePromptRegeneration:{templateKey:tpl.key,chatId:'parent-chat'}};
+    state.disk.entries={0:{uid:0,comment:'Story',content:'Narrative',stmemorybooks:true},1:structuredClone(original)};
+    const originalBook=structuredClone(state.disk);
+    const save=async(request,content)=>{
+        const previous=resolveSidePromptHistory(state.disk,request).latest;
+        const options={sidePromptHistory:request,metadataFactory:({entry,priorEntry})=>({STMB_sidePromptRegeneration:buildSidePromptRegenerationSnapshot({
+            templateKey:tpl.key,priorContent:previous?.content,priorEntry,writtenEntry:entry,
+            compiledScene:{metadata:{chatId:request.chatId,sceneStart:2,sceneEnd:3}},
+        })})};
+        return batch
+            ? scope.upsertLorebookEntriesBatch('book',structuredClone(state.disk),[{title,content,...options}],{refreshEditor:false})
+            : scope.upsertLorebookEntryByTitle('book',structuredClone(state.disk),title,content,{...options,refreshEditor:false});
+    };
+    await save(h,'Updated facts');
+    assert.equal(Object.keys(state.disk.entries).length,2);
+    assert.equal(state.disk.entries[1].STMB_sidePromptRegeneration.priorContent,original.content);
+    assert.equal(state.disk.entries[1].STMB_sidePromptRegeneration.priorEntryExisted,true);
+    assert.deepEqual(state.disk.entries[0],originalBook.entries[0]);
+    const undoBook=structuredClone(state.disk);
+    assert.equal(applySidePromptRestoration(undoBook,{entryKey:'1'}).deleted,false);
+    assert.equal(undoBook.entries[1].content,original.content);
+    const next={...h,chatId:'imported-again',chatKey:JSON.stringify(['character','avatar','imported-again'])};
+    await save(next,'Updated again');
+    assert.equal(Object.keys(state.disk.entries).length,2);
+    assert.equal(state.disk.entries[1].STMB_sidePromptRegeneration.priorContent,'Updated facts');
+    assert.equal(state.disk.entries[1].STMB_sidePromptHistory.chatId,next.chatId);
+    assert.deepEqual(originalBook.entries[1],original);
 });

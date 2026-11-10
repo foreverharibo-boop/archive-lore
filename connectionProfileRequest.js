@@ -1,5 +1,6 @@
 // Copyright (C) 2024–2026 Aiko Hanasaki
 // SPDX-License-Identifier: AGPL-3.0-only
+import { normalizeCompletionRequest } from './completionCompatibility.js';
 
 /** Resolve the active ST connection before shaping provider-specific fields. */
 export function getSelectedConnectionProfile(context, translate = (_key, fallback) => fallback) {
@@ -31,11 +32,12 @@ export function prepareConnectionProfileRequest(connection, body, signal) {
     for (const field of ['max_tokens', 'max_completion_tokens', 'max_output_tokens', 'max_new_tokens', 'json_schema']) {
         overrides[field] = body[field];
     }
+    const compatible = normalizeCompletionRequest({ ...overrides, model: body.model || connection.profile.model }, connection.source);
     return () => service.sendRequest(
         profileId,
         body.messages,
-        body.max_tokens,
+        compatible.max_completion_tokens ?? compatible.max_tokens,
         { stream: body.stream, signal, extractData: false, includePreset: true },
-        overrides,
+        compatible,
     );
 }

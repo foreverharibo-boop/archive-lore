@@ -1,3 +1,4 @@
+import { captureIntervalScene } from './lore-side-after-memory.js';
 import { nativePreferences, createNativePreferences, appendOriginalTools, BOOK_MODES } from './lore-native-preferences.js';
 import { scenePreview, mountLazyDetails } from './lore-native-lazy.js';
 import { getArchiveLoreBookRoute } from './utils.js';
@@ -5537,6 +5538,7 @@ async function executeMemoryGeneration(
       sceneData.sceneEnd,
     );
     compiledScene = compileScene(sceneRequest);
+    if (globalThis.archiveLoreFork) captureIntervalScene(compiledScene, { chat, compileScene, createSceneRequest });
     const promptContext = memoryOriginSnapshot.sceneContext;
     compiledScene.metadata = {
       ...(compiledScene.metadata || {}),
@@ -6118,6 +6120,7 @@ async function buildQueuedMemoryJob(
     );
   const sceneRequest = createSceneRequest(sceneData.sceneStart, sceneData.sceneEnd);
   const compiledScene = compileScene(sceneRequest);
+  if (globalThis.archiveLoreFork) captureIntervalScene(compiledScene, { chat, compileScene, createSceneRequest });
   const promptContext = originSnapshot.sceneContext;
   compiledScene.metadata = {
     ...(compiledScene.metadata || {}),

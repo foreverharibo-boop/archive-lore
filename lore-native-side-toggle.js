@@ -8,7 +8,7 @@ export function mountSideAutoToggle(container, {markers, save, document:doc=glob
     input.type='checkbox';input.id='al-side-after-memory-enabled';input.checked=sideAutoEnabled(markers);
     text.textContent='기억 수집 후 사이드 프롬프트 자동 실행';label.append(input,text);
     const note=doc.createElement('small');note.className='al-optional-help';
-    note.textContent='이 채팅에 적용됩니다. 끄면 다음 기억 수집 후 사이드 기록을 생성·갱신하지 않습니다. 기존 기록과 항목별 설정은 유지됩니다. 메시지 간격 조건도 기억 저장 후에 확인합니다. 이미 실행 중인 작업과 수동 실행은 별도입니다.';
+    note.textContent='이 채팅에 적용됩니다. 끄면 다음 기억 수집 후 사이드 기록을 생성·갱신하지 않습니다. 기존 기록과 항목별 설정은 유지됩니다. 메시지 간격 실행은 독립적으로 동작하며, 기억 수집과 겹칠 때만 저장 후 실행합니다. 이미 실행 중인 작업과 수동 실행은 별도입니다.';
     input.addEventListener('change',()=>{markers[SIDE_AUTO_KEY]=input.checked;save();});
     box.append(label,note);container.prepend(box);return input;
 }

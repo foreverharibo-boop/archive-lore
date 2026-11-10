@@ -34,8 +34,17 @@ test('empty visible history fallback is serializable and interval snapshot input
  assert.doesNotThrow(()=>JSON.stringify(hidden));
 });
 function harness({queued=true, fork=true, after=[], intervals=[], set=false, enabled=true,existing={}}={}) {
- const jobs=[],requests=[],saves=[],errors=[];let tasks=0;
- const scope={archiveLoreFork:fork,sideAutoEnabled,intervalSceneAfterMemory,mergeAfterMemoryItems,filterAutomaticSidePromptSetItems,
+ const jobs=[],requests=[],saves=[],errors=[],historyRefs=[],preparations=[];let tasks=0;
+ const scope={archiveLoreFork:fork,intervalEvaluationInFlight:false,
+  hasActiveStmbJobs:()=>jobs.length>0,getStmbChatKey:()=> 'origin',
+  getCurrentStmbChatRef:()=>({fileName:'currently-open-chat'}),
+  chat:Array.from({length:20},(_,id)=>({mes:`text ${id}`})),
+  getSidePromptLastMessageId:(tpl,row)=>row?.[`STMB_sp_${tpl.key}_lastMsgId`] ?? -1,
+  countVisibleMessagesSince:(last,end)=>end-last,
+  compileRange:async(start,end)=>({metadata:{sceneStart:start,sceneEnd:end},messages:Array.from({length:end-start+1},(_,i)=>({id:start+i}))}),
+  getStmbStopEpoch:()=>1, __st_t_tag:s=>s.join(''),
+  upsertLorebookEntryByTitle:async(_n,_d,_t,_text,options)=>saves.push(options),
+  sideAutoEnabled,intervalSceneAfterMemory,mergeAfterMemoryItems,filterAutomaticSidePromptSetItems,
   getSceneMarkers:()=>({archiveLoreSideAfterMemoryEnabled:enabled}),
   createStmbInFlightTask:()=>{tasks++;return {epoch:1,finish(){}};},throwIfStmbStopped(){},
   getCurrentMemoryBooksContext:()=>({}),extension_settings:{STMemoryBooks:{moduleSettings:{showNotifications:false}}},
@@ -45,10 +54,10 @@ function harness({queued=true, fork=true, after=[], intervals=[], set=false, ena
   listByTrigger:async trigger=>trigger==='onAfterMemory'?after:intervals,
   resolveSidePromptConnection:()=>({}),clampInt:n=>n,areStmbJobsEnabled:()=>queued,
   resolveSidePromptLorebook:async()=>({name:'origin-book',data:{entries:{}}}),
-  getSidePromptHistory:tpl=>({key:tpl.key}),resolveSidePromptHistory:(_data,h)=>({latest:existing[h.key]}),
+  getSidePromptHistory:(tpl,_macros,_fallbacks,ref)=>{historyRefs.push(ref);return {key:tpl.key};},resolveSidePromptHistory:(_data,h)=>({latest:existing[h.key]}),
   reportSidePromptHistoryConflict:()=>false,isStmbStopError:()=>false,
   ensureSidePromptJobExecutorRegistered(){},makeUpsertParamsFromLorebook:()=>({}),getEffectiveLorebookSettingsForTemplate:()=>({}),
-  prepareSidePromptRun:async args=>({unifiedTitle:args.tpl.key,conn:{},finalPrompt:JSON.stringify(args.compiledScene.messages),prior:''}),
+  prepareSidePromptRun:async args=>{preparations.push(args);return {unifiedTitle:args.tpl.key,conn:{},finalPrompt:JSON.stringify(args.compiledScene.messages),prior:''};},
   buildSidePromptJob:args=>args,enqueueStmbJob:job=>{jobs.push(job);return job;},
   runSidePromptAttempt:async args=>{requests.push(args);return 'updated';},ensureSidePromptTextNotBlank:()=>true,
   resolveSidePromptPreview:async()=>({approved:true,text:'updated'}),createSidePromptRegenerationMetadataFactory:()=>()=>({}),
@@ -56,21 +65,38 @@ function harness({queued=true, fork=true, after=[], intervals=[], set=false, ena
   console:{debug(){},log(){},warn(...args){errors.push(args)},error(...args){errors.push(args)}},MODULE_NAME:'test',performance,Date,
   toastr:{info(){},success(){},error(...args){errors.push(args)}}};
  vm.createContext(scope);vm.runInContext(extract('evaluateTrackers')+'\n'+extract('runAfterMemory'),scope);
- return {scope,jobs,requests,saves,errors,get tasks(){return tasks}};
+ return {scope,jobs,requests,saves,errors,historyRefs,preparations,get tasks(){return tasks}};
 }
-test('message arrival cannot launch or queue an Archive interval before a memory save',async()=>{
- const h=harness({intervals:[template('a')]});assert.equal(await h.scope.evaluateTrackers(),0);
- assert.equal(h.tasks,0);assert.equal(h.jobs.length,0);assert.equal(h.requests.length,0);
+for(const queued of [true,false])test(`interval 20 runs independently before memory 50 (${queued})`,async()=>{
+ const row=template('a',20);const h=harness({queued,intervals:[row]});
+ await h.scope.evaluateTrackers();
+ assert.deepEqual(h.errors,[]);
+ assert.equal(queued?h.jobs.length:h.saves.length,1);
+ if(queued) {
+   await h.scope.evaluateTrackers();assert.equal(h.jobs.length,1); // queued checkpoint not saved yet
+   h.jobs.length=0;
+ }
+ h.scope.resolveSidePromptHistory=()=>({latest:{STMB_sp_a_lastMsgId:19}});
+ h.scope.chat.push(...Array.from({length:20},()=>({})));
+ await h.scope.evaluateTrackers();
+ assert.deepEqual(h.errors,[]);assert.equal(queued?h.jobs.length:h.saves.length,queued?1:2);
+});
+test('concurrent message callbacks cannot enqueue the same interval twice',async()=>{
+ const h=harness({intervals:[template('a',20)]});
+ await Promise.all([h.scope.evaluateTrackers(),h.scope.evaluateTrackers()]);
+ assert.deepEqual(h.errors,[]);assert.equal(h.jobs.length,1);
 });
 for(const queued of [true,false])for(const set of [true,false])test(`after-memory executes due intervals once and retains threshold / origin (${queued}, ${set})`,async()=>{
  const both=template('both',3,true),interval=template('interval'),later=template('later',99);
  const h=harness({queued,set,after:[both],intervals:[both,interval,later]});
- await h.scope.runAfterMemory(sceneFixture().scene,null,{parentJobId:'saved-memory',chatKey:'origin',chatRef:{fileName:'origin'}});
+ await h.scope.runAfterMemory(sceneFixture().scene,null,{parentJobId:'saved-memory',chatKey:'origin',chatRef:{fileName:'origin'},lorebookName:'saved-memory-book'});
  assert.deepEqual(h.errors,[]);
+ assert(h.historyRefs.every(ref=>ref?.fileName==='origin'));
+ assert(h.preparations.every(args=>args.chatRef?.fileName==='origin'));
  if(queued){assert.deepEqual(h.jobs.map(j=>j.tpl.key),['both','interval']);assert(h.jobs.every(j=>j.parentJobId==='saved-memory'&&j.chatKey==='origin'));assert.equal(h.jobs[1].compiledScene.metadata.sceneEnd,9);}
  else {assert.equal(h.requests.length,2);assert.equal(h.saves.length,2);assert(h.saves.every(s=>Object.values(s.metadataUpdates).includes(9)));}
 });
 test('switch off and original Memory Books mode preserve their execution boundaries',async()=>{
- const off=harness({enabled:false,intervals:[template('a')]});assert.equal(await off.scope.runAfterMemory(sceneFixture().scene),0);assert.equal(off.tasks,0);
+ const off=harness({enabled:false,after:[template('after',0,true)],intervals:[template('a')]});await off.scope.runAfterMemory(sceneFixture().scene);assert.deepEqual(off.jobs.map(j=>j.tpl.key),['a']);
  const original=harness({fork:false,intervals:[template('a')]});await original.scope.runAfterMemory(sceneFixture().scene);assert.equal(original.jobs.length,0);
 });

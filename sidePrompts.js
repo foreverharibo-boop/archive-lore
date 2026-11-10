@@ -1,3 +1,4 @@
+import { compileSideRefresh, SIDE_UPDATE_RULES } from './lore-side-story.js';
 import { intervalSceneAfterMemory, mergeAfterMemoryItems } from './lore-side-after-memory.js';
 import { PLAIN_SIDE_FORMAT, validatePlainSideRecord } from './lore-native-side.js';
 import { sideAutoEnabled } from './lore-native-side-toggle.js';
@@ -27,6 +28,7 @@ import {
 } from './contextSettingsManager.js';
 import {
     areStmbJobsEnabled,
+    hasActiveStmbJobs,
     awaitStmbJobApproval,
     enqueueStmbJob,
     getCurrentStmbChatRef,
@@ -44,6 +46,7 @@ import { buildSidePromptHistoryRequest, resolveSidePromptHistory } from './sideP
 
 const MODULE_NAME = 'STMemoryBooks-SidePrompts';
 let hasShownSidePromptRangeTip = false;
+let intervalEvaluationInFlight = false;
 export const STMB_SIDE_PROMPT_TITLE_SUFFIX = ' (STMB SidePrompt)';
 
 function reportSidePromptHistoryConflict(err, name) {
@@ -269,6 +272,7 @@ function buildPrompt(templatePrompt, priorContent, compiledScene, responseFormat
             'STMemoryBooks_PromptFrame_SidePreviousContextEnd',
         )}\n`);
     }
+    if (globalThis.archiveLoreFork) parts.push('\n' + SIDE_UPDATE_RULES);
     appendSidePromptAdditionalContext(parts, additionalContextEntries);
     // Derive scene text from the compiled scene here to keep a single source of truth
     const sceneText = compiledScene ? toReadableText(compiledScene) : '';
@@ -639,11 +643,9 @@ function getHighestProcessedMessageBaseline() {
 }
 
 function getSidePromptLastMessageId(tpl, existingEntry) {
-    const storedLastMsgId = Number(
-        (existingEntry && existingEntry[`STMB_sp_${tpl.key}_lastMsgId`]) ??
-        (existingEntry && existingEntry.STMB_score_lastMsgId) ??
-        (existingEntry && existingEntry.STMB_tracker_lastMsgId)
-    );
+    const rawLastMsgId = existingEntry?.[`STMB_sp_${tpl.key}_lastMsgId`]
+        ?? existingEntry?.STMB_score_lastMsgId ?? existingEntry?.STMB_tracker_lastMsgId;
+    const storedLastMsgId = rawLastMsgId == null ? NaN : Number(rawLastMsgId);
 
     if (Number.isFinite(storedLastMsgId)) {
         return storedLastMsgId;
@@ -669,9 +671,10 @@ async function prepareSidePromptRun({
     fallbackKinds = [],
     runtimeMacros = {},
     priorContentOverride = undefined,
+    chatRef = null,
 }) {
     const unifiedTitle = getUnifiedSidePromptTitle(tpl, runtimeMacros);
-    const sidePromptHistory = getSidePromptHistory(tpl, runtimeMacros, fallbackKinds);
+    const sidePromptHistory = getSidePromptHistory(tpl, runtimeMacros, fallbackKinds, chatRef || getCurrentStmbChatRef());
     const existing = priorContentOverride === undefined
         ? resolveSidePromptHistory(loreData, sidePromptHistory).latest
         : null;
@@ -682,7 +685,8 @@ async function prepareSidePromptRun({
     let prevSummaries = [];
     const pmCountRaw = Number(tpl?.settings?.previousMemoriesCount ?? 0);
     const pmCount = Math.max(0, Math.min(7, pmCountRaw));
-    if (pmCount > 0) {
+    // Archive updates use only this run's dialogue and the existing side record.
+    if (!globalThis.archiveLoreFork && pmCount > 0) {
         try {
             const res = await fetchPreviousSummaries(pmCount, extension_settings, chat_metadata);
             prevSummaries = res?.summaries || [];
@@ -1248,8 +1252,10 @@ function parseManualRange(range) {
  * Evaluate tracker prompts and fire if thresholds are met
  */
 export async function evaluateTrackers() {
-    // Archive intervals are dispatched only from the successful memory save path.
-    if (globalThis.archiveLoreFork) return 0;
+    // Message intervals remain independent. The caller checks memory creation
+    // first; queued work is also guarded here until its saved checkpoint exists.
+    if (globalThis.archiveLoreFork && (intervalEvaluationInFlight || hasActiveStmbJobs(getStmbChatKey()))) return 0;
+    if (globalThis.archiveLoreFork) intervalEvaluationInFlight = true;
     const parentTask = createStmbInFlightTask('SidePrompts:onInterval');
     const evalEpoch = parentTask.epoch;
     try {
@@ -1469,6 +1475,7 @@ export async function evaluateTrackers() {
         if (isStmbStopError(outer)) return;
         // No lorebook or other fatal issues
     } finally {
+        intervalEvaluationInFlight = false;
         parentTask.finish();
     }
 }
@@ -1478,12 +1485,13 @@ export async function evaluateTrackers() {
  * @param {Object} compiledScene
  */
 export async function runAfterMemory(compiledScene, profile = null, options = {}) {
-    if (!sideAutoEnabled(options.sceneMarkers || getSceneMarkers())) return 0;
+    const afterEnabled = sideAutoEnabled(options.sceneMarkers || getSceneMarkers());
+    if (!afterEnabled && !globalThis.archiveLoreFork) return 0;
     const parentTask = createStmbInFlightTask('SidePrompts:onAfterMemory');
     const runEpoch = parentTask.epoch;
     try {
         throwIfStmbStopped(runEpoch);
-        const retryJobSnapshots = Array.isArray(options.retryJobSnapshots)
+        const retryJobSnapshots = afterEnabled && Array.isArray(options.retryJobSnapshots)
             ? options.retryJobSnapshots
             : [];
         if (areStmbJobsEnabled() && retryJobSnapshots.length > 0) {
@@ -1539,11 +1547,11 @@ export async function runAfterMemory(compiledScene, profile = null, options = {}
                     'STMemoryBooks',
                 );
             }
-            runItems = filterAutomaticSidePromptSetItems(resolvedSet.runnable, 'onAfterMemory');
+            runItems = afterEnabled ? filterAutomaticSidePromptSetItems(resolvedSet.runnable, 'onAfterMemory') : [];
             if (globalThis.archiveLoreFork) runItems = mergeAfterMemoryItems(runItems,
                 filterAutomaticSidePromptSetItems(resolvedSet.runnable, 'onInterval'));
         } else {
-            const enabledAfter = await listByTrigger('onAfterMemory');
+            const enabledAfter = afterEnabled ? await listByTrigger('onAfterMemory') : [];
             runItems = (enabledAfter || []).map(tpl => ({
                 tpl,
                 baseTpl: tpl,
@@ -1582,7 +1590,7 @@ export async function runAfterMemory(compiledScene, profile = null, options = {}
                 try {
                     const lore = await resolveSidePromptLorebook(item.tpl, lorebookResolveContext);
                     const existing = resolveSidePromptHistory(lore.data,
-                        getSidePromptHistory(item.tpl, item.runtimeMacros || {}, ['tracker'])).latest;
+                        getSidePromptHistory(item.tpl, item.runtimeMacros || {}, ['tracker'], options.chatRef || getCurrentStmbChatRef())).latest;
                     const intervalScene = intervalSceneAfterMemory(compiledScene, item.tpl, existing);
                     if (intervalScene) ready.push({ ...item, compiledScene: intervalScene });
                 } catch (error) {
@@ -1611,6 +1619,7 @@ export async function runAfterMemory(compiledScene, profile = null, options = {}
                         tpl,
                         loreData: lore.data,
                         compiledScene: itemScene,
+                        chatRef: options.chatRef || null,
                         defaultOverrides,
                         fallbackKinds: runItem.archiveInterval ? ['tracker'] : ['plotpoints', 'scoreboard'],
                         runtimeMacros: runItem.runtimeMacros,
@@ -1675,6 +1684,7 @@ export async function runAfterMemory(compiledScene, profile = null, options = {}
                         tpl,
                         loreData: lore.data,
                         compiledScene: itemScene,
+                        chatRef: options.chatRef || null,
                         defaultOverrides,
                         fallbackKinds: runItem.archiveInterval ? ['tracker'] : ['plotpoints', 'scoreboard'],
                         runtimeMacros: runItem.runtimeMacros,
@@ -1938,7 +1948,9 @@ export async function runSidePrompt(args) {
             const boundedStart = Math.max(start, currentLast - cap + 1);
 
             try {
-                compiled = await compileRange(boundedStart, currentLast);
+                compiled = globalThis.archiveLoreFork
+                    ? await compileSideRefresh(boundedStart, currentLast, getCurrentStmbChatRef(), compileRange)
+                    : await compileRange(boundedStart, currentLast);
             } catch (err) {
                 toastr.error(translate('Failed to compile messages for /sideprompt', 'STMemoryBooks_Toast_FailedToCompileMessages'), 'STMemoryBooks');
                 return '';
@@ -2158,7 +2170,9 @@ export async function runSidePromptSet(args, options = {}) {
             const cap = 200;
             const boundedStart = Math.max(start, currentLast - cap + 1);
             try {
-                compiled = await compileRange(boundedStart, currentLast);
+                compiled = globalThis.archiveLoreFork
+                    ? await compileSideRefresh(boundedStart, currentLast, getCurrentStmbChatRef(), compileRange)
+                    : await compileRange(boundedStart, currentLast);
             } catch (err) {
                 toastr.error(translate('Failed to compile messages for /sideprompt-set', 'STMemoryBooks_Toast_FailedToCompileSetMessages'), 'STMemoryBooks');
                 return '';

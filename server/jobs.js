@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID, webcrypto } from 'node:crypto';
 import { atomic,inside,json,privateStore,hash } from './storage.js';
+import { reusableVectorStore,legacyEmbeddingBooks } from './vector-store.js';
 import {pruneDiagnostics,pruneJobs,resetLegacyHistory} from './retention.js';
 import { createLoreController } from '../lore-controller.js';
 import { createDiagnostics } from '../lore-diagnostics.js';
@@ -29,7 +30,7 @@ export function createJobService({sanitize,ask,embedRequest=embed,countTokens}) 
         if(!vectorStores.has(owner)){
             const root=inside(owner,'archive-lore-server');fs.mkdirSync(root,{recursive:true,mode:0o700});
             resetLegacyHistory(root);
-            vectorStores.set(owner,privateStore(root,'vectors'));
+            vectorStores.set(owner,reusableVectorStore(root,{legacyBooks:()=>legacyEmbeddingBooks(root,user.directories.worlds)}));
         }
         return vectorStores.get(owner);
     }

@@ -1,5 +1,6 @@
 // Archive Lore modifications Copyright (C) 2026 foreverharibo-boop
 // SPDX-License-Identifier: AGPL-3.0-only
+import { embeddingIdentity } from './lore-vector-identity.js';
 import { getSelectedConnectionProfile, prepareConnectionProfileRequest } from './connectionProfileRequest.js';
 
 export function makeId() {
@@ -100,7 +101,7 @@ export async function embeddingKey(settings, id, chunk) {
         settings.embeddingProvider === 'openai' ? settings.embeddingUrl : settings.embeddingProvider === 'vertex' ? JSON.stringify([String(settings.embeddingVertexProjectId || '').trim(), String(settings.embeddingVertexRegion || 'global').trim() || 'global', 768]) : '', settings.embeddingModel, id, chunk]);
 }
 export function createVectorStore(factory = indexedDB) {
-    let opening;
+    let opening,identityIndex;
     const database = () => opening ||= new Promise((resolve, reject) => {
         const req = factory.open('archive-lore-v1', 1);
         req.onupgradeneeded = () => req.result.createObjectStore('vectors');
@@ -116,6 +117,22 @@ export function createVectorStore(factory = indexedDB) {
             tx.oncomplete=()=>resolve(found);tx.onerror=()=>reject(tx.error);tx.onabort=()=>reject(tx.error || new Error('임베딩 개수 조회가 중단되었습니다.'));
         });
     }
+    async function identities() {
+        if(identityIndex)return identityIndex;
+        identityIndex=(async()=>{
+            const db=await database();
+            return new Promise((resolve,reject)=>{
+                const index=new Map(),tx=db.transaction('vectors');
+                const req=tx.objectStore('vectors').openKeyCursor();
+                req.onsuccess=()=>{const cursor=req.result;if(!cursor)return;const identity=embeddingIdentity(cursor.key);if(identity&&!index.has(identity))index.set(identity,cursor.key);cursor.continue();};
+                tx.oncomplete=()=>resolve(index);tx.onerror=()=>reject(tx.error);tx.onabort=()=>reject(tx.error || new Error('임베딩 연결 조회가 중단되었습니다.'));
+            });
+        })().catch(error=>{identityIndex=null;throw error;});
+        return identityIndex;
+    }
+    async function matchingKey(key) {
+        const identity=embeddingIdentity(key);return identity?(await identities()).get(identity):undefined;
+    }
     return {
         async hasMany(keys) {
             const found=await presentKeys(keys),missing=[];
@@ -124,6 +141,8 @@ export function createVectorStore(factory = indexedDB) {
             const aliases=await Promise.all(missing.map(async({key})=>{const raw=key.slice(13);return [await digest(raw),'exact-v1:'+raw];}));
             const old=await presentKeys(aliases.flat());
             missing.forEach(({index},i)=>{found[index]=old[i*2]||old[i*2+1];});
+            const reusable=missing.filter(({index,key})=>!found[index]&&embeddingIdentity(key));
+            if(reusable.length){const index=await identities();for(const item of reusable)found[item.index]=index.has(embeddingIdentity(item.key));}
             return found;
         },
         async get(key) {
@@ -133,7 +152,9 @@ export function createVectorStore(factory = indexedDB) {
                 req.onsuccess = async () => {
                     if(req.result || !key.startsWith('embedding-v2:')){resolve(req.result);return;}
                     try{const raw=key.slice(13),oldKeys=[await digest(raw),'exact-v1:'+raw];let found;
-                        for(const old of oldKeys){found=await new Promise((ok,bad)=>{const r=db.transaction('vectors').objectStore('vectors').get(old);r.onsuccess=()=>ok(r.result);r.onerror=()=>bad(r.error);});if(found)break;}resolve(found);
+                        for(const old of oldKeys){found=await new Promise((ok,bad)=>{const r=db.transaction('vectors').objectStore('vectors').get(old);r.onsuccess=()=>ok(r.result);r.onerror=()=>bad(r.error);});if(found)break;}
+                        if(!found){const match=await matchingKey(key);if(match)found=await new Promise((ok,bad)=>{const r=db.transaction('vectors').objectStore('vectors').get(match);r.onsuccess=()=>ok(r.result);r.onerror=()=>bad(r.error);});}
+                        resolve(found);
                     }catch(error){reject(error);}
                 }; req.onerror = () => reject(req.error);
             });
@@ -142,7 +163,7 @@ export function createVectorStore(factory = indexedDB) {
             const db = await database();
             return new Promise((resolve, reject) => {
                 const tx = db.transaction('vectors', 'readwrite'); tx.objectStore('vectors').put(value, key);
-                tx.oncomplete = () => resolve(); tx.onerror = () => reject(tx.error); tx.onabort = () => reject(tx.error || new Error('임베딩 저장 취소'));
+                tx.oncomplete = () => {if(identityIndex){const identity=embeddingIdentity(key);if(identity)void identityIndex.then(index=>index.set(identity,key)).catch(()=>{});}resolve();}; tx.onerror = () => reject(tx.error); tx.onabort = () => reject(tx.error || new Error('임베딩 저장 취소'));
             });
         },
     };

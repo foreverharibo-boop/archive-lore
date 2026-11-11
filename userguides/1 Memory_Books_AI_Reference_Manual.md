@@ -3533,3 +3533,27 @@ to existing and newly created start/end actions, so opening extra message action
 or a more specific theme rule cannot reveal them. Re-enabling restores their
 previous inline display and keeps the original marker click handlers. This only
 changes visibility; scene ranges, other message actions and collection are unchanged.
+
+### Embedding reuse after renaming a lorebook
+
+Embedding lookups retain the existing v2 keys for compatibility, but now fall back
+to exact content identity: namespace, provider, endpoint/project/location, model
+and the complete embedded chunk text must match. Book names and entry UIDs do
+not affect the resulting vector. Entry title changes can still require embedding
+because the title is included in the embedded input. No vector or source text is
+deleted by this recovery, and explicit force re-embedding still bypasses reuse.
+
+The browser scans only IndexedDB keys once on the first relevant cache miss and
+reuses v2 or exact-v1 entries, including books renamed before this update. Presence
+counts use keys only; they do not load or copy vector arrays. Unidentifiable older
+hash-only keys cannot be matched across names without their original identity.
+
+The server plugin must also be updated and restarted for server-side reuse. New
+writes keep a per-user content alias beside, not inside, the vector directory.
+Legacy hashed vector filenames are recovered by reconstructing exact keys using
+book names in retained server job records or existing world filenames. Presence
+checks never read vector payloads. When an old name is no longer discoverable,
+recovery cannot infer it from the vector alone; the saved files remain untouched.
+Browser-to-server migration can also reuse recoverable browser vectors through
+the existing indexing preparation path. Opening a renamed book must still resolve
+to the intended current lorebook in the extension's book connection settings.

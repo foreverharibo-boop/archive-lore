@@ -251,3 +251,17 @@ test('large job input is not copied into every progress snapshot, restart keeps 
     const restarted=createJobService(f.dependencies),result=restarted.get(f.user,submitted.id);
     assert.equal(result.status,'completed');assert.equal(result.chatKey,input.context.key);
 });
+test('renamed book recovers a pre-update server embedding and recalls without re-embedding documents',async t=>{
+    const f=fixture(t);let documentEmbeds=0,queryEmbeds=0;
+    const dependencies={...f.dependencies,embedRequest:async(_config,_text,query)=>{if(query)queryEmbeds++;else documentEmbeds++;return [1,0];}};
+    const service=createJobService(dependencies);
+    atomic(f.book,{entries:{0:{uid:0,comment:'Bracelet',content:'He wore a bracelet in Busan.',key:[],disable:false}}});
+    let input=f.input();input.settings.mode='embedding';
+    let job=await service.submit(f.user,'index',input,randomUUID());assert.equal((await done(service,f.user,job.id)).status,'completed');assert.equal(documentEmbeds,1);
+    // Emulate old installs, which kept vectors and jobs but no content aliases.
+    fs.rmSync(path.join(f.root,'archive-lore-server','vector-aliases'),{recursive:true,force:true});
+    fs.renameSync(f.book,path.join(f.user.directories.worlds,'Renamed.json'));
+    const restarted=createJobService(dependencies);input={...input,books:['Renamed'],target:'Renamed'};documentEmbeds=0;
+    job=await restarted.submit(f.user,'index',input,randomUUID());let completed=await done(restarted,f.user,job.id);assert.equal(completed.status,'completed',completed.message);assert.equal(documentEmbeds,0);
+    job=await restarted.submit(f.user,'recall',input,randomUUID());completed=await done(restarted,f.user,job.id);assert.equal(completed.status,'completed',completed.message);assert.match(completed.result.text,/bracelet/);assert.equal(documentEmbeds,0);assert(queryEmbeds>0);
+});

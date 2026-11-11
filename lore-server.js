@@ -45,8 +45,16 @@ export function createServerClient({headers,request=fetch}) {
     };
 }
 export function serverVectorStore({local,call,enabled}) {
-    const cache=new Map();return {
-        clear:()=>cache.clear(),
+    const cache=new Map();let cacheBytes=0;
+    const cost=(key,vector)=>key.length*2+vector.length*8;
+    const remember=(key,vector)=>{
+        if(cache.has(key)){cacheBytes-=cost(key,cache.get(key));cache.delete(key);}
+        const bytes=cost(key,vector);if(bytes>4*1024*1024)return;
+        cache.set(key,vector);cacheBytes+=bytes;
+        while(cache.size>128||cacheBytes>4*1024*1024){const oldest=cache.keys().next().value;cacheBytes-=cost(oldest,cache.get(oldest));cache.delete(oldest);}
+    };
+    return {
+        clear:()=>{cache.clear();cacheBytes=0;},
         async peekMany(keys,{signal}={}){
             if(!enabled())return local.hasMany?local.hasMany(keys):Promise.all(keys.map(async key=>!!await local.get(key)));
             const found=[];
@@ -60,9 +68,9 @@ export function serverVectorStore({local,call,enabled}) {
             }
             return found;
         },
-        async get(key){if(!enabled())return local.get(key);if(cache.has(key))return cache.get(key);let vector=(await call('/vectors/get',{key})).vector;
+        async get(key){if(!enabled())return local.get(key);if(cache.has(key)){const vector=cache.get(key);remember(key,vector);return vector;}let vector=(await call('/vectors/get',{key})).vector;
             if(!vector){vector=await local.get(key);if(vector)await call('/vectors/put',{key,vector});}
-            if(vector)cache.set(key,vector);return vector;},
+            if(vector)remember(key,vector);return vector;},
         async hasMany(keys,{signal}={}){
             if(!enabled())return local.hasMany?local.hasMany(keys):Promise.all(keys.map(async key=>!!await local.get(key)));
             const found=[];
@@ -84,7 +92,7 @@ export function serverVectorStore({local,call,enabled}) {
             }
             return found;
         },
-        async put(key,vector,{signal}={}){signal?.throwIfAborted();if(!enabled())return local.put(key,vector);await call('/vectors/put',{key,vector},{signal});cache.set(key,vector);},
+        async put(key,vector,{signal}={}){signal?.throwIfAborted();if(!enabled())return local.put(key,vector);await call('/vectors/put',{key,vector},{signal});remember(key,vector);},
     };
 }
 export function createServerController({local,enabled,settings,context,input,call,sync,changed,countTokens,generating=()=>false,wait=waitForServerPoll}) {

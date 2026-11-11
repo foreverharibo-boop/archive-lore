@@ -34,7 +34,7 @@ test('completed jobs release full chat inputs from RAM but preserve result and r
     assert.equal(held.archived,true);assert.equal(held.input.context.messages,undefined);
     assert.equal(held.result,undefined);assert.equal(held.input.templates,undefined);
     const stored=json(path.join(f.root,'archive-lore-server','jobs',submitted.id+'.json'));
-    assert.equal(stored.input.context.messages.length,2);assert.deepEqual(stored.result,result.result);
+    assert.equal(stored.input.context.messages,undefined);assert.deepEqual(stored.result,result.result);
     const replay=await f.service.submit(f.user,'collect',f.input(),requestId);
     assert.equal(replay.id,submitted.id);assert.deepEqual(replay.result,result.result);assert.equal(f.calls.length,1);
     const restarted=createJobService(f.dependencies);
@@ -239,4 +239,15 @@ test('missing chat handling for completed history never permits a new job with a
     const f=fixture(t),input=f.input();fs.renameSync(f.file,f.file+'.renamed');
     await assert.rejects(f.service.submit(f.user,'index',input,randomUUID()),e=>e.code==='ENOENT');
     assert.equal(f.service.list(f.user,'test-key').length,0);assert(!fs.existsSync(f.file));
+});
+
+test('large job input is not copied into every progress snapshot, restart keeps result and draft support',async t=>{
+    const f=fixture(t),messages=[{name:'A',mes:'PRIVATE_LARGE_CHAT_'+ 'x'.repeat(200000),is_user:true}];
+    f.writeChat(messages);const input=f.input();input.context.messages=messages;input.templates={};
+    const submitted=await f.service.submit(f.user,'index',input,randomUUID());
+    assert.equal((await done(f.service,f.user,submitted.id)).status,'completed');
+    const raw=fs.readFileSync(path.join(f.root,'archive-lore-server','jobs',submitted.id+'.json'),'utf8');
+    assert(!raw.includes('PRIVATE_LARGE_CHAT_'));assert(raw.length<messages[0].mes.length/2, `snapshot size ${raw.length}`);
+    const restarted=createJobService(f.dependencies),result=restarted.get(f.user,submitted.id);
+    assert.equal(result.status,'completed');assert.equal(result.chatKey,input.context.key);
 });

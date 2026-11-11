@@ -3355,3 +3355,8 @@ returns no hide flags; the client skips synchronization and repeated recovery fo
 that job during the session. Stored jobs, lorebooks and chats are not rewritten or
 deleted. Other read/parse failures still surface, and new work still requires a
 valid source chat. Update both checkouts, restart ST, and reload the browser.
+
+
+#### Resource usage update (server 0.3.15)
+
+Progress snapshots no longer duplicate the complete chat and provider preset payload on every status update. They retain chat identity, review settings (without embedding keys), results, hidden ranges and maintenance drafts. Restarted unfinished jobs remain interrupted; they are not automatically replayed. Draft preview/apply and completed result recovery remain supported. Existing historical files expire under the existing retention policy. The browser vector hot cache retains at most 128 vectors and approximately 4 MiB of numeric/key data; evictions reload stored vectors without requesting embeddings. Persistent vectors and lorebook entries are not removed.

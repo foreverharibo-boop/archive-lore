@@ -3475,3 +3475,25 @@ failures remain distinct. Deferred hides update after successful completion.
 The existing records view and confirmed last-collection undo are reused. Undo
 updates the popup to show the successful undo without closing it. Changing chats
 keeps the popup visible and disables its actions; it never redirects them. Original-layout controls and collection prompts are unchanged.
+
+### Saved records and Lorebook Manager translations
+
+The saved-records popup (including the completion popup's View saved memories
+action) displays Lorebook Manager's existing translation beneath each entry's
+original text. It matches the exact lorebook name and entry UID and respects the
+entry's selected translation language. A translation whose source hash no longer
+matches is labeled as an older translation. Opening this view does not request
+translation, write to the lorebook, or change the text used for retrieval/injection.
+Regeneration remains available on eligible entries in the host lorebook editor;
+the saved-records popup itself is a read-only viewer.
+Its menu label is “저장된 기억”. Collapsed rows show only the entry title, without
+appending the lorebook name; this is display-only and does not rename any data.
+
+### Chat scene-marker buttons
+
+In Settings → Lorebook connection/theme, “메시지에 수집 구간 버튼 (▶ ◀) 표시”
+controls the visibility of the start/end buttons on chat messages. It is enabled
+by default; uncheck it and Apply to hide both existing and newly rendered buttons.
+The setting persists across reloads and applies to both Archive Lore and original
+Memory Books layouts. It only hides these two controls: selected ranges, message
+visibility, collection progress, and other message actions remain unchanged.

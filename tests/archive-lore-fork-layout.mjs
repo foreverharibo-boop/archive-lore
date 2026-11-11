@@ -36,7 +36,8 @@ window.mountCollectionStatus=()=>{
  document.querySelector('#al-native-collect').addEventListener('click',finishCollection);
 };
 import {mountSideAutoToggle} from '/lore-native-side-toggle.js';
-import {nativePreferences,createNativePreferences,appendOriginalTools,applyNativeTheme} from '/lore-native-preferences.js';
+import {nativePreferences,createNativePreferences,appendOriginalTools,applyNativeTheme,applySceneButtonVisibility} from '/lore-native-preferences.js';
+window.applySceneButtonVisibility=applySceneButtonVisibility;
 import {mountLazyDetails} from '/lore-native-lazy.js';
 window.prefsSettings={moduleSettings:{}};
 window.mountPreferences=()=>{
@@ -314,5 +315,23 @@ try{
         await page.locator('dialog[open]').waitFor();await page.getByRole('button',{name:'닫기',exact:true}).click();
         await page.evaluate(()=>statusPanel.dispose());
     }
-    assert.deepEqual(errors,[]);console.log('Collection completion popup: explicit close, no home card, background completion, embedding updates and mobile/desktop passed.');
+    await page.evaluate(()=>{
+        document.querySelector('#content').hidden=false;prefsSettings={moduleSettings:{}};mountPreferences();applySceneButtonVisibility(prefsSettings);
+        const chat=document.createElement('div');chat.id='chat';chat.innerHTML='<div class="mes"><button class="mes_stmb_start">▶</button><button class="mes_stmb_end">◀</button><button id="other-action">다른 기능</button><p>원문 대화</p></div>';document.body.append(chat);
+    });
+    assert(await page.locator('#al-show-scene-buttons').isChecked());
+    assert(await page.locator('.mes_stmb_start').isVisible());
+    await page.locator('#al-show-scene-buttons').uncheck();await page.getByRole('button',{name:'적용',exact:true}).click();
+    assert.equal(await page.evaluate(()=>prefsSettings.moduleSettings.archiveLoreShowSceneButtons),false);
+    assert(!await page.locator('.mes_stmb_start').isVisible());assert(!await page.locator('.mes_stmb_end').isVisible());
+    assert(await page.locator('#other-action').isVisible());assert(await page.getByText('원문 대화',{exact:true}).isVisible());
+    await page.evaluate(()=>{
+        prefsSettings=JSON.parse(JSON.stringify(prefsSettings));prefsSettings.moduleSettings.archiveLoreLayout='original';
+        document.documentElement.classList.remove('al-hide-scene-buttons');applySceneButtonVisibility(prefsSettings);mountPreferences();
+        const next=document.createElement('button');next.className='mes_stmb_start';next.textContent='▶';document.querySelector('#chat .mes').append(next);
+    });
+    assert(!await page.locator('#al-show-scene-buttons').isChecked());assert.equal(await page.locator('#chat .mes_stmb_start:visible').count(),0);
+    await page.locator('#al-show-scene-buttons').check();await page.getByRole('button',{name:'적용',exact:true}).click();
+    assert.equal(await page.locator('#chat .mes_stmb_start:visible').count(),2);assert(await page.locator('#chat .mes_stmb_end').isVisible());
+    assert.deepEqual(errors,[]);console.log('Completion popup, saved-records menu and persistent scene-button visibility passed on mobile/desktop.');
 }finally{await browser.close();server.close();}

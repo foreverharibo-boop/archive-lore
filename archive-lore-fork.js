@@ -8,15 +8,17 @@ import { SlashCommandArgument, ARGUMENT_TYPE } from '../../../slash-commands/Sla
 import { nextCollectionRange } from './lore-native-progress.js';
 import { shouldIndexBookUpdate } from './lore-automation.js';
 import { createSearchToolsPanel } from './lore-native-tools.js';
-import { applyNativeTheme } from './lore-native-preferences.js';
+import { applyNativeTheme, applySceneButtonVisibility } from './lore-native-preferences.js';
 import { installSettingsHelp } from './lore-help.js';
 import { createCollectionResultPopup, createCollectionCompletionNotifier } from './lore-collection-status.js';
+import { linkedTranslation } from './lore-translations.js';
 
 globalThis.archiveLoreFork=true;
 await import('./index.build.js');
 await globalThis.archiveLoreMemoryBooks.initialize();
 await import('./archive-lore.js');
 const native=globalThis.archiveLoreMemoryBooks;
+applySceneButtonVisibility(native.settings());
 const search=()=>globalThis.archiveLoreSearch;
 installSettingsHelp({
     read:()=>extension_settings.STMemoryBooks?.moduleSettings?.archiveLoreDetailedHelp,
@@ -54,7 +56,14 @@ async function openRecords(){
         const book=await search().loadBook(name);
         for(const entry of Object.values(book.entries)){
             const details=document.createElement('details'),summary=document.createElement('summary'),pre=document.createElement('pre');
-            summary.textContent=`${entry.disable?'[비활성] ':''}${entry.comment || '제목 없음'} · ${name}`;pre.textContent=entry.content;details.append(summary,pre);node.append(details);
+            summary.textContent=entry.comment || '제목 없음';pre.textContent=entry.content;details.append(summary,pre);node.append(details);
+            const translation=linkedTranslation(extension_settings,name,entry);
+            if(translation){
+                const translated=document.createElement('section'),label=document.createElement('strong'),text=document.createElement('pre');
+                translated.className='al-manager-translation';
+                label.textContent=`로어북 매니저 번역${translation.language?' · '+translation.language:''}${translation.stale?' · 원문 변경됨 (이전 번역)':''}`;
+                text.textContent=translation.text;translated.append(label,text);details.append(translated);
+            }
         }
     }
     await themedPopup(node,{wide:true,large:true,allowVerticalScrolling:true,okButton:false,cancelButton:'닫기'}).show();

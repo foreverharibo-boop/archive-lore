@@ -1,5 +1,7 @@
 @import url('./style.build.css');
 @import url('./lore-style.css');
+/* Display preference only: collection ranges, message text and other actions stay intact. */
+.al-hide-scene-buttons #chat :is(.mes_stmb_start,.mes_stmb_end) {display:none!important;}
 /* Explanations are UI-only. Scope visibility to marked guidance, never statuses. */
 .al-help-label,.al-help-radio-group {flex-wrap:wrap;}
 .al-setting-help {
@@ -176,6 +178,8 @@ dialog.al-collection-completion {box-sizing:border-box;width:min-content!importa
 .al-native-preferences {display:grid;gap:12px;min-width:0;text-align:left;}
 .al-native-preferences h4 {margin:4px 0;}
 .al-native-preferences label {display:grid;gap:6px;min-width:0;}
+.al-native-preferences label.checkbox_label {display:flex;align-items:center;gap:8px;}
+.al-native-preferences .checkbox_label input[type=checkbox] {flex:0 0 auto;width:auto;margin:0;}
 .al-native-preferences [hidden] {display:none!important;}
 .al-native-preferences .text_pole {font:inherit;width:100%;max-width:100%;min-width:0;box-sizing:border-box;}
 .al-native-preferences small {line-height:1.5;opacity:.8;}

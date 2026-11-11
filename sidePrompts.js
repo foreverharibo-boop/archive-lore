@@ -1,3 +1,4 @@
+import { PLAIN_SIDE_FORMAT, validatePlainSideRecord } from './lore-native-side.js';
 // Copyright (C) 2024–2026 Aiko Hanasaki
 // SPDX-License-Identifier: AGPL-3.0-only
 
@@ -361,17 +362,18 @@ async function runLLM(prompt, overrides = null, options = {}) {
     assertProviderDidNotTruncate(full, text);
     
     // Apply the same explicit incoming regex selection flow used by memories.
+    let output = text || '';
     try {
         const useRegex = !!(extension_settings?.STMemoryBooks?.moduleSettings?.useRegex);
         const selectedKeys = extension_settings?.STMemoryBooks?.moduleSettings?.selectedRegexIncoming;
         if (useRegex && Array.isArray(selectedKeys) && selectedKeys.length > 0) {
-            return applySelectedRegex(text || '', selectedKeys);
+            output = applySelectedRegex(output, selectedKeys);
         }
     } catch (e) {
         console.warn('STMemoryBooks: sideprompt incoming regex application failed', e);
     }
 
-    return text || '';
+    return overrides?.archiveLorePlainRecord ? validatePlainSideRecord(output) : output;
 }
 
 /**
@@ -689,9 +691,10 @@ async function prepareSidePromptRun({
     const finalPrompt = buildPrompt(tpl.prompt, prior, compiledScene, tpl.responseFormat, prevSummaries, runtimeMacros, additionalContext.entries);
     const idx = Number(tpl?.settings?.overrideProfileIndex);
     const useOverride = !!tpl?.settings?.overrideProfileEnabled && Number.isFinite(idx);
-    const conn = useOverride
+    const conn = {...(useOverride
         ? resolveSidePromptConnection(null, { overrideProfileIndex: idx })
-        : (defaultOverrides || resolveSidePromptConnection(null));
+        : (defaultOverrides || resolveSidePromptConnection(null)))};
+    conn.archiveLorePlainRecord = tpl.settings?.archiveLorePlainRecord === true && tpl.responseFormat === PLAIN_SIDE_FORMAT;
 
     const chosenProfile=useOverride ? extension_settings.STMemoryBooks?.profiles?.[idx] : extension_settings.STMemoryBooks?.profiles?.[extension_settings.STMemoryBooks?.defaultProfile || 0];
     if(!conn.archiveLoreConnectionProfileId && chosenProfile?.archiveLoreConnectionProfileId)conn.archiveLoreConnectionProfileId=chosenProfile.archiveLoreConnectionProfileId;

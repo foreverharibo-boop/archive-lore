@@ -9,6 +9,7 @@ import { automaticReady, collectedHideRanges } from './lore-automation.js';
 import { consolidationView, maintenanceRequest, maintenanceResult } from './lore-maintenance.js';
 import { digest, embeddingKey, makeId } from './lore-api.js';
 import { retrievalFocus, rankFocusedChunks, chooseCandidates, recallMessages, reviewCandidates, reviewBatches } from './lore-retrieval.js';
+import { withAbort } from './lore-cancellation.js';
 
 const COLLECTION_SCHEMA = `Return ONLY JSON:
 {"entries":[{"title":"short English title","date":"story date/range or empty","time":"story time or empty","location":"place or empty","content":"English narrative paragraphs only, no title/metadata headings","keywords":["English keyword"],"supersedes":null}],
@@ -23,14 +24,14 @@ export function createLoreController(host) {
     const askTracked = async (profile, system, data, signal, tokens, phase = 'selectionMs') => {
         const started = Date.now();
         await log('ai.request', { profile, system, data, maxOutputTokens:tokens });
-        try { const response = await host.ask(profile, system, data, signal, tokens);
-            await log('ai.response', { response, elapsedMs:Date.now()-started });return response;
+        try { const response = await withAbort(() => host.ask(profile, system, data, signal, tokens), signal);
+            await log('ai.response', { response, elapsedMs:Date.now()-started });signal.throwIfAborted();return response;
         } catch (error) { await log('ai.error', { message:error.message,details:error.details, elapsedMs:Date.now()-started });throw error; }
         finally { if(timings)timings[phase] += Date.now()-started; }
     };
     const embedTracked = async (config, text, query, signal) => {
         const started=Date.now();await log('embedding.request', { provider:config.embeddingProvider, model:config.embeddingModel, query, text });
-        try { const vector=await host.embed(config,text,query,signal);await log('embedding.response', { query, dimensions:vector.length, elapsedMs:Date.now()-started });return vector; }
+        try { const vector=await withAbort(() => host.embed(config,text,query,signal), signal);await log('embedding.response', { query, dimensions:vector.length, elapsedMs:Date.now()-started });signal.throwIfAborted();return vector; }
         catch(error) { await log('embedding.error',{message:error.message,details:error.details});throw error; }
         finally { if(timings)timings.embeddingMs += Date.now()-started; }
     };
@@ -48,7 +49,8 @@ export function createLoreController(host) {
         notify(label);
         try {
             await log('settings', {mode:config.mode,recentCount:config.recentCount,injectionTokens:config.injectionTokens,candidateCount:config.candidateCount,profile:config.profile,searchProfile:config.searchProfile,embeddingProvider:config.embeddingProvider,embeddingModel:config.embeddingModel,books:host.books(),profiles:host.profileInfo?.(),autoCollect:config.autoCollect,autoMode:config.autoMode,autoMessages:config.autoMessages,autoTokens:config.autoTokens,keepMessages:config.keepMessages,enabledSides:enabledSides(config).map(s=>s.id)});
-            const result=await callback(abort.signal);await trace?.finish('success');return result;
+            abort.signal.throwIfAborted();
+            const result=await callback(abort.signal);abort.signal.throwIfAborted();await trace?.finish('success');abort.signal.throwIfAborted();return result;
         } catch (error) { await trace?.finish(abort.signal.aborted?'canceled':'error',{message:error.message});notify(abort.signal.aborted ? '작업 중지됨 · 저장한 기억은 유지돼' : error.message); throw error; }
         finally { active = null;trace=null;timings=null;host.changed?.(); }
     }
@@ -315,6 +317,7 @@ export function createLoreController(host) {
             if (JSON.stringify(snapshot.messages) !== JSON.stringify(host.context().messages)) throw new Error('검색 중 대화가 바뀌었어. 다시 시도해 줘.');
             timings.totalMs=Date.now()-started;timings.otherMs=Math.max(0,timings.totalMs-timings.questionMs-timings.embeddingMs-timings.selectionMs);
             await log('recall.timing',timings);
+            assertCurrent(snapshot, signal);
             lastRecall = { ...fitted, timings:{...timings}, questions: config.mode === 'questions' ? questions : [], pending,
                 candidateTotal, core, records:rows.filter(r=>isCore(r.entry)||fitted.units.some(u=>u.entryId===r.id)),shortened: recent.shortened, mode: config.mode, time: new Date().toISOString() };
             await log('injection.prepared',{core,recalled:fitted.text,tokens:fitted.tokens,selected:fitted.units,pending,candidateTotal});

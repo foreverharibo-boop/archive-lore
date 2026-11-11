@@ -114,7 +114,7 @@ const diagnostics = createDiagnostics({store:createDiagnosticStore(),
     secrets:()=>[settings()?.embeddingKey,...Object.values(settings()?.embeddingKeys || {})],
     warning:message=>toastr.warning(message,'Archive Lore'),
 });
-let pendingGeneration = null;
+let pendingGeneration = null, generationEpoch = 0, generationStopped = false;
 const serverCall=createServerClient({headers:getRequestHeaders});
 const vectorStore=serverVectorStore({local:createVectorStore(),call:serverCall,enabled:()=>!!settings()?.serverEnabled});
 const searchViewListeners=new Set();
@@ -132,7 +132,7 @@ const localController = createLoreController({
         if(chatContext().messages.slice(range.start,range.end+1).some(m=>!m.is_system))throw Error('기억은 저장했지만 자동 숨기기에 실패했어. 수집 버튼으로 재시도해 줘.');
     },
     newEntry:data=>{const entry=createWorldInfoEntry('',data);if(!entry)throw new Error('새 기억 항목을 만들 수 없어.');return entry;},
-    store:vectorStore, embed:(config,text,query,signal)=>config.serverEnabled?serverCall('/embedding',{settings:config,text,query}).then(r=>r.vector):embed(config,text,query,signal),
+    store:vectorStore, embed:(config,text,query,signal)=>config.serverEnabled?serverCall('/embedding',{settings:config,text,query},{signal}).then(r=>r.vector):embed(config,text,query,signal),
     ask:(profile,system,data,signal,tokens)=>ask(getContext(),profile,system,data,signal,tokens),
     countTokens:text=>getContext().getTokenCountAsync(text,0),
     changed:()=>{notifySearchViews();void ui?.refresh().catch(error);if(autoPending&&!controller.state().busy&&!generationInFlight&&!writing)scheduleAutomatic();},
@@ -171,7 +171,7 @@ const diagnosticView={
     async export(key,mode){const original=await diagnostics.export(key,mode);if(!settings()?.serverEnabled)return original;const runs=(await serverCall('/logs',{chatKey:key})).filter(r=>mode==='all'||r.mode===mode);return original+'\n\n===== SERVER JOB DIAGNOSTICS =====\n'+JSON.stringify(runs,null,2);},
 };
 function scheduleAutomatic() {
-    if(globalThis.archiveLoreFork)return;
+    if(globalThis.archiveLoreFork || generationStopped)return;
     autoPending=true;
     clearTimeout(autoTimer);
     autoTimer=setTimeout(async()=>{
@@ -224,6 +224,7 @@ async function saveRecord(id, changes) {
 }
 async function intercept(_chat,_contextSize,abort,type) {
     const started=Date.now();
+    const epoch=++generationEpoch;
     clearPrompts();
     generationInFlight=true;
     const context=chatContext();
@@ -237,13 +238,14 @@ async function intercept(_chat,_contextSize,abort,type) {
         if(globalThis.archiveLoreMigrating)throw new Error('기억 이관이 끝난 뒤 다시 전송해 줘.');
         if(writing)throw new Error('기억 저장이 끝난 뒤 다시 전송해 줘.');
         const result=await controller.recall({kind:'generation',generationType:type,trace});
+        if(epoch!==generationEpoch || generationStopped || chatContext().key!==context.key)throw new DOMException('생성이 중지되어 검색 결과를 주입하지 않았어.','AbortError');
         activeBooks=result.books;recalled=result.selected;
         getContext().setExtensionPrompt(PROMPT,result.text,extension_prompt_types.IN_CHAT,1,false);
         getContext().setExtensionPrompt(CORE_PROMPT,result.core,extension_prompt_types.IN_CHAT,1,false);
         controller.markInjected(Date.now()-started);
         await trace.event('injection.installed',{timings:controller.state().lastRecall?.timings,slots:[{name:PROMPT,text:result.text,position:'IN_CHAT',depth:1},{name:CORE_PROMPT,text:result.core,position:'IN_CHAT',depth:1}],selected:[...result.selected]});
-        pendingGeneration={trace,key:context.key,messageCount:context.messages.length};
-    } catch(e){await trace.finish('error',{message:e.message});if(chatContext().key===context.key){generationInFlight=false;clearPrompts();abort(true);error(e);}}
+        if(epoch===generationEpoch && !generationStopped)pendingGeneration={trace,key:context.key,messageCount:context.messages.length};
+    } catch(e){await trace.finish(e.name==='AbortError'?'stopped':'error',{message:e.message});if(epoch===generationEpoch && chatContext().key===context.key){generationInFlight=false;clearPrompts();abort(true);error(e);}}
 }
 function nativePolicy(lists) {
     // Per-chat source exclusions prevent copied books and retained originals firing together.
@@ -296,7 +298,7 @@ function init() {
     eventSource.on(event_types.WORLDINFO_ENTRIES_LOADED,nativePolicy);
     eventSource.on(event_types.CHAT_CHANGED,()=>{clearTimeout(autoTimer);autoPending=false;autoAttempt='';generationInFlight=false;controller.detach();controller.discardDraft();if(pendingGeneration)void pendingGeneration.trace.event('generation.chat-changed');pendingGeneration=null;controller.clearRecall();clearPrompts();void ui.refresh().catch(error);});
     for(const event of [event_types.MESSAGE_EDITED,event_types.MESSAGE_DELETED,event_types.MESSAGE_SWIPED])if(event)eventSource.on(event,()=>{controller.cancel();clearPrompts();});
-    if(event_types.GENERATION_STARTED)eventSource.on(event_types.GENERATION_STARTED,(_type,_options,dryRun)=>{if(dryRun)return;generationInFlight=true;clearTimeout(autoTimer);});
+    if(event_types.GENERATION_STARTED)eventSource.on(event_types.GENERATION_STARTED,(_type,_options,dryRun)=>{if(dryRun)return;generationStopped=false;generationInFlight=true;clearTimeout(autoTimer);});
     if(event_types.MESSAGE_RECEIVED)eventSource.on(event_types.MESSAGE_RECEIVED,async index=>{
         scheduleAutomatic();
         const run=pendingGeneration,context=chatContext();if(!run || context.key!==run.key)return;
@@ -304,7 +306,11 @@ function init() {
         if(message && !message.is_user)await run.trace.event('rp.response',{index:Number(index),name:message.name,text:message.mes,swipeId:message.swipe_id});
     });
     for(const name of ['GENERATION_ENDED','GENERATION_STOPPED'])if(event_types[name])eventSource.on(event_types[name],async()=>{
-        generationInFlight=false;if(name==='GENERATION_ENDED')scheduleAutomatic();else {clearTimeout(autoTimer);autoPending=false;}
+        generationInFlight=false;
+        if(name==='GENERATION_STOPPED'){
+            generationStopped=true;generationEpoch++;clearTimeout(autoTimer);autoPending=false;
+            controller.cancel();controller.clearRecall();clearPrompts();
+        }else if(!generationStopped)scheduleAutomatic();
         const run=pendingGeneration;if(!run)return;pendingGeneration=null;
         const context=chatContext();
         await run.trace.event(name==='GENERATION_STOPPED'?'rp.stopped':'rp.ended',{sameChat:context.key===run.key,messageCount:context.messages.length,latestAssistant:context.key===run.key?context.messages.map((m,index)=>({index,name:m.name,text:m.mes,is_user:m.is_user,is_system:m.is_system})).filter(m=>!m.is_user&&!m.is_system).slice(-1):[]});

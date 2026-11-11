@@ -2,6 +2,7 @@
 import { makeId } from './lore-api.js';
 import { normalizeSettings,fitInjection,matchesRange,sourceRange } from './lore-core.js';
 import { automaticReady } from './lore-automation.js';
+import { withAbort } from './lore-cancellation.js';
 export async function profileTemplate(context,profileId,proxies=[]) {
     const id=profileId || context.extensionSettings?.connectionManager?.selectedProfile;
     if(!id)throw Error('수집·검색에 사용할 연결 프로필을 선택해 줘. 임베딩만 할 때는 필요 없어.');
@@ -16,18 +17,21 @@ export async function profileTemplate(context,profileId,proxies=[]) {
     delete payload.messages;return payload;
 }
 export function createServerClient({headers,request=fetch}) {
-    return async function call(route,body={}) {
+    return async function call(route,body={},options={}) {
         const timeoutMs=route.startsWith('/embedding')?70000:route==='/jobs/get'?60000:30000;
-        const signal=AbortSignal.timeout(timeoutMs);
+        const signal=options.signal?AbortSignal.any([options.signal,AbortSignal.timeout(timeoutMs)]):AbortSignal.timeout(timeoutMs);
+        signal.throwIfAborted();
         let response;
         try{response=await request('/api/plugins/archive-lore-server'+route,{method:'POST',headers:headers(),body:JSON.stringify(body),signal});}
         catch(cause){
+            options.signal?.throwIfAborted();
             const timedOut=signal.aborted || cause?.name==='TimeoutError';
             const detail=timedOut?`서버 응답 대기 시간(${timeoutMs/1000}초)을 초과했습니다.`:'실리 서버에 요청을 전달하지 못했습니다. 연결 상태를 확인해 주세요.';
             throw Object.assign(new Error(`${detail} [${route}]`,{cause}),{code:timedOut?'SERVER_TIMEOUT':'SERVER_NETWORK',route});
         }
         if(response.status===404)throw Object.assign(Error('서버 기능을 찾을 수 없어. 아카이브 로어 서버 플러그인을 설치·업데이트하고 실리 서버를 재시작해 줘.'),{status:404});
         let data;try{data=await response.json();}catch{throw Error('서버 플러그인 응답을 읽을 수 없어. 서버 버전과 로그인 상태를 확인해 줘.');}
+        signal.throwIfAborted();
         if(!response.ok||data.error)throw Error(data.error || `서버 오류 (${response.status})`);return data;
     };
 }
@@ -62,22 +66,24 @@ export function serverVectorStore({local,call,enabled}) {
 export function createServerController({local,enabled,settings,context,input,call,sync,changed,countTokens,generating=()=>false,wait=ms=>new Promise(resolve=>setTimeout(resolve,ms))}) {
     let current=null,view=[],status='',lastRecall=null,poll=null,detached=0,lastList=0;
     const applied=new Set(),pendingDrafts=new Map(),applying=new Map();
-    let pollingRun=false,restoring=null;
+    let pollingRun=false,restoring=null,activeRun=null,cancelEpoch=0;
+    const canceledIds=new Set();
     const active=job=>['queued','running'].includes(job.status);
-    async function getJob(id){
+    async function getJob(id,signal){
         const epoch=detached,key=context().key;
         for(let attempt=0;;attempt++){
+            signal?.throwIfAborted();
             if(epoch!==detached||key!==context().key)throw new DOMException('채팅방 변경 · 서버 작업은 유지됩니다.','AbortError');
-            try{return await call('/jobs/get',{id});}
+            try{return await withAbort(()=>call('/jobs/get',{id},{signal}),signal);}
             catch(error){
                 if(!['SERVER_TIMEOUT','SERVER_NETWORK'].includes(error.code)||attempt>=2)throw error;
                 status=`서버 상태 확인 재시도 중 · ${attempt+1}/2`;changed?.();
-                await wait(1000*(attempt+1));
+                await withAbort(()=>wait(1000*(attempt+1)),signal);
             }
         }
     }
     async function finish(job){
-        if(job.status!=='completed'||applied.has(job.id))return;
+        if(job.status!=='completed'||applied.has(job.id)||canceledIds.has(job.id))return;
         if(applying.has(job.id))return applying.get(job.id);
         const pending=Promise.resolve().then(()=>sync(job)).then(()=>applied.add(job.id));
         applying.set(job.id,pending);
@@ -92,7 +98,7 @@ export function createServerController({local,enabled,settings,context,input,cal
         restoring=task;return task.promise;
     }
     async function restoreOnce(force,notify){if(!force&&Date.now()-lastList<2500)return view;
-        const key=context().key;const jobs=await call('/jobs/list',{chatKey:key});if(key!==context().key)return view;
+        const key=context().key,epoch=cancelEpoch,chatEpoch=detached;const jobs=await call('/jobs/list',{chatKey:key});if(key!==context().key||epoch!==cancelEpoch||chatEpoch!==detached)return view;
         view=jobs;lastList=Date.now();current=jobs.find(active)||null;
         for(const job of jobs.filter(j=>j.status==='completed'&&['collect','index','applyMaintenance'].includes(j.kind)&&!applied.has(j.id)).slice(-1)){const fresh=await getJob(job.id);if(key!==context().key)break;await finish(fresh);}
         if(current){status=current.message;scheduleRestore();}else status=jobs.at(-1)?.message || status;
@@ -101,41 +107,50 @@ export function createServerController({local,enabled,settings,context,input,cal
     function scheduleRestore(){clearTimeout(poll);if(pollingRun)return;poll=setTimeout(()=>void restore(true).catch(error=>{status=error.message;changed?.();}),1500);}
     async function run(kind,options={},externalTrace=null) {
         if(!enabled())return kind==='index'?local.index(options.force):local[kind](options);
+        if(activeRun)throw Error('서버 작업이 진행 중이야. 내역에서 완료를 기다리거나 중지해 줘.');
         const started=Date.now();
-        const initialKey=context().key;await restore(true);if(initialKey!==context().key)throw Error('채팅방이 바뀌어서 접수하지 않았어.');
-        if(current&&active(current))throw Error('서버 작업이 진행 중이야. 내역에서 완료를 기다리거나 중지해 줘.');
-        clearTimeout(poll);pollingRun=true;
         const epoch=detached,key=context().key;
-        status='서버 작업 접수 중';current={status:'queued',message:status};changed?.();
+        const runState={abort:new AbortController(),requestId:makeId(),submitted:false};activeRun=runState;
+        const signal=runState.abort.signal;
+        const check=()=>{signal.throwIfAborted();if(epoch!==detached||key!==context().key)throw new DOMException('채팅방 변경 · 서버 작업은 유지됩니다.','AbortError');};
         try{
-            const payload=await input(kind,options);if(key!==context().key)throw Error('채팅방이 바뀌어서 접수하지 않았어.');
-            const job=await call('/jobs',{kind,input:payload,requestId:makeId()});current=job;
+            await withAbort(()=>restore(true),signal);check();
+            if(current&&active(current))throw Error('서버 작업이 진행 중이야. 내역에서 완료를 기다리거나 중지해 줘.');
+            clearTimeout(poll);pollingRun=true;
+            status='서버 작업 접수 중';current={status:'queued',message:status};changed?.();
+            const payload=await withAbort(()=>input(kind,options),signal);check();
+            runState.submitted=true;
+            const job=await withAbort(()=>call('/jobs',{kind,input:payload,requestId:runState.requestId},{signal}),signal);check();current=job;
             await externalTrace?.event('server.accepted',{id:job.id,kind});
             while(true){
+                check();
                 if(epoch!==detached||key!==context().key)throw new DOMException('다른 채팅방으로 이동했어. 서버 작업은 계속돼.','AbortError');
-                const value=await getJob(job.id);
+                const value=await getJob(job.id,signal);check();
                 if(epoch!==detached||key!==context().key)throw new DOMException('채팅방 변경 · 서버 작업은 유지됨','AbortError');
                 current=value;status=value.message;changed?.();
                 if(!active(value)){
                     current=null;view=[...view.filter(j=>j.id!==value.id),value];
                     if(value.status!=='completed')throw Error(value.message);
-                    await finish(value);let result=value.result;
+                    await finish(value);check();let result=value.result;
                     if(kind==='recall'){
                         const messages=payload.context.messages;if(messages.length!==context().messages.length || (messages.length&&!matchesRange(sourceRange(messages,0,messages.length-1),context().messages)))throw Error('검색 중 대화가 바뀌어서 주입하지 않았어. 다시 시도해 줘.');
                         const fitted=await fitInjection(result.lastRecall.units,normalizeSettings(settings()).injectionTokens,countTokens);
+                        check();
                         lastRecall={...result.lastRecall,...fitted,timings:{...result.lastRecall.timings,clientTotalMs:Date.now()-started},records:result.lastRecall.records.filter(r=>r.entry.constant || fitted.units.some(u=>u.entryId===r.id))};result={...result,...fitted,selected:new Set(fitted.units.map(u=>u.entryId))};
                         await externalTrace?.event('server.recall',{id:value.id,core:result.core,...fitted,timings:lastRecall.timings});await externalTrace?.finish('success');
                     }
+                    check();
                     if(kind==='prepareMaintenance')pendingDrafts.set(result.token,value.id);
                     if(epoch!==detached||key!==context().key)throw new DOMException('채팅방 변경 · 서버 작업은 유지됨','AbortError');
                     return result;
                 }
-                await new Promise(resolve=>setTimeout(resolve,900));
+                await withAbort(()=>wait(900),signal);
             }
         }catch(error){
             if(epoch===detached&&key===context().key)status=error.message;
             throw error;
         }finally{
+            if(activeRun===runState)activeRun=null;
             if(epoch===detached){
                 pollingRun=false;
                 // Keep the accepted job cancellable after a lost status response.
@@ -153,9 +168,28 @@ export function createServerController({local,enabled,settings,context,input,cal
         applyMaintenance:options=>run('applyMaintenance',{...options,draftJobId:options.draftJobId||pendingDrafts.get(options.token)}),
         discardDraft:()=>{if(!enabled())local.discardDraft();},
         clearRecall:()=>{lastRecall=null;local.clearRecall();},
-        cancel:()=>{if(!enabled())return local.cancel();if(current?.id)void call('/jobs/cancel',{id:current.id}).then(()=>restore(true)).catch(error=>{status=error.message;changed?.();});},
-        detach:()=>{detached++;clearTimeout(poll);pollingRun=false;current=null;view=[];lastList=0;lastRecall=null;local.cancel();},
-        state:()=>enabled()?{busy:!!current&&active(current),status:status||'서버 모드 · 준비됨',lastRecall}:local.state(),
+        cancel:()=>{
+            local.cancel();
+            if(!enabled())return;
+            cancelEpoch++;
+            const run=activeRun,id=current?.id;
+            if(id)canceledIds.add(id);
+            run?.abort.abort(new DOMException('작업 중지됨','AbortError'));
+            clearTimeout(poll);lastRecall=null;status='작업 중지됨';
+            if(id || run?.submitted){
+                const epoch=detached;
+                void call('/jobs/cancel',id?{id}:{requestId:run.requestId}).then(job=>{
+                    if(epoch!==detached)return;
+                    if(job.id)canceledIds.add(job.id);
+                    // Do not let an old cancel response replace a newer request.
+                    if((id && current?.id===id) || (!current?.id && activeRun===run))current=job.id?job:null;
+                    changed?.();
+                }).catch(error=>{if(epoch===detached){status=error.message;changed?.();}});
+            }
+            changed?.();
+        },
+        detach:()=>{detached++;activeRun?.abort.abort(new DOMException('채팅방 변경 · 서버 작업은 유지됩니다.','AbortError'));activeRun=null;clearTimeout(poll);pollingRun=false;current=null;view=[];lastList=0;lastRecall=null;local.cancel();},
+        state:()=>enabled()?{busy:!!activeRun || !!current&&active(current),status:status||'서버 모드 · 준비됨',lastRecall}:local.state(),
         async dashboard(){if(enabled())await restore(false,false);return local.dashboard();},
         async maybeAutoCollect(){if(!enabled())return local.maybeAutoCollect();if(!normalizeSettings(settings()).enabled||current||generating())return false;const key=context().key;const dashboard=await local.dashboard();if(key!==context().key||generating())return false;if(automaticReady(normalizeSettings(settings()),context().messages,dashboard.next)){await run('collect');return true;}return false;},
         restore,jobs:()=>view,

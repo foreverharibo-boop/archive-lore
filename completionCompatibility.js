@@ -11,6 +11,8 @@ export function normalizeCompletionRequest(body, source = body.chat_completion_s
         // that reasoning models reject (including values inherited from presets).
         temperature: undefined,
         top_p: undefined,
+        // Even top_k: 0 is rejected; override inherited preset values entirely.
+        top_k: undefined,
         presence_penalty: undefined,
         frequency_penalty: undefined,
     };

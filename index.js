@@ -8134,7 +8134,8 @@ function populateInlineButtons() {
     'al-search-settings': () => globalThis.archiveLoreSearch.openSettings(),
     'al-search-tools': () => globalThis.archiveLoreSearch.openTools(),
     'al-migrate': () => globalThis.archiveLoreMigration(),
-  });
+    'al-native-clear': () => {clearScene();return refreshPopupContent();},
+  }, currentPopupInstance.content);
 
 }
 
@@ -11247,7 +11248,7 @@ async function showSettingsPopup() {
     wide: true,
     large: true,
     allowVerticalScrolling: true,
-    customButtons: customButtons,
+    customButtons: globalThis.archiveLoreFork ? [] : customButtons,
     cancelButton: translate("Close", "STMemoryBooks_Close"),
     okButton: false,
     onClose: handleSettingsPopupClose,

@@ -10,7 +10,7 @@ function queueFixture(config={}) {
     const source=fs.readFileSync(new URL('./archive-lore-fork.js',import.meta.url),'utf8');
     const start=source.indexOf('function queueIndex(){'),end=source.indexOf('\nfunction setup()',start);
     const listeners=new Map(),timers=new Map();let id=0,indexes=0,busy=false,error=null;
-    const state={busy:false},settings=normalizeSettings(config),failures=[];
+    const state={busy:false},settings=normalizeSettings({enabled:true,...config}),failures=[];
     let stops=0;
     const scope={shouldIndexBookUpdate,native:{busy:()=>busy,stop:()=>stops++},search:()=>({settings:()=>settings,books:()=>['native-book'],controller:{state:()=>state,index:async()=>{indexes++;if(error)throw error;}}}),fail:e=>failures.push(e),
         setTimeout:fn=>{timers.set(++id,fn);return id;},clearTimeout:n=>timers.delete(n),
@@ -40,7 +40,7 @@ test('RP stop drops queued automatic embedding even when generation-ended follow
     assert.equal(f.indexes,1);
 });
 test('native automatic embedding honors disabled settings, generation, chat changes and failed requests',async()=>{
-    for(const config of [{autoEmbed:false},{enabled:false}]){
+    for(const config of [{autoEmbed:false},{enabled:false},{enabled:undefined}]){
         const f=queueFixture(config);f.emit('save','native-book');await f.tick();assert.equal(f.indexes,0);assert.equal(f.queued,0);
     }
     const f=queueFixture();f.emit('start','normal',{},false);f.emit('save','native-book');await f.tick();assert.equal(f.indexes,0);

@@ -195,7 +195,7 @@ test('collection persists six side entries and advances story dates without dupl
     assert.equal(Object.keys(f.book.entries).length,6);assert.equal(f.book[NS].receipts.length,3);
 });
 test('automatic collection uses one request for memory and enabled custom sides; disabled categories remain unchanged',async()=>{
-    const f=fixture();f.config={autoCollect:true,autoMessages:2,sideTemplates:[{id:'inventory',title:'Inventory',prompt:'Track acquired objects',enabled:true}]};
+    const f=fixture();f.config={enabled:true,autoCollect:true,autoMessages:2,sideTemplates:[{id:'inventory',title:'Inventory',prompt:'Track acquired objects',enabled:true}]};
     f.replies.push(JSON.stringify({entries:JSON.parse(memory()).entries,sideChanges:[{op:'add',category:'inventory',text:'A hospital invitation',evidence:{message:0,quote:'병원'}}]}));
     assert.equal(await f.controller.maybeAutoCollect(),true);
     assert.equal(f.calls.filter(c=>typeof c==='object').length,1);

@@ -15,7 +15,7 @@ export const DEFAULT_PROMPTS = Object.freeze({
     select: SELECT_PROMPT,
 });
 export const DEFAULTS = Object.freeze({
-    enabled: true, profile: '', searchProfile: '', embeddingProvider: 'gemini',
+    enabled: false, profile: '', searchProfile: '', embeddingProvider: 'gemini',
     embeddingUrl: 'https://api.openai.com/v1', embeddingModel: 'gemini-embedding-001', embeddingKey: '',
     mode: 'dialogue', recentCount: 10, injectionTokens: 3000, batchSize: 20,
     keywordActivation: false, candidateCount: 16, selectionFocus: Object.freeze([]), autoEmbed: true, prompts: DEFAULT_PROMPTS,
@@ -39,7 +39,7 @@ export function normalizeSettings(value = {}) {
         if (value.prompts.select === PREVIOUS_SELECT) value.prompts.select = SELECT_PROMPT;
     }
     return { ...DEFAULTS, ...value, promptRevision: 4,
-        enabled: value.enabled !== false,
+        enabled: value.enabled === true,
         autoEmbed: value.autoEmbed !== false,
         serverEnabled: value.serverEnabled === true,
         relayEnabled: value.relayEnabled === true,

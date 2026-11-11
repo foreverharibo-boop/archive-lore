@@ -13,6 +13,20 @@ test('settings preserve user prompts and enforce numeric bounds',()=>{
     assert.equal(s.recentCount,1);assert.equal(s.injectionTokens,32000);assert.equal(s.prompts.collect,'custom');assert.equal(s.sidePrompt,'mine');
     assert.equal(normalizeSettings().recentCount,10);assert.equal(normalizeSettings().injectionTokens,3000);
 });
+test('fresh settings leave native lore activation intact and saved search choices survive updates',()=>{
+    const fresh=normalizeSettings();
+    assert.equal(fresh.enabled,false);
+    const lists={chat:[{world:'book',uid:0,key:['meeting'],content:'The meeting is on Friday.',disable:false}]};
+    const before=structuredClone(lists);
+    applyNativePolicy(lists,{...fresh,books:['book'],messages,selected:new Set()});
+    assert.deepEqual(lists,before);
+    for(const enabled of [true,false]) {
+        const saved=normalizeSettings({enabled});
+        const reopened=normalizeSettings(JSON.parse(JSON.stringify(saved)));
+        const edited=normalizeSettings({...reopened,recentCount:15});
+        assert.equal(edited.enabled,enabled);
+    }
+});
 test('source fingerprints reject edited/swiped/deleted and divergent branch messages',()=>{
     assert(matchesRange(source,messages));assert(!matchesRange(source,[messages[0]]));
     assert(!matchesRange(source,[messages[0],{...messages[1],mes:'싫어.'}]));

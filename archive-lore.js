@@ -30,7 +30,7 @@ function saveSettings(patch = {}) {
     if(Object.hasOwn(patch,'serverEnabled') && controller.state().busy)throw Error('진행 중인 작업이 끝난 뒤 실행 위치를 바꿔 줘.');
     extension_settings[NS] = normalizeSettings({ ...extension_settings[NS], ...patch });
     extension_settings[NS].cacheNamespace ||= makeId();
-    saveSettingsDebounced(); clearPrompts();
+    saveSettingsDebounced(); clearPrompts();controller.invalidateEmbeddingCounts();
 }
 function chatContext() {
     const c = getContext(), char = c.characters?.[c.characterId];
@@ -58,7 +58,7 @@ function books() {
 async function saveChatSettings(patch) {
     const c = getContext(); if (!chatContext().key) throw new Error('채팅방에서 설정해 줘.');
     if (controller.state().busy) throw new Error('작업이 끝난 뒤 설정을 바꿔 줘.');
-    c.chatMetadata[NS] = { ...chatSettings(), ...patch }; await c.saveMetadata(); clearPrompts();
+    c.chatMetadata[NS] = { ...chatSettings(), ...patch }; await c.saveMetadata(); clearPrompts();controller.invalidateEmbeddingCounts();
 }
 async function loadBook(name) {
     const response = await fetch('/api/worldinfo/get', { method:'POST', headers:getRequestHeaders(), body:JSON.stringify({name}), cache:'no-cache' });
@@ -296,6 +296,8 @@ function init() {
     globalThis.archiveLoreSearch={subscribe:listener=>{searchViewListeners.add(listener);return ()=>searchViewListeners.delete(listener);},openSettings:()=>ui.openSettings(),controller,settings,saveSettings,books,target,loadBook,saveBook,store:vectorStore,diagnostics:diagnosticView,context:chatContext,clearPrompts};
     globalThis.archiveLoreInterceptor=intercept;
     eventSource.on(event_types.WORLDINFO_ENTRIES_LOADED,nativePolicy);
+    eventSource.on(event_types.WORLDINFO_UPDATED,()=>controller.invalidateEmbeddingCounts());
+    for(const event of [event_types.CHAT_CHANGED,event_types.MESSAGE_EDITED,event_types.MESSAGE_DELETED,event_types.MESSAGE_SWIPED,event_types.MESSAGE_RECEIVED])if(event)eventSource.on(event,()=>controller.invalidateEmbeddingCounts());
     eventSource.on(event_types.CHAT_CHANGED,()=>{clearTimeout(autoTimer);autoPending=false;autoAttempt='';generationInFlight=false;controller.detach();controller.discardDraft();if(pendingGeneration)void pendingGeneration.trace.event('generation.chat-changed');pendingGeneration=null;controller.clearRecall();clearPrompts();void ui.refresh().catch(error);});
     for(const event of [event_types.MESSAGE_EDITED,event_types.MESSAGE_DELETED,event_types.MESSAGE_SWIPED])if(event)eventSource.on(event,()=>{controller.cancel();clearPrompts();});
     if(event_types.GENERATION_STARTED)eventSource.on(event_types.GENERATION_STARTED,(_type,_options,dryRun)=>{if(dryRun)return;generationStopped=false;generationInFlight=true;clearTimeout(autoTimer);});

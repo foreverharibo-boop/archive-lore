@@ -107,7 +107,25 @@ export function createVectorStore(factory = indexedDB) {
         req.onsuccess = () => resolve(req.result);
         req.onerror = () => { opening = null; reject(new Error('임베딩 저장소를 열 수 없어. 브라우저 저장 공간을 확인해 줘.')); };
     });
+    async function presentKeys(keys) {
+        if(!keys.length)return [];
+        const db=await database();
+        return new Promise((resolve,reject)=>{
+            const tx=db.transaction('vectors'),store=tx.objectStore('vectors'),found=new Array(keys.length);
+            keys.forEach((key,index)=>{const req=store.getKey(key);req.onsuccess=()=>{found[index]=req.result!==undefined;};});
+            tx.oncomplete=()=>resolve(found);tx.onerror=()=>reject(tx.error);tx.onabort=()=>reject(tx.error || new Error('임베딩 개수 조회가 중단되었습니다.'));
+        });
+    }
     return {
+        async hasMany(keys) {
+            const found=await presentKeys(keys),missing=[];
+            keys.forEach((key,index)=>{if(!found[index]&&key.startsWith('embedding-v2:'))missing.push({key,index});});
+            // Legacy keys still count, without loading their vector arrays or writing them back.
+            const aliases=await Promise.all(missing.map(async({key})=>{const raw=key.slice(13);return [await digest(raw),'exact-v1:'+raw];}));
+            const old=await presentKeys(aliases.flat());
+            missing.forEach(({index},i)=>{found[index]=old[i*2]||old[i*2+1];});
+            return found;
+        },
         async get(key) {
             const db = await database();
             return new Promise((resolve, reject) => {

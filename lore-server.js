@@ -38,29 +38,44 @@ export function createServerClient({headers,request=fetch}) {
 export function serverVectorStore({local,call,enabled}) {
     const cache=new Map();return {
         clear:()=>cache.clear(),
+        async peekMany(keys,{signal}={}){
+            if(!enabled())return local.hasMany?local.hasMany(keys):Promise.all(keys.map(async key=>!!await local.get(key)));
+            const found=[];
+            for(let start=0;start<keys.length;start+=64){
+                signal?.throwIfAborted();
+                const batch=keys.slice(start,start+64);
+                // Counting must never download or migrate vectors, even on an older plugin.
+                const {present}=await call('/vectors/has',{keys:batch},{signal});
+                if(!Array.isArray(present)||present.length!==batch.length||!present.every(v=>typeof v==='boolean'))throw Error('임베딩 상태 응답이 올바르지 않아. 서버 플러그인을 업데이트해 줘.');
+                found.push(...present);
+            }
+            return found;
+        },
         async get(key){if(!enabled())return local.get(key);if(cache.has(key))return cache.get(key);let vector=(await call('/vectors/get',{key})).vector;
             if(!vector){vector=await local.get(key);if(vector)await call('/vectors/put',{key,vector});}
             if(vector)cache.set(key,vector);return vector;},
-        async hasMany(keys){
-            if(!enabled())return Promise.all(keys.map(async key=>!!await local.get(key)));
+        async hasMany(keys,{signal}={}){
+            if(!enabled())return local.hasMany?local.hasMany(keys):Promise.all(keys.map(async key=>!!await local.get(key)));
             const found=[];
             for(let start=0;start<keys.length;start+=64){
+                signal?.throwIfAborted();
                 const batch=keys.slice(start,start+64);let present;
-                try{present=(await call('/vectors/has',{keys:batch})).present;}
+                try{present=(await call('/vectors/has',{keys:batch},{signal})).present;}
                 catch(error){if(error.status!==404)throw error;present=null;}
                 if(present && (present.length!==batch.length||!present.every(v=>typeof v==='boolean')))throw Error('임베딩 상태 응답이 올바르지 않아. 서버 플러그인을 업데이트해 줘.');
                 for(let offset=0;offset<batch.length;offset+=8){
                     const values=await Promise.all(batch.slice(offset,offset+8).map(async(key,i)=>{
-                        if(!present)return !!await this.get(key);
-                        if(present[offset+i])return true;
+                        signal?.throwIfAborted();
+                        if(!present){const vector=(await call('/vectors/get',{key},{signal})).vector;if(vector)return true;}
+                        if(present?.[offset+i])return true;
                         const vector=await local.get(key);if(!vector)return false;
-                        await this.put(key,vector);return true;
+                        signal?.throwIfAborted();await this.put(key,vector,{signal});return true;
                     }));found.push(...values);
                 }
             }
             return found;
         },
-        async put(key,vector){if(!enabled())return local.put(key,vector);await call('/vectors/put',{key,vector});cache.set(key,vector);},
+        async put(key,vector,{signal}={}){signal?.throwIfAborted();if(!enabled())return local.put(key,vector);await call('/vectors/put',{key,vector},{signal});cache.set(key,vector);},
     };
 }
 export function createServerController({local,enabled,settings,context,input,call,sync,changed,countTokens,generating=()=>false,wait=ms=>new Promise(resolve=>setTimeout(resolve,ms))}) {
@@ -111,6 +126,7 @@ export function createServerController({local,enabled,settings,context,input,cal
         const started=Date.now();
         const epoch=detached,key=context().key;
         const runState={abort:new AbortController(),requestId:makeId(),submitted:false};activeRun=runState;
+        local.invalidateEmbeddingCounts?.();
         const signal=runState.abort.signal;
         const check=()=>{signal.throwIfAborted();if(epoch!==detached||key!==context().key)throw new DOMException('채팅방 변경 · 서버 작업은 유지됩니다.','AbortError');};
         try{
@@ -118,6 +134,7 @@ export function createServerController({local,enabled,settings,context,input,cal
             if(current&&active(current))throw Error('서버 작업이 진행 중이야. 내역에서 완료를 기다리거나 중지해 줘.');
             clearTimeout(poll);pollingRun=true;
             status='서버 작업 접수 중';current={status:'queued',message:status};changed?.();
+            if(kind==='index'){await withAbort(()=>local.prepareEmbedding?.(signal),signal);check();}
             const payload=await withAbort(()=>input(kind,options),signal);check();
             runState.submitted=true;
             const job=await withAbort(()=>call('/jobs',{kind,input:payload,requestId:runState.requestId},{signal}),signal);check();current=job;
@@ -150,6 +167,7 @@ export function createServerController({local,enabled,settings,context,input,cal
             if(epoch===detached&&key===context().key)status=error.message;
             throw error;
         }finally{
+            local.invalidateEmbeddingCounts?.();
             if(activeRun===runState)activeRun=null;
             if(epoch===detached){
                 pollingRun=false;
@@ -191,6 +209,9 @@ export function createServerController({local,enabled,settings,context,input,cal
         detach:()=>{detached++;activeRun?.abort.abort(new DOMException('채팅방 변경 · 서버 작업은 유지됩니다.','AbortError'));activeRun=null;clearTimeout(poll);pollingRun=false;current=null;view=[];lastList=0;lastRecall=null;local.cancel();},
         state:()=>enabled()?{busy:!!activeRun || !!current&&active(current),status:status||'서버 모드 · 준비됨',lastRecall}:local.state(),
         async dashboard(){if(enabled())await restore(false,false);return local.dashboard();},
+        embeddingCounts:()=>local.embeddingCounts(),
+        cachedEmbeddingCounts:()=>local.cachedEmbeddingCounts(),
+        invalidateEmbeddingCounts:()=>local.invalidateEmbeddingCounts(),
         async maybeAutoCollect(){if(!enabled())return local.maybeAutoCollect();if(!normalizeSettings(settings()).enabled||current||generating())return false;const key=context().key;const dashboard=await local.dashboard();if(key!==context().key||generating())return false;if(automaticReady(normalizeSettings(settings()),context().messages,dashboard.next)){await run('collect');return true;}return false;},
         restore,jobs:()=>view,
         async getDraft(id){const job=await call('/jobs/get',{id});if(job.kind!=='prepareMaintenance'||job.status!=='completed'||job.draftAvailable===false||job.chatKey!==context().key)throw Error('이 채팅방에서 사용할 수 있는 초안이 아니야.');return job.result;},

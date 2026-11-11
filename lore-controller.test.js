@@ -22,6 +22,28 @@ function fixture() {
         set key(v){key=v;},set failSave(v){failSave=v;},set failEmbed(v){failEmbed=v;},set config(v){config={...config,...v};}};
 }
 const memory=()=>JSON.stringify({entries:[{title:'병원 약속',content:'두 사람은 병원에 함께 가기로 약속했다.',keywords:['병원']}],sideChanges:[]});
+test('count-only reads one book, never migrates vectors or reads receipts, and scopes its immediate cache',async()=>{
+    const f=fixture();f.book={entries:{0:{uid:0,content:'First'},1:{uid:1,content:'Second'},2:{uid:2,content:'Core',constant:true},3:{uid:3,content:'Disabled',disable:true}}};
+    let reads=0,checks=0;const load=f.host.loadBook;
+    f.host.loadBook=async(...args)=>{reads++;return load(...args);};
+    f.host.target=()=>assert.fail('counts must not read collection progress');
+    f.host.store.hasMany=()=>assert.fail('counts must not migrate');
+    f.host.store.peekMany=async keys=>{checks++;assert.equal(keys.length,2);return [true,false];};
+    assert.equal(f.controller.cachedEmbeddingCounts(),null);
+    const [a,b]=await Promise.all([f.controller.embeddingCounts(),f.controller.embeddingCounts()]);
+    assert.deepEqual(a,{embedded:1,pending:1});assert.deepEqual(a,b);assert.equal(reads,1);assert.equal(checks,1);
+    assert.deepEqual(f.controller.cachedEmbeddingCounts(),a);
+    f.config={embeddingProvider:'openai',embeddingModel:'different'};assert.equal(f.controller.cachedEmbeddingCounts(),null);
+    await f.controller.embeddingCounts();f.controller.invalidateEmbeddingCounts();assert.equal(f.controller.cachedEmbeddingCounts(),null);
+    f.key='other';assert.equal(f.controller.cachedEmbeddingCounts(),null);
+});
+test('an entry edit during count lookup cannot repopulate the cache with stale numbers',async()=>{
+    const f=fixture();f.book={entries:{0:{uid:0,content:'Fact'}}};let release,entered;
+    const gate=new Promise(r=>release=r),started=new Promise(r=>entered=r);
+    f.host.store.peekMany=async()=>{entered();await gate;return [true];};
+    const pending=f.controller.embeddingCounts();await started;f.controller.invalidateEmbeddingCounts();release();
+    await assert.rejects(pending,e=>e.name==='AbortError');assert.equal(f.controller.cachedEmbeddingCounts(),null);
+});
 for(const phase of ['questions','embedding','selection'])test(`stop aborts ${phase}, discards noncooperative late results and allows a new recall`,async()=>{
     const f=fixture();f.book={entries:{0:{uid:0,content:'The hospital visit happened.'}}};await f.controller.index();
     f.config={mode:'questions'};let entered,release,seen;

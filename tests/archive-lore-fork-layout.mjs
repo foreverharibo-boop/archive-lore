@@ -19,7 +19,7 @@ window.mountTools=()=>{
  document.body.innerHTML='<div id="content" class="al-fork-surface"></div>';const host=document.querySelector('#content');
  const listeners=new Set();window.counts={embedded:104,pending:1};window.reads=0;window.indexes=0;window.toolState={busy:false,status:''};window.chatKey='chat';window.failure=false;
  window.emit=()=>{for(const listener of listeners)listener();};window.listenerCount=()=>listeners.size;
- const search={context:()=>({key:window.chatKey}),subscribe:fn=>{listeners.add(fn);return()=>listeners.delete(fn);},controller:{state:()=>window.toolState,dashboard:async()=>{reads++;if(failure)throw Error('조회 실패');return counts;},index:async()=>{indexes++;toolState.busy=true;emit();await new Promise(r=>window.finishIndex=()=>{counts={embedded:105,pending:0};toolState={busy:false,status:'임베딩 완료 · 160구간'};emit();r();});},cancel(){},restore:async()=>{},jobs:()=>[]}};
+ const search={context:()=>({key:window.chatKey}),subscribe:fn=>{listeners.add(fn);return()=>listeners.delete(fn);},controller:{state:()=>window.toolState,embeddingCounts:async()=>{reads++;if(failure)throw Error('조회 실패');return counts;},index:async()=>{indexes++;toolState.busy=true;emit();await new Promise(r=>window.finishIndex=()=>{counts={embedded:105,pending:0};toolState={busy:false,status:'임베딩 완료 · 160구간'};emit();r();});},cancel(){},restore:async()=>{},jobs:()=>[]}};
  window.toolsPanel=createSearchToolsPanel({search,download(){}});host.append(toolsPanel.node);
  window.sideMarkers={};window.sideSaves=0;window.paintSwitch=()=>{document.querySelector('.al-side-auto-toggle')?.remove();mountSideAutoToggle(host,{markers:sideMarkers,save:()=>sideSaves++});};paintSwitch();
 };

@@ -9,13 +9,22 @@ import { normalizeSettings,NS,sourceRange,matchesRange,estimateTokens } from '..
 import { embed,completionText } from '../lore-api.js';
 globalThis.crypto ||= webcrypto;
 export function createJobService({sanitize,ask,embedRequest=embed}) {
-    const users=new Map();
+    const users=new Map(),vectorStores=new Map();
+    function vectorStore(user) {
+        if(!user?.profile?.handle||!user.directories?.root)throw Error('로그인한 실리태번 사용자만 사용할 수 있어.');
+        const owner=fs.realpathSync(user.directories.root);
+        if(!vectorStores.has(owner)){
+            const root=inside(owner,'archive-lore-server');fs.mkdirSync(root,{recursive:true,mode:0o700});
+            vectorStores.set(owner,privateStore(root,'vectors'));
+        }
+        return vectorStores.get(owner);
+    }
     function state(user) {
         if(!user?.profile?.handle||!user.directories?.root)throw Error('로그인한 실리태번 사용자만 사용할 수 있어.');
         const owner=fs.realpathSync(user.directories.root);if(users.has(owner))return users.get(owner);
         const root=inside(owner,'archive-lore-server');fs.mkdirSync(root,{recursive:true,mode:0o700});
         const jobsDir=inside(root,'jobs');fs.mkdirSync(jobsDir,{recursive:true,mode:0o700});
-        const s={root,jobsDir,jobs:new Map(),running:false,controllers:new Map(),canceledRequests:new Map(),vectors:privateStore(root,'vectors'),user};
+        const s={root,jobsDir,jobs:new Map(),running:false,controllers:new Map(),canceledRequests:new Map(),vectors:vectorStore(user),user};
         for(const file of fs.readdirSync(jobsDir).filter(f=>/^[a-f0-9-]+\.json$/.test(f))){
             const job=json(inside(jobsDir,file));if(['queued','running'].includes(job.status)){job.status='interrupted';job.message='서버가 재시작됐어. 저장된 구간은 유지돼. 다시 실행해 줘.';atomic(inside(jobsDir,file),job);}s.jobs.set(job.id,job);
         }
@@ -110,7 +119,7 @@ export function createJobService({sanitize,ask,embedRequest=embed}) {
             if(job.status==='queued'){job.status='canceled';job.message='취소됨';job.finished=new Date().toISOString();}
             save(s,job);return publicJob(job);
         },
-        vectors(user){return state(user).vectors;},
+        vectors:vectorStore,
         async logs(user,key){const s=state(user),dir=inside(s.root,'diagnostics');if(!fs.existsSync(dir))return [];return fs.readdirSync(dir).filter(f=>f.endsWith('.json')).map(f=>json(inside(dir,f))).filter(r=>!key||r.chatKey===key).sort((a,b)=>a.started.localeCompare(b.started));},
         state,
     };

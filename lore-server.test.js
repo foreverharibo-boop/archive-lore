@@ -4,6 +4,23 @@ import assert from 'node:assert/strict';
 import {profileTemplate,serverVectorStore,createServerClient,createServerController} from './lore-server.js';
 import {embeddingKey} from './lore-api.js';
 const deferred=()=>{let resolve;const promise=new Promise(r=>resolve=r);return {promise,resolve};};
+test('105 count lookups only query presence and never read local vectors or upload them',async()=>{
+    const routes=[];const store=serverVectorStore({enabled:()=>true,local:{get:()=>assert.fail('no local reads')},call:async(route,body)=>{
+        routes.push(route);assert.equal(route,'/vectors/has');return {present:body.keys.map(()=>false)};
+    }});
+    assert.deepEqual(await store.peekMany(Array(105).fill('key')),Array(105).fill(false));assert.equal(routes.length,2);
+    const old=serverVectorStore({enabled:()=>true,local:{get:()=>assert.fail()},call:async()=>{throw Object.assign(Error('update server'),{status:404});}});
+    await assert.rejects(old.peekMany(['key']),/update server/);
+});
+test('dedicated counts bypass job restore; server indexing migrates existing browser vectors before submission',async()=>{
+    const order=[];const local={embeddingCounts:async()=>({embedded:1,pending:2}),cachedEmbeddingCounts:()=>({embedded:1,pending:2}),prepareEmbedding:async signal=>{assert(!signal.aborted);order.push('migrate');}};
+    const controller=createServerController({local,enabled:()=>true,context:()=>({key:'chat'}),input:async()=>({}),sync:async()=>{},call:async route=>{
+        order.push(route);if(route==='/jobs/list')return [];if(route==='/jobs')return {id:'job',status:'queued'};if(route==='/jobs/get')return {id:'job',status:'completed',result:{}};
+    }});
+    assert.deepEqual(await controller.embeddingCounts(),{embedded:1,pending:2});assert.equal(order.length,0);
+    assert.deepEqual(controller.cachedEmbeddingCounts(),{embedded:1,pending:2});
+    await controller.index();assert(order.indexOf('migrate')<order.indexOf('/jobs'));
+});
 test('explicit abort reaches server fetch without becoming a retryable network failure',async()=>{
     const abort=new AbortController(),entered=deferred();let transportSignal;
     const call=createServerClient({headers:()=>({}),request:async(_url,{signal})=>{

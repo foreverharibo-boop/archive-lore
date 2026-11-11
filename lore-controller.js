@@ -19,6 +19,12 @@ Omit relationship and dateEvidence on non-relationship facts. Use actual JSON nu
 
 export function createLoreController(host) {
     let draft = null;
+    let countCache=null,countRead=null,countRevision=0;
+    const invalidateEmbeddingCounts=()=>{countRevision++;countCache=null;};
+    const countKey=()=>{
+        const c=host.context(),s=settings();
+        return JSON.stringify([c.key,c.messages.length,host.books(),s.serverEnabled,s.cacheNamespace,s.embeddingProvider,s.embeddingModel,s.embeddingUrl,s.embeddingVertexProjectId,s.embeddingVertexRegion]);
+    };
     let active = null, status = '준비됨', lastRecall = null, trace = null, timings = null;
     const log = (stage, data) => trace?.event(stage, data);
     const askTracked = async (profile, system, data, signal, tokens, phase = 'selectionMs') => {
@@ -44,6 +50,7 @@ export function createLoreController(host) {
     async function job(label, callback, kind = 'operation', externalTrace = null) {
         if (active) throw new Error('진행 중인 작업을 마치거나 중지해 줘.');
         const abort = new AbortController(); active = abort;
+        invalidateEmbeddingCounts();
         const context=host.context(), config=settings();
         trace=externalTrace || host.diagnostics?.begin({kind,chatKey:context.key,chatName:context.name,mode:config.mode,messageCount:context.messages.length});
         notify(label);
@@ -52,7 +59,7 @@ export function createLoreController(host) {
             abort.signal.throwIfAborted();
             const result=await callback(abort.signal);abort.signal.throwIfAborted();await trace?.finish('success');abort.signal.throwIfAborted();return result;
         } catch (error) { await trace?.finish(abort.signal.aborted?'canceled':'error',{message:error.message});notify(abort.signal.aborted ? '작업 중지됨 · 저장한 기억은 유지돼' : error.message); throw error; }
-        finally { active = null;trace=null;timings=null;host.changed?.(); }
+        finally { active = null;trace=null;timings=null;invalidateEmbeddingCounts();host.changed?.(); }
     }
     async function records(snapshot = host.context()) {
         const result = [];
@@ -338,8 +345,37 @@ export function createLoreController(host) {
         }, 'index'),
         state: () => ({ busy: !!active, status, lastRecall }),
         dashboard:controllerDashboard,
+        embeddingCounts,
+        cachedEmbeddingCounts:()=>countCache?.key===countKey()?{...countCache.value}:null,
+        invalidateEmbeddingCounts,
+        prepareEmbedding:signal=>readEmbeddingCounts(true,signal),
         maybeAutoCollect,
     };
+    async function readEmbeddingCounts(migrate=false,signal) {
+        // Only the current book entries and vector presence are needed here.
+        // Count-only callers do not clone the chat, restore jobs, read receipts or copy vectors.
+        const snapshot=host.context(),config=settings();
+        if(!snapshot.key)return {embedded:0,pending:0};
+        const rows=await records(snapshot);signal?.throwIfAborted();
+        const groups=await Promise.all(rows.filter(r=>!isCore(r.entry)).map(row=>chunksFor(row,config)));
+        const keys=groups.flatMap(group=>group.map(chunk=>chunk.cacheKey));
+        signal?.throwIfAborted();
+        const presence=!migrate&&host.store.peekMany?host.store.peekMany.bind(host.store):host.store.hasMany?.bind(host.store);
+        const present=presence?await presence(keys,{signal}):await Promise.all(keys.map(async key=>!!await host.store.get(key)));
+        signal?.throwIfAborted();let offset=0,embedded=0,pending=0;
+        for(const group of groups){const complete=group.length>0&&present.slice(offset,offset+group.length).every(Boolean);offset+=group.length;if(complete)embedded++;else pending++;}
+        return {embedded,pending};
+    }
+    async function embeddingCounts() {
+        const key=countKey(),revision=countRevision;
+        if(countRead?.key===key&&countRead.revision===revision)return countRead.promise;
+        const task={key,revision,promise:null};
+        task.promise=readEmbeddingCounts().then(value=>{
+            if(countRevision!==revision||countKey()!==key)throw new DOMException('기억이 변경되어 개수를 다시 확인합니다.','AbortError');
+            countCache={key,value};return {...value};
+        }).finally(()=>{if(countRead===task)countRead=null;});
+        countRead=task;return task.promise;
+    }
     async function controllerDashboard() {
             const snapshot = structuredClone(host.context()), config = settings();
             if (!snapshot.key) return { records: [], ranges: [], next: 0, embedded: 0, pending: 0 };

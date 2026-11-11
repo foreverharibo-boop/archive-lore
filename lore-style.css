@@ -1,0 +1,42 @@
+/* Archive Lore modifications Copyright (C) 2026 foreverharibo-boop
+ * SPDX-License-Identifier: AGPL-3.0-only */
+.al-root { --al-border: var(--SmartThemeBorderColor, #85858566); --al-bg: var(--SmartThemeBlurTintColor, #202127); --al-fg: var(--SmartThemeBodyColor, #eee); color: var(--al-fg); font-family: inherit; font-size: 12px; line-height: 1.55; text-align: left; }
+.al-root *, .al-root *::before, .al-root *::after { box-sizing: border-box; }
+.al-root [hidden] { display: none !important; }
+.al-root input, .al-root select, .al-root textarea, .al-root button, .al-root .text_pole, .al-root .menu_button { font: inherit !important; color: inherit; min-width: 0; max-width: 100%; }
+.al-root .text_pole { width: 100%; margin: 0; padding: 8px 10px; border: 1px solid var(--al-border); border-radius: 9px; background: var(--black30a, #0002); color: var(--al-fg); }
+.al-root option { background: var(--al-bg); color: var(--al-fg); }
+.al-root textarea { resize: vertical; min-height: 90px; }
+.al-root .al-prompt { min-height: 220px; line-height: 1.6; }
+.al-root .al-button { display: inline-flex; justify-content: center; align-items: center; flex: 0 0 auto; width: auto; min-height: 34px; padding: 7px 12px; margin: 0; white-space: nowrap; word-break: keep-all; border: 1px solid var(--al-border); border-radius: 9px; cursor: pointer; background: var(--SmartThemeQuoteColor, #7773); }
+.al-root .al-button:disabled { opacity: .45; cursor: default; }
+.al-root details { margin: 10px 0; }
+.al-root summary { cursor: pointer; padding: 8px 0; font-size: inherit; font-weight: 600; }
+.al-root .al-fields { display: grid; gap: 10px; padding: 8px 0; }
+.al-root .al-field { display: grid; grid-template-columns: minmax(115px, .8fr) minmax(0, 1.2fr); gap: 12px; align-items: center; margin: 9px 0; }
+.al-root .al-check { display: flex !important; flex-direction: row !important; align-items: center; gap: 8px; margin: 9px 0; font-size: inherit; }
+.al-root .al-check input { flex: 0 0 auto; width: 15px; height: 15px; margin: 0; }
+.al-root .al-check span { overflow-wrap: anywhere; }
+.al-root .al-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 12px 0; }
+.al-root .al-between { justify-content: space-between; }
+.al-root .al-muted, .al-root small { opacity: .7; font-size: 11px; }
+.al-dialog { width: min(720px, calc(100vw - 24px)); max-width: none; height: min(850px, calc(100dvh - 28px)); max-height: none; margin: auto; padding: 0; border: 1px solid var(--al-border); border-radius: 18px; background: var(--al-bg); color: var(--al-fg); box-shadow: 0 15px 70px #0007; backdrop-filter: blur(20px); }
+.al-dialog::backdrop { background: #0007; }
+.al-dialog > header { display: flex; justify-content: space-between; align-items: center; padding: 19px 22px; border-bottom: 1px solid var(--al-border); }
+.al-dialog header small { letter-spacing: .18em; font-size: 10px; }
+.al-dialog h3 { font: inherit; font-size: 16px; font-weight: 600; margin: 6px 0 0; }
+.al-scroll { height: calc(100% - 87px); overflow-y: auto; padding: 18px 22px; overscroll-behavior: contain; }
+.al-counts { display: flex; flex-wrap: wrap; gap: 7px; margin-bottom: 16px; }
+.al-counts span { border: 1px solid var(--al-border); border-radius: 30px; padding: 4px 9px; }
+.al-card { border: 1px solid var(--al-border); border-radius: 12px; padding: 13px; margin: 12px 0; }
+.al-range { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.al-range .al-field { grid-template-columns: 1fr; gap: 4px; }
+.al-root pre { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; text-align: left; }
+.al-record { border-bottom: 1px solid var(--al-border); padding: 5px 0; }
+.al-record summary { overflow-wrap: anywhere; }
+.al-record summary small { margin-left: 8px; font-weight: normal; white-space: nowrap; }
+.al-record-body { display: grid; gap: 8px; padding: 5px 0 12px; }
+.al-record-body .al-button { justify-self: start; }
+.al-pagination { justify-content: center; }
+.al-settings { padding: 10px 3px; }
+@media (max-width: 480px) { .al-scroll { padding: 12px; } .al-dialog > header { padding: 16px; } .al-root .al-field { grid-template-columns: minmax(95px,.8fr) minmax(0,1.2fr); gap: 8px; } .al-range .al-field { grid-template-columns: 1fr; } }

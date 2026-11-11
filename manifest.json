@@ -1,14 +1,15 @@
 {
-    "display_name": "Memory Books",
+    "display_name": "Archive Lore",
     "loading_order": 101,
     "requires": [],
     "optional": [],
-    "js": "index.build.js",
-    "css": "style.build.css",
-    "author": "aikohanasaki",
-    "version": "9.4.0",
+    "js": "archive-lore.js",
+    "css": "lore-style.css",
+    "author": "foreverharibo-boop; based on Memory Books by aikohanasaki",
+    "version": "0.1.0",
     "license": "AGPL-3.0",
-    "homePage": "https://github.com/aikohanasaki/SillyTavern-MemoryBooks",
+    "homePage": "https://github.com/foreverharibo-boop/archive-lore",
     "auto_update": true,
-    "description": "Creates and saves chat memories and trackers to SillyTavern lorebooks with keywords and numbered titles. Localized in multiple languages."
+    "description": "Memory Books fork: one-click lorebook collection, change-based side records, independent embeddings and contextual recall.",
+    "generate_interceptor": "archiveLoreInterceptor"
 }

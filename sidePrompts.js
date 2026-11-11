@@ -1,5 +1,5 @@
 import { compileSideRefresh, SIDE_UPDATE_RULES } from './lore-side-story.js';
-import { sideWriteMode, SIDE_APPEND_RULES, NO_SIDE_CHANGES, appendSideRecord } from './lore-side-write-mode.js';
+import { sideWriteMode, SIDE_CURRENT_RULES, NO_SIDE_CHANGES, appendSideRecord } from './lore-side-write-mode.js';
 import { intervalSceneAfterMemory, mergeAfterMemoryItems } from './lore-side-after-memory.js';
 import { PLAIN_SIDE_FORMAT, validatePlainSideRecord } from './lore-native-side.js';
 import { sideAutoEnabled } from './lore-native-side-toggle.js';
@@ -232,7 +232,7 @@ async function resolveSidePromptAdditionalContextEntries(tpl) {
     return { ...resolved, source: mode === 'fixed' ? 'fixed' : 'chat' };
 }
 
-function buildPrompt(templatePrompt, priorContent, compiledScene, responseFormat, previousSummaries = [], runtimeMacros = {}, additionalContextEntries = []) {
+function buildPrompt(templatePrompt, priorContent, compiledScene, responseFormat, previousSummaries = [], runtimeMacros = {}, additionalContextEntries = [], writeMode = 'continue') {
     const parts = [];
     parts.push(applySidePromptMacros(templatePrompt, runtimeMacros));
     if (priorContent && String(priorContent).trim()) {
@@ -273,7 +273,7 @@ function buildPrompt(templatePrompt, priorContent, compiledScene, responseFormat
             'STMemoryBooks_PromptFrame_SidePreviousContextEnd',
         )}\n`);
     }
-    if (globalThis.archiveLoreFork) parts.push('\n' + SIDE_UPDATE_RULES);
+    if (globalThis.archiveLoreFork && writeMode !== 'refresh') parts.push('\n' + SIDE_UPDATE_RULES);
     appendSidePromptAdditionalContext(parts, additionalContextEntries);
     // Derive scene text from the compiled scene here to keep a single source of truth
     const sceneText = compiledScene ? toReadableText(compiledScene) : '';
@@ -289,6 +289,7 @@ function buildPrompt(templatePrompt, priorContent, compiledScene, responseFormat
         )}\n`);
         parts.push(applySidePromptMacros(responseFormat, runtimeMacros).trim());
     }
+    if (writeMode === 'refresh') parts.push('\n' + SIDE_CURRENT_RULES);
     const finalPrompt = parts.join('');
 
     // Apply the same explicit outgoing regex selection flow used by memories.
@@ -700,9 +701,8 @@ async function prepareSidePromptRun({
     }
 
     const additionalContext = await resolveSidePromptAdditionalContextEntries(tpl);
-    let finalPrompt = buildPrompt(tpl.prompt, prior, compiledScene, tpl.responseFormat, prevSummaries, runtimeMacros, additionalContext.entries);
     const writeMode = sideWriteMode(tpl.settings);
-    if (writeMode === 'append') finalPrompt += '\n' + SIDE_APPEND_RULES;
+    const finalPrompt = buildPrompt(tpl.prompt, prior, compiledScene, tpl.responseFormat, prevSummaries, runtimeMacros, additionalContext.entries, writeMode);
     const idx = Number(tpl?.settings?.overrideProfileIndex);
     const useOverride = !!tpl?.settings?.overrideProfileEnabled && Number.isFinite(idx);
     const conn = {...(useOverride
@@ -711,7 +711,7 @@ async function prepareSidePromptRun({
     conn.archiveLorePlainRecord = tpl.settings?.archiveLorePlainRecord === true && tpl.responseFormat === PLAIN_SIDE_FORMAT;
     conn.sideWriteMode = writeMode;
     conn.sidePriorContent = prior;
-    if (writeMode === 'append' && priorContentOverride === undefined) sidePromptHistory.expectedPriorContent = prior;
+    if (priorContentOverride === undefined) sidePromptHistory.expectedPriorContent = prior;
 
     const chosenProfile=useOverride ? extension_settings.STMemoryBooks?.profiles?.[idx] : extension_settings.STMemoryBooks?.profiles?.[extension_settings.STMemoryBooks?.defaultProfile || 0];
     if(!conn.archiveLoreConnectionProfileId && chosenProfile?.archiveLoreConnectionProfileId)conn.archiveLoreConnectionProfileId=chosenProfile.archiveLoreConnectionProfileId;

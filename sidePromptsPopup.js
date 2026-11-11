@@ -1189,7 +1189,7 @@ async function openEditTemplate(parentPopup, key) {
             const lbIgnoreBudget2 = !!dlg.querySelector('#stmb-sp-edit-lb-ignore-budget')?.checked;
             const outletNameVal = lbPosRaw === 7 ? (dlg.querySelector('#stmb-sp-edit-lb-outlet-name')?.value?.trim() || '') : '';
 
-            settings.sideWriteMode = dlg.querySelector('#stmb-sp-edit-write-mode')?.value === 'append' ? 'append' : 'update';
+            settings.sideWriteMode = dlg.querySelector('#stmb-sp-edit-write-mode')?.value === 'refresh' ? 'refresh' : 'continue';
             const prevCountRaw = parseInt(dlg.querySelector('#stmb-sp-edit-prev-mem-count')?.value ?? '0', 10);
             settings.previousMemoriesCount = Number.isFinite(prevCountRaw) && prevCountRaw > 0 ? Math.min(prevCountRaw, 7) : 0;
             const additionalContextSettings = readAdditionalContextSettings(dlg, 'stmb-sp-edit');
@@ -1538,7 +1538,7 @@ async function openNewTemplate(parentPopup) {
         const lbIgnoreBudget2 = !!dlg.querySelector('#stmb-sp-new-lb-ignore-budget')?.checked;
         const outletNameVal = lbPosRaw === 7 ? (dlg.querySelector('#stmb-sp-new-lb-outlet-name')?.value?.trim() || '') : '';
 
-        settings.sideWriteMode = dlg.querySelector('#stmb-sp-new-write-mode')?.value === 'append' ? 'append' : 'update';
+        settings.sideWriteMode = dlg.querySelector('#stmb-sp-new-write-mode')?.value === 'refresh' ? 'refresh' : 'continue';
         const prevCountRaw = parseInt(dlg.querySelector('#stmb-sp-new-prev-mem-count')?.value ?? '0', 10);
         settings.previousMemoriesCount = Number.isFinite(prevCountRaw) && prevCountRaw > 0 ? Math.min(prevCountRaw, 7) : 0;
         const additionalContextSettings = readAdditionalContextSettings(dlg, 'stmb-sp-new');

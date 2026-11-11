@@ -3,7 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
-import { sideWriteMode, appendSideRecord, SIDE_APPEND_RULES, NO_SIDE_CHANGES, sideWriteModeControl } from './lore-side-write-mode.js';
+import { sideWriteMode, appendSideRecord, SIDE_CURRENT_RULES, NO_SIDE_CHANGES, sideWriteModeControl } from './lore-side-write-mode.js';
 import { validatePlainSideRecord } from './lore-native-side.js';
 
 const source = fs.readFileSync(new URL('./sidePrompts.js', import.meta.url), 'utf8');
@@ -12,7 +12,7 @@ const extract = (name) => {
     return source.slice(start, source.indexOf('\n}\n', start) + 2);
 };
 
-test('append preserves prior bytes and only appends the new output; unchanged and echoed records are not duplicated', () => {
+test('legacy queued append requests preserve prior bytes and only appends the new output; unchanged and echoed records are not duplicated', () => {
     const prior = '  Original wording.\n- Prior promise.  \n';
     assert.equal(appendSideRecord(prior, 'New fact.'), prior + '\n\nNew fact.');
     assert.equal(appendSideRecord(prior, NO_SIDE_CHANGES), prior);
@@ -23,13 +23,13 @@ test('append preserves prior bytes and only appends the new output; unchanged an
 });
 
 test('unset and invalid modes preserve previous update behavior', () => {
-    for (const settings of [undefined, {}, {sideWriteMode:'unknown'}, {sideWriteMode:'update'}]) assert.equal(sideWriteMode(settings), 'update');
-    assert.equal(sideWriteMode({sideWriteMode:'append'}), 'append');
-    assert.match(sideWriteModeControl('stmb-sp-edit', {sideWriteMode:'append'}), /value="append" selected/);
-    assert.match(sideWriteModeControl('stmb-sp-new'), /value="update" selected/);
+    for (const settings of [undefined, {}, {sideWriteMode:'unknown'}, {sideWriteMode:'update'}, {sideWriteMode:'append'}, {sideWriteMode:'continue'}]) assert.equal(sideWriteMode(settings), 'continue');
+    assert.equal(sideWriteMode({sideWriteMode:'refresh'}), 'refresh');
+    assert.match(sideWriteModeControl('stmb-sp-edit', {sideWriteMode:'refresh'}), /value="refresh" selected/);
+    assert.match(sideWriteModeControl('stmb-sp-new'), /value="continue" selected/);
 });
 
-test('all callers through the real LLM path receive combined append text, but update and old job snapshots remain unchanged', async () => {
+test('legacy queued append remains compatible; new continue and refresh requests store the complete generated record', async () => {
     let output = 'Later event.';
     const requests = [];
     const scope = { appendSideRecord, NO_SIDE_CHANGES, validatePlainSideRecord,
@@ -40,7 +40,9 @@ test('all callers through the real LLM path receive combined append text, but up
     vm.runInNewContext(extract('runLLM'), scope);
     const conn = {api:'openai', sideWriteMode:'append', sidePriorContent:'Earlier fact.', archiveLorePlainRecord:true};
     assert.equal(await scope.runLLM('scene', conn), 'Earlier fact.\n\nLater event.');
-    assert.equal(await scope.runLLM('scene', {api:'openai', sideWriteMode:'update'}), 'Later event.');
+    for (const mode of ['continue', 'refresh']) {
+        assert.equal(await scope.runLLM('scene', {...conn, sideWriteMode:mode}), 'Later event.');
+    }
     assert.equal(await scope.runLLM('scene', {api:'openai'}), 'Later event.');
     assert.equal(requests[0].sidePriorContent, undefined);
     output = NO_SIDE_CHANGES;

@@ -59,7 +59,7 @@ function applySidePromptHistory(data, title, history, entry, createEntry) {
     validateSidePromptHistoryRequest(history);
     const resolved = resolveSidePromptHistory(data, history);
     if (typeof history.expectedPriorContent === 'string' && String(resolved.latest?.content || '') !== history.expectedPriorContent) {
-        throw new Error('이어서 쓰기 요청 이후 사이드 내용이 변경되었습니다. 최신 기록을 보존했으니 다시 실행해 주세요.');
+        throw new Error('사이드 생성 요청 이후 기존 내용이 변경되었습니다. 최신 기록을 보존했으니 다시 실행해 주세요.');
     }
     const group = resolved.versions[0]?.group || history.group;
     const stamp = (target, sequence) => {

@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
-import { sideWriteMode, SIDE_APPEND_RULES } from './lore-side-write-mode.js';
+import { sideWriteMode, SIDE_CURRENT_RULES } from './lore-side-write-mode.js';
 import { compileSideRefresh, SIDE_UPDATE_RULES } from './lore-side-story.js';
 const source=fs.readFileSync(new URL('./sidePrompts.js',import.meta.url),'utf8');
 const extract=(name,async=false)=>{const start=source.indexOf(`${async?'async ':''}function ${name}(`);return source.slice(start,source.indexOf('\n}\n',start)+2);};
@@ -15,7 +15,7 @@ test('manual refresh with no new dialogue keeps an empty scene without widening 
 });
 function preparationHarness(fork=true) {
  const calls=[];const memories=Array.from({length:12},(_,i)=>({title:`memory ${i}`,content:`established fact ${i}`,entry:{STMB_end:i,STMB_chatId:'origin'}}));
- const scope={archiveLoreFork:fork, SIDE_UPDATE_RULES, sideWriteMode, SIDE_APPEND_RULES,
+ const scope={archiveLoreFork:fork, SIDE_UPDATE_RULES, sideWriteMode, SIDE_CURRENT_RULES,
   getUnifiedSidePromptTitle:()=> 'Side',getCurrentStmbChatRef:()=>({chatId:'wrong-open-chat'}),
   getSidePromptHistory:(_tpl,_macros,_kinds,ref)=>({chatId:ref.chatId}),
   resolveSidePromptHistory:(_data,h)=>(calls.push(['history',h.chatId]),{latest:{content:'prior side facts'}}),
@@ -84,12 +84,37 @@ test('original Memory Books keeps its configured context count',async()=>{
 });
 
 
-test('append mode is snapshotted in the request and its output rule follows the response-format instructions', async () => {
+test('refresh removes obsolete history instructions, keeps uncertainty safeguards and follows response format', async () => {
  const h=preparationHarness();
- const result=await h.scope.prepareSidePromptRun({tpl:{key:'side',prompt:'Update',responseFormat:'Return the whole record',settings:{sideWriteMode:'append'}},loreData:{},compiledScene:{metadata:{sceneEnd:19},messages:[{mes:'Later event'}]}});
- assert.equal(result.conn.sideWriteMode,'append');
+ const result=await h.scope.prepareSidePromptRun({tpl:{key:'side',prompt:'Keep historical events',responseFormat:'Return unchanged history',settings:{sideWriteMode:'refresh'}},loreData:{},compiledScene:{metadata:{sceneEnd:19},messages:[{mes:'The meeting is complete.'}]}});
+ assert.equal(result.conn.sideWriteMode,'refresh');
  assert.equal(result.conn.sidePriorContent,'prior side facts');
  assert.equal(result.sidePromptHistory.expectedPriorContent,'prior side facts');
- assert(result.finalPrompt.lastIndexOf('APPEND-ONLY SIDE RECORD') > result.finalPrompt.indexOf('Return the whole record'));
- assert(result.finalPrompt.includes('Later event'));
+ assert(result.finalPrompt.lastIndexOf('CURRENT-STATE SIDE RECORD') > result.finalPrompt.indexOf('Return unchanged history'));
+ assert(!result.finalPrompt.includes('=== INCREMENTAL SIDE UPDATE ==='));
+ assert(result.finalPrompt.includes('Remove promises explicitly fulfilled or canceled'));
+ assert(result.finalPrompt.includes('If completion, expiry or replacement is uncertain, retain'));
+ assert(result.finalPrompt.includes('The meeting is complete.'));
+});
+
+test('continue and old settings retain incremental history without verbatim concatenation instructions', async () => {
+ for(const mode of [undefined,'append','update','continue']) {
+  const h=preparationHarness();
+  const result=await h.scope.prepareSidePromptRun({tpl:{key:'side',prompt:'Update',settings:{sideWriteMode:mode}},loreData:{},compiledScene:{metadata:{sceneEnd:19},messages:[]}});
+  assert.equal(result.conn.sideWriteMode,'continue');
+  assert(result.finalPrompt.includes('=== INCREMENTAL SIDE UPDATE ==='));
+  assert(!result.finalPrompt.includes('=== APPEND-ONLY SIDE RECORD ==='));
+  assert(!result.finalPrompt.includes('=== CURRENT-STATE SIDE RECORD ==='));
+  assert(result.finalPrompt.includes('Return the complete updated record'));
+ }
+});
+
+test('refresh with no new dialogue still requests cleanup from the prior record without widening the scene', async () => {
+ const h=preparationHarness();
+ const scene=await compileSideRefresh(20,19,{chatId:'origin'},()=>{throw Error('must not read entire chat')});
+ const result=await h.scope.prepareSidePromptRun({tpl:{key:'side',prompt:'Update',settings:{sideWriteMode:'refresh'}},loreData:{},compiledScene:scene});
+ assert(result.finalPrompt.includes('prior side facts'));
+ assert(result.finalPrompt.includes('Even when the scene is empty'));
+ assert(!result.finalPrompt.includes('If the scene contains no relevant changes or is empty, return the prior record unchanged.'));
+ assert.equal(h.calls.length,1);
 });

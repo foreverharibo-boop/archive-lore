@@ -7,15 +7,22 @@
 .al-root .text_pole { width: 100%; margin: 0; padding: 9px 11px; border: 1px solid var(--al-border); border-radius: 8px; background: var(--al-soft); color: var(--al-fg); box-shadow: none; }
 .al-root option { background: var(--al-bg); color: var(--al-fg); }
 .al-root textarea { resize: vertical; min-height: 100px; }
-.al-root .al-button { display: inline-flex; justify-content: center; align-items: center; gap: 7px; flex: 0 0 auto; width: auto; min-height: 36px; padding: 8px 12px; margin: 0; white-space: nowrap; word-break: keep-all; border: 1px solid transparent; border-radius: 8px; cursor: pointer; background: var(--al-soft); color: var(--al-fg); box-shadow: none; }
+.al-root .al-button { display: inline-flex; justify-content: center; align-items: center; gap: 7px; flex: 0 0 auto; width: auto; min-height: 32px; padding: 6px 10px; margin: 0; white-space: nowrap; word-break: keep-all; border: 1px solid transparent; border-radius: 8px; cursor: pointer; background: var(--al-soft); color: var(--al-fg); box-shadow: none; }
 .al-root .al-button:hover:not(:disabled) { background: color-mix(in srgb, var(--al-fg) 10%, transparent); }
-.al-root .al-button:disabled { opacity: .35; cursor: default; }
+.al-root .al-button:disabled { opacity: .55; cursor: default; }
 .al-root :is(button, input, textarea, select, summary):focus-visible { outline: 2px solid var(--al-fg); outline-offset: 3px; }
 .al-icon { width: 18px; height: 18px; flex: 0 0 18px; vertical-align: middle; pointer-events: none; }
-.al-root .al-button[data-icon-button] { width: 34px; min-height: 34px; padding: 8px; background: transparent; }
+.al-root .al-button[data-icon-button] { width: 32px; min-height: 32px; padding: 7px; background: transparent; }
 .al-brand { display: inline-flex; align-items: center; gap: 9px; font-size: 11px; font-weight: 500; letter-spacing: .14em; }
-.al-root details { margin: 10px 0; }
-.al-root summary { cursor: pointer; padding: 10px 0; font-size: inherit; font-weight: 500; }
+.al-root details { margin: 4px 0; }
+/* Keep native disclosure keyboard behavior, but no leading browser/theme triangles. */
+.al-root summary { display: flex !important; align-items: center; gap: 6px; min-height: 32px; cursor: pointer; padding: 6px 0; font-size: 12px !important; font-weight: 500; list-style: none !important; }
+.al-root summary::-webkit-details-marker { display: none !important; }
+.al-root summary::marker { content: '' !important; }
+.al-root summary::before { content: none !important; display: none !important; }
+.al-root summary::after { content: '+' !important; margin-left: auto; flex: 0 0 auto; font-size: 14px; font-weight: 400; opacity: .45; }
+.al-root details[open] > summary::after { content: '−' !important; }
+.al-root .al-record > summary::after { content: none !important; display: none !important; }
 .al-root .al-fields { display: grid; gap: 3px; padding: 5px 0; }
 .al-root .al-field { display: grid; grid-template-columns: minmax(110px, .8fr) minmax(0, 1.2fr); gap: 12px; align-items: center; margin: 10px 0; }
 .al-root .al-field > span { opacity: .78; }
@@ -28,28 +35,28 @@
 .al-dialog { width: min(640px, calc(100vw - 24px)); max-width: none; height: min(820px, calc(100dvh - 28px)); max-height: none; margin: auto; padding: 0; overflow: hidden; border: 1px solid var(--al-border); border-radius: 18px; background: var(--al-bg); color: var(--al-fg); box-shadow: 0 20px 80px #0004; backdrop-filter: blur(28px); }
 .al-dialog[open] { display: flex; flex-direction: column; }
 .al-dialog::backdrop { background: #0005; backdrop-filter: blur(3px); }
-.al-dialog > header { display: flex; flex: 0 0 auto; justify-content: space-between; align-items: center; gap: 8px; padding: 16px 22px 8px; }
+.al-dialog > header { display: flex; flex: 0 0 auto; justify-content: space-between; align-items: center; gap: 8px; padding: 10px 20px 4px; }
 .al-header-actions { display: flex; gap: 2px; }
-.al-hero { padding: 12px 26px 18px; flex: 0 0 auto; }
-.al-dialog h3 { font: inherit; font-size: 20px; font-weight: 600; letter-spacing: -.03em; margin: 0 0 13px; overflow-wrap: anywhere; }
-.al-counts { display: flex; flex-wrap: wrap; gap: 8px 17px; opacity: .68; font-size: 11px; }
-.al-root .al-tabs { display: flex; flex: 0 0 auto; gap: 20px; padding: 0 26px; border-bottom: 1px solid var(--al-border); }
-.al-root .al-tabs .al-button { min-width: 0; padding: 11px 0; border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: none; opacity: .5; }
+.al-hero { padding: 6px 22px 10px; flex: 0 0 auto; }
+.al-dialog h3 { font: inherit; font-size: 14px !important; line-height: 1.4 !important; font-weight: 500; letter-spacing: -.02em; margin: 0 0 8px !important; overflow-wrap: anywhere; }
+.al-counts { display: flex; flex-wrap: wrap; gap: 6px 13px; opacity: .68; font-size: 10px; }
+.al-root .al-tabs { display: flex; flex: 0 0 auto; gap: 20px; padding: 0 22px; border-bottom: 1px solid var(--al-border); }
+.al-root .al-tabs .al-button { min-width: 0; padding: 7px 0; border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: none; opacity: .5; }
 .al-root .al-tabs .al-button[aria-pressed="true"] { border-bottom-color: currentColor; opacity: 1; font-weight: 600 !important; }
 .al-root [data-action="tools"][aria-pressed="true"] { background: var(--al-soft); }
-.al-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 18px 26px; overscroll-behavior: contain; scrollbar-width: thin; }
-.al-card { border: 0; border-bottom: 1px solid var(--al-border); padding: 8px 0 16px; margin: 0; }
+.al-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 12px 22px; overscroll-behavior: contain; scrollbar-width: thin; }
+.al-card { border: 0; border-bottom: 1px solid var(--al-border); padding: 4px 0 8px; margin: 0; }
 .al-range { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .al-range .al-field { grid-template-columns: 1fr; gap: 4px; }
 .al-root pre { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; text-align: left; }
 .al-root .al-record { border-bottom: 1px solid var(--al-border); padding: 0; margin: 0; }
-.al-record > summary { list-style: none; display: flex; align-items: center; gap: 16px; padding: 18px 0; }
+.al-record > summary { list-style: none; display: flex; align-items: center; gap: 10px; padding: 11px 0; }
 .al-record > summary::-webkit-details-marker { display: none; }
 .al-record > summary > .al-icon { width: 14px; height: 14px; opacity: .4; }
 .al-record[open] > summary > .al-icon { transform: rotate(90deg); }
-.al-record-heading { flex: 1; min-width: 0; display: grid; gap: 5px; }
-.al-record-heading > span { font-size: 13px; font-weight: 600; overflow-wrap: anywhere; }
-.al-record-heading > small { font-weight: 400; font-size: 10px; }
+.al-record-heading { flex: 1; min-width: 0; display: grid; gap: 3px; }
+.al-record-heading > span { font-size: 12px; font-weight: 500; overflow-wrap: anywhere; }
+.al-record-heading > small { font-weight: 400; font-size: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .al-record-heading > p { font-size: 11px; opacity: .55; margin: 0; white-space: nowrap; text-overflow: ellipsis; overflow: hidden; font-weight: 400; }
 .al-record-body { display: grid; gap: 8px; padding: 0 0 16px; }
 .al-record-body .al-button { justify-self: start; }
@@ -63,21 +70,21 @@
 .al-organize > summary { opacity: .6; font-size: 11px; }
 .al-organize [data-selected] { margin-left: 8px; }
 .al-section-heading { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 12px; }
-.al-collection { flex: 0 0 auto; border-top: 1px solid var(--al-border); padding: 15px 26px 20px; }
+.al-collection { flex: 0 0 auto; border-top: 1px solid var(--al-border); padding: 10px 22px 12px; }
 .al-range-status { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; font-size: 11px; }
 .al-range-status strong { font-weight: 500; flex-shrink: 0; }
 .al-range-status [data-range] { text-align: right; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .al-root [data-status] { font-size: 11px; opacity: .65; max-height: 48px; overflow-y: auto; overflow-wrap: anywhere; }
 .al-root [data-status]:not(:empty) { margin-top: 5px; }
 .al-collect-actions { display: flex; gap: 8px; margin-top: 12px; }
-.al-root .al-collect-actions [data-action="collect"] { flex: 1; min-height: 42px; background: var(--al-fg); color: var(--al-bg); font-weight: 600 !important; }
+.al-root .al-collect-actions [data-action="collect"] { flex: 1; min-height: 36px; background: var(--al-fg); color: var(--al-bg); font-weight: 600 !important; }
 .al-root .al-collect-actions [data-action="collect"]:hover:not(:disabled) { opacity: .85; }
-.al-settings { padding: 6px 4px 16px; }
-.al-settings-top { display: flex; justify-content: space-between; gap: 8px; align-items: center; padding: 0 2px 9px; }
-.al-root .al-settings-tabs { gap: 0; padding: 0; margin-bottom: 16px; justify-content: space-between; }
+.al-settings { padding: 4px 3px 10px; }
+.al-settings-top { display: flex; justify-content: space-between; gap: 8px; align-items: center; padding: 0 2px 4px; }
+.al-root .al-settings-tabs { gap: 0; padding: 0; margin-bottom: 8px; justify-content: space-between; }
 .al-settings-tabs .al-button { flex: 1; }
-.al-settings [data-settings-pane] > details { border-bottom: 1px solid var(--al-border); margin: 0; padding: 0 0 14px; }
-.al-settings [data-settings-pane] > details + details { margin-top: 14px; }
+.al-settings [data-settings-pane] > details { border-bottom: 1px solid var(--al-border); margin: 0; padding: 0 0 6px; }
+.al-settings [data-settings-pane] > details + details { margin-top: 6px; }
 .al-settings .al-field { margin: 6px 0; gap: 10px; }
 .al-settings .al-prompt { min-height: 160px; height: 160px; line-height: 1.7; }
 .al-root .al-prompt-actions { margin: 16px 0 24px; gap: 10px; }
@@ -95,13 +102,29 @@
 .al-root [data-side] > summary { overflow-wrap: anywhere; }
 @media (max-width: 480px) {
     .al-dialog { width: calc(100vw - 16px); height: calc(100dvh - 20px); border-radius: 16px; }
-    .al-dialog > header { padding: 13px 15px 5px; }
-    .al-hero { padding: 13px 19px 17px; }
+    .al-dialog > header { padding: 9px 14px 3px; }
+    .al-hero { padding: 6px 18px 10px; }
     .al-root .al-tabs { padding-left: 19px; padding-right: 19px; }
-    .al-scroll { padding: 14px 19px; }
-    .al-collection { padding: 13px 19px 16px; }
+    .al-scroll { padding: 10px 18px; }
+    .al-collection { padding: 9px 18px 12px; }
     .al-root .al-field { grid-template-columns: minmax(90px,.8fr) minmax(0,1.2fr); gap: 8px; }
     .al-range .al-field { grid-template-columns: 1fr; }
     .al-root .al-settings-tabs { padding: 0; }
 }
-@media (max-height: 540px) { .al-hero { padding-top: 0; padding-bottom: 8px; } .al-dialog h3 { font-size: 16px; margin-bottom: 5px; } .al-collection { padding-top: 8px; padding-bottom: 8px; } }
+@media (max-height: 540px) { .al-hero { padding-top: 0; padding-bottom: 8px; } .al-dialog h3 { font-size: 14px; margin-bottom: 5px; } .al-collection { padding-top: 8px; padding-bottom: 8px; } }
+
+/* Scope theme-conflict fixes to Archive Lore; retain the host's color variables. */
+.al-root .al-button { background: var(--al-soft) !important; color: var(--al-fg) !important; box-shadow: none !important; text-shadow: none !important; }
+.al-root .al-button[data-icon-button], .al-root .al-tabs .al-button { background: transparent !important; }
+.al-root .al-tabs .al-button { border-radius: 0 !important; }
+.al-root .al-button:hover:not(:disabled) { background: color-mix(in srgb, var(--al-fg) 8%, transparent) !important; }
+.al-root .al-tabs .al-button:hover:not(:disabled) { background: transparent !important; }
+.al-root .al-collect-actions [data-action="collect"], .al-root .al-collect-actions [data-action="collect"]:hover { background: var(--al-fg) !important; color: var(--al-bg) !important; }
+.al-root .al-search { border: 1px solid var(--al-border); background: transparent; }
+.al-root .al-search .text_pole { border: 0 !important; background: transparent !important; box-shadow: none !important; border-radius: 0 !important; min-height: 32px !important; height: 32px; padding: 5px 0 !important; }
+.al-root .al-search:focus-within { outline: 1px solid var(--al-fg); outline-offset: 1px; }
+.al-root .al-search .text_pole:focus-visible { outline: none; }
+.al-root.al-settings [data-side] { margin: 0 !important; padding: 0 !important; border: 0; border-bottom: 1px solid var(--al-border); border-radius: 0; }
+.al-root.al-settings [data-side] > summary { min-height: 34px; padding: 7px 0 !important; }
+.al-root.al-settings [data-side][open] { padding-bottom: 8px !important; }
+.al-root.al-settings [data-settings-pane] > details > summary { padding: 8px 0; }

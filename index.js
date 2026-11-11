@@ -135,6 +135,7 @@ import {
   createStmbInFlightTask,
   stmbStopAllInFlight,
   getStmbInFlightCount,
+  getStmbStopEpoch,
   isStmbStopError,
   markStmbPopup,
   throwIfStmbStopped,
@@ -553,6 +554,7 @@ let hasBeenInitialized = false;
 let branchLorebookController = null;
 const deferredQueuedAutoHideRanges = new Map();
 let autoSummaryJobRetryInFlight = false;
+let archiveSideIntervalRetry = null;
 
 // Supported Chat Completion sources
 const SUPPORTED_COMPLETION_SOURCES = [
@@ -1576,12 +1578,20 @@ function validateAndCleanupSceneMarkers() {
 
 async function handleMessageReceived() {
   const reminderChatKey = getStmbChatKey();
+  const intervalEpoch = getStmbStopEpoch();
   try {
     setTimeout(validateSceneMarkers, SCENE_MANAGEMENT.VALIDATION_DELAY_MS);
     setTimeout(refreshMemoryBoundaryUi, SCENE_MANAGEMENT.VALIDATION_DELAY_MS);
     await handleAutoSummaryMessageReceived();
     if (getStmbChatKey() === reminderChatKey) getMemoryReminderController().check({ notify: true });
-    await evaluateTrackers();
+    if (getStmbChatKey() === reminderChatKey && getStmbStopEpoch() === intervalEpoch) {
+      if (globalThis.archiveLoreFork && isMemoryProcessing()) {
+        archiveSideIntervalRetry = { chatKey: reminderChatKey, epoch: intervalEpoch };
+      } else {
+        archiveSideIntervalRetry = null;
+        await evaluateTrackers();
+      }
+    }
   } catch (error) {
     console.error(
       translate(
@@ -1601,8 +1611,15 @@ function handleStmbJobStateChanged() {
   autoSummaryJobRetryInFlight = true;
   const reminderChatKey = getStmbChatKey();
   retryAutoSummaryAfterJobIdle()
-    .then(() => {
-      if (getStmbChatKey() === reminderChatKey) getMemoryReminderController().check({ notify: true });
+    .then(async () => {
+      if (getStmbChatKey() === reminderChatKey) {
+        getMemoryReminderController().check({ notify: true });
+        const pending = archiveSideIntervalRetry;
+        if (pending?.chatKey === reminderChatKey && !isMemoryProcessing()) {
+          archiveSideIntervalRetry = null;
+          if (pending.epoch === getStmbStopEpoch()) await evaluateTrackers();
+        }
+      }
     })
     .catch((error) => {
       console.warn("STMemoryBooks: auto-summary retry after job idle failed:", error);
@@ -5824,6 +5841,7 @@ async function executeMemoryGeneration(
       await runAfterMemory(compiledScene, profileSettings, {
         chatRef: memoryOriginSnapshot.chatRef,
         chatKey: memoryOriginSnapshot.chatKey,
+        lorebookName: lorebookValidation.name,
         sceneContext: memoryOriginSnapshot.sceneContext,
         sceneMarkers: memoryOriginSnapshot.sceneMarkers,
         settings,
@@ -14042,6 +14060,7 @@ async function applyManualFixedJson(correctedRaw) {
       await runAfterMemory(compiledScene, profile, {
         chatRef: context.chatRef || null,
         chatKey: context.chatKey || null,
+        lorebookName: context.lorebookValidation.name,
         sceneContext: context.memoryBooksContext || saveContext,
         sceneMarkers: context.sceneMarkers || {},
         settings,

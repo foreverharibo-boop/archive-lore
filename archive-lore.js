@@ -12,6 +12,8 @@ import { NS, normalizeSettings, applyNativePolicy, materializeEntry, isCore, ent
 import { dateDay, relationshipPhase, relationshipLabel, formatRelationship } from './lore-relationship.js';
 import { ask, embed, createVectorStore, makeId } from './lore-api.js';
 import { createLoreController } from './lore-controller.js';
+import { createDiagnostics, createDiagnosticStore } from './lore-diagnostics.js';
+import { linkedTranslation } from './lore-translations.js';
 import { createLoreUI } from './lore-ui.js';
 
 const PROMPT = 'archive-lore-recalled', CORE_PROMPT = 'archive-lore-core';
@@ -93,7 +95,13 @@ function error(error) {
     if(error?.name === 'AbortError') return;
     toastr.error(error?.message || '작업을 완료하지 못했어.','Archive Lore');
 }
+const diagnostics = createDiagnostics({store:createDiagnosticStore(),
+    secrets:()=>[settings()?.embeddingKey,...Object.values(settings()?.embeddingKeys || {})],
+    warning:message=>toastr.warning(message,'Archive Lore'),
+});
+let pendingGeneration = null;
 const controller = createLoreController({
+    diagnostics,profileInfo:()=>{const profiles=getContext().extensionSettings?.connectionManager?.profiles || [];return profiles.filter(p=>[settings().profile,settings().searchProfile,getContext().extensionSettings?.connectionManager?.selectedProfile].includes(p.id)).map(p=>({id:p.id,name:p.name,model:p.model}));},
     settings, context:chatContext, books, target, initialStart:()=>chatSettings().initialStart || 0,
     ensureBook, loadBook, saveBook,
     newEntry:data=>{const entry=createWorldInfoEntry('',data);if(!entry)throw new Error('새 기억 항목을 만들 수 없어.');return entry;},
@@ -142,14 +150,22 @@ async function saveRecord(id, changes) {
 }
 async function intercept(_chat,_contextSize,abort,type) {
     clearPrompts();
-    if(!settings().enabled || !chatContext().key || !books().length || ['quiet','impersonate'].includes(type))return;
+    const context=chatContext();
+    const trace=diagnostics.begin({kind:'generation',chatKey:context.key,chatName:context.name,mode:settings().mode,generationType:type,messageCount:context.messages.length});
+    if(!settings().enabled || !context.key || !books().length || ['quiet','impersonate'].includes(type)) {
+        await trace.finish('skipped',{enabled:settings().enabled,chat:!!context.key,books:books(),type});return;
+    }
+    if(pendingGeneration)await pendingGeneration.trace.finish('superseded',{nextAttempt:trace.id});
+    pendingGeneration=null;
     try {
         if(writing)throw new Error('기억 저장이 끝난 뒤 다시 전송해 줘.');
-        const result=await controller.recall();
+        const result=await controller.recall({kind:'generation',trace});
         activeBooks=result.books;recalled=result.selected;
         getContext().setExtensionPrompt(PROMPT,result.text,extension_prompt_types.IN_CHAT,1,false);
         getContext().setExtensionPrompt(CORE_PROMPT,result.core,extension_prompt_types.IN_CHAT,1,false);
-    } catch(e){clearPrompts();abort(true);error(e);}
+        await trace.event('injection.installed',{slots:[{name:PROMPT,text:result.text,position:'IN_CHAT',depth:1},{name:CORE_PROMPT,text:result.core,position:'IN_CHAT',depth:1}],selected:[...result.selected]});
+        pendingGeneration={trace,key:context.key,messageCount:context.messages.length};
+    } catch(e){await trace.finish('error',{message:e.message});clearPrompts();abort(true);error(e);}
 }
 function nativePolicy(lists) {
     if(!settings().enabled)return;
@@ -161,10 +177,12 @@ function nativePolicy(lists) {
         if(activeBooks.includes(list[i].world) && isCore(list[i]))list[i].disable=true;
     }
     applyNativePolicy(lists,{enabled:true,keywordActivation:settings().keywordActivation,books:selectedBooks,messages,selected:recalled});
+    if(pendingGeneration?.key===chatContext().key)void pendingGeneration.trace.event('native-world-info.policy',{keywordActivation:settings().keywordActivation,entries:Object.values(lists).filter(Array.isArray).flat().filter(e=>selectedBooks.includes(e.world)).map(e=>({book:e.world,uid:e.uid,disabled:e.disable,core:isCore(e)}))});
 }
 function init() {
     saveSettings();
-    ui=createLoreUI({settings,saveSettings,controller,context:chatContext,error,
+    ui=createLoreUI({settings,saveSettings,controller,context:chatContext,error,diagnostics,
+        translation:(book,entry)=>linkedTranslation(extension_settings,book,entry),
         profiles:()=>getContext().extensionSettings?.connectionManager?.profiles || [],
         bookNames:()=>[...world_names],books,target,
         setTarget:async name=>saveChatSettings({target:name,books:[...new Set([...books(),name].filter(Boolean))]}),
@@ -182,8 +200,19 @@ function init() {
     document.querySelector('#extensionsMenu')?.append(menu);
     globalThis.archiveLoreInterceptor=intercept;
     eventSource.on(event_types.WORLDINFO_ENTRIES_LOADED,nativePolicy);
-    eventSource.on(event_types.CHAT_CHANGED,()=>{controller.cancel();controller.clearRecall();clearPrompts();void ui.refresh().catch(error);});
+    eventSource.on(event_types.CHAT_CHANGED,()=>{if(pendingGeneration)void pendingGeneration.trace.event('generation.chat-changed');pendingGeneration=null;controller.cancel();controller.clearRecall();clearPrompts();void ui.refresh().catch(error);});
     for(const event of [event_types.MESSAGE_EDITED,event_types.MESSAGE_DELETED,event_types.MESSAGE_SWIPED])if(event)eventSource.on(event,()=>{controller.cancel();clearPrompts();});
+    if(event_types.MESSAGE_RECEIVED)eventSource.on(event_types.MESSAGE_RECEIVED,async index=>{
+        const run=pendingGeneration,context=chatContext();if(!run || context.key!==run.key)return;
+        const message=context.messages[Number(index)];
+        if(message && !message.is_user)await run.trace.event('rp.response',{index:Number(index),name:message.name,text:message.mes,swipeId:message.swipe_id});
+    });
+    for(const name of ['GENERATION_ENDED','GENERATION_STOPPED'])if(event_types[name])eventSource.on(event_types[name],async()=>{
+        const run=pendingGeneration;if(!run)return;pendingGeneration=null;
+        const context=chatContext();
+        await run.trace.event(name==='GENERATION_STOPPED'?'rp.stopped':'rp.ended',{sameChat:context.key===run.key,messageCount:context.messages.length,latestAssistant:context.key===run.key?context.messages.map((m,index)=>({index,name:m.name,text:m.mes,is_user:m.is_user,is_system:m.is_system})).filter(m=>!m.is_user&&!m.is_system).slice(-1):[]});
+        await run.trace.finish(name==='GENERATION_STOPPED'?'stopped':'completed');void ui.refresh().catch(error);
+    });
     for(const [name,callback,help] of [
         ['al','open','아카이브 로어 열기'],['al-collect','collect','마지막 수집 다음부터 수집. 선택 범위: /al-collect 0-19'],
         ['al-embed','index','남은 기억 임베딩'],['al-recall','recall','기억 검색 미리보기'],['al-stop','cancel','아카이브 로어 작업 중지'],

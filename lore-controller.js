@@ -13,28 +13,48 @@ const COLLECTION_SCHEMA = `Return ONLY JSON:
 Omit relationship and dateEvidence on non-relationship facts. Use actual JSON null for unknown dates. storyDate is null unless new dialogue establishes the current fictional date. For nothing new use empty arrays. Use only supplied message numbers and exact original-language quotes for evidence. User-visible saved text must be English; never translate evidence quotes.`;
 
 export function createLoreController(host) {
-    let active = null, status = '준비됨', lastRecall = null;
+    let active = null, status = '준비됨', lastRecall = null, trace = null;
+    const log = (stage, data) => trace?.event(stage, data);
+    const askTracked = async (profile, system, data, signal, tokens) => {
+        const started = Date.now();
+        await log('ai.request', { profile, system, data, maxOutputTokens:tokens });
+        try { const response = await host.ask(profile, system, data, signal, tokens);
+            await log('ai.response', { response, elapsedMs:Date.now()-started });return response;
+        } catch (error) { await log('ai.error', { message:error.message,details:error.details, elapsedMs:Date.now()-started });throw error; }
+    };
+    const embedTracked = async (config, text, query, signal) => {
+        const started=Date.now();await log('embedding.request', { provider:config.embeddingProvider, model:config.embeddingModel, query, text });
+        try { const vector=await host.embed(config,text,query,signal);await log('embedding.response', { query, dimensions:vector.length, elapsedMs:Date.now()-started });return vector; }
+        catch(error) { await log('embedding.error',{message:error.message,details:error.details});throw error; }
+    };
     const notify = value => { status = value; host.changed?.(); };
     const settings = () => normalizeSettings(host.settings());
     const assertCurrent = (snapshot, signal) => {
         signal?.throwIfAborted();
         if (host.context().key !== snapshot.key) throw new Error('채팅방이 바뀌어서 작업을 멈췄어.');
     };
-    async function job(label, callback) {
+    async function job(label, callback, kind = 'operation', externalTrace = null) {
         if (active) throw new Error('진행 중인 작업을 마치거나 중지해 줘.');
-        const abort = new AbortController(); active = abort; notify(label);
-        try { return await callback(abort.signal); }
-        catch (error) { notify(abort.signal.aborted ? '작업 중지됨 · 저장한 기억은 유지돼' : error.message); throw error; }
-        finally { active = null; host.changed?.(); }
+        const abort = new AbortController(); active = abort;
+        const context=host.context(), config=settings();
+        trace=externalTrace || host.diagnostics?.begin({kind,chatKey:context.key,chatName:context.name,mode:config.mode,messageCount:context.messages.length});
+        notify(label);
+        try {
+            await log('settings', {mode:config.mode,recentCount:config.recentCount,injectionTokens:config.injectionTokens,candidateCount:config.candidateCount,profile:config.profile,searchProfile:config.searchProfile,embeddingProvider:config.embeddingProvider,embeddingModel:config.embeddingModel,books:host.books(),profiles:host.profileInfo?.()});
+            const result=await callback(abort.signal);await trace?.finish('success');return result;
+        } catch (error) { await trace?.finish(abort.signal.aborted?'canceled':'error',{message:error.message});notify(abort.signal.aborted ? '작업 중지됨 · 저장한 기억은 유지돼' : error.message); throw error; }
+        finally { active = null;trace=null;host.changed?.(); }
     }
     async function records(snapshot = host.context()) {
         const result = [];
         for (const book of host.books()) {
-            const data = await host.loadBook(book);
+            const data = await host.loadBook(book), availability=[];
             for (const raw of Object.values(data.entries || {})) {
                 const entry = materializeEntry(raw, snapshot.messages);
+                if (trace) availability.push({uid:entry.uid,title:entry.comment,available:entryAvailable(entry,snapshot.messages),core:isCore(entry),disabled:!!entry.disable,source:entry[NS]?.source});
                 if (entryAvailable(entry, snapshot.messages)) result.push({ id: entryId(book, entry.uid), book, entry });
             }
+            if (trace) await log('record.availability',{book,entries:availability});
         }
         return result;
     }
@@ -53,9 +73,10 @@ export function createLoreController(host) {
         for (const chunk of chunks) {
             assertCurrent(snapshot, signal);
             const cached = !force && await host.store.get(chunk.cacheKey);
+            await log('embedding.cache', {entryId:chunk.id,chunk:chunk.index,hit:!!cached,force});
             if (!cached) {
                 notify(`임베딩 ${complete + 1}/${total}`);
-                const vector = await host.embed(config, chunk.text, false, signal);
+                const vector = await embedTracked(config, chunk.text, false, signal);
                 assertCurrent(snapshot, signal);
                 await host.store.put(chunk.cacheKey, vector);
             }
@@ -95,7 +116,7 @@ export function createLoreController(host) {
                 if (estimateTokens(JSON.stringify(payload)) > 24000) throw new Error('이 수집 범위와 기존 기록이 검토 한도를 넘었어. 범위를 줄이거나 긴 기록을 정리해 줘.');
                 notify(`기억 수집 #${start}–#${stop}`);
                 const system = config.prompts.collect + '\n\n' + (config.sideEnabled === false ? 'Return no sideChanges.' : (config.sidePrompt || SIDE_PROMPT)) + '\n\n' + COLLECTION_SCHEMA;
-                const response = dialogue.length ? await host.ask(config.profile, system, payload, signal, 6000)
+                const response = dialogue.length ? await askTracked(config.profile, system, payload, signal, 6000)
                     : '{"entries":[],"sideChanges":[]}';
                 const memories = parseCollection(response, existing);
                 const clock = config.sideEnabled === false ? null : parseStoryDate(response, snapshot.messages, source);
@@ -125,50 +146,61 @@ export function createLoreController(host) {
                 staged[NS] = { ...staged[NS], storyDates: [...(staged[NS]?.storyDates || []), ...(clock ? [clock] : [])], receipts: [...(staged[NS]?.receipts || []), { id: receiptId, source, created: new Date().toISOString() }] };
                 // The receipt and entries are saved together. Failed writes never advance the cursor.
                 await host.saveBook(book, staged);
+                await log('collection.saved', {book,source,memories,sideChanges:changes,storyDate:clock,updatedSides});
                 assertCurrent(snapshot, signal);
                 notify(`#${start}–#${stop} 저장 완료`); start = stop + 1;
             }
             notify('기억 저장 완료 · 자동 임베딩 중');
             await indexRecords(snapshot, signal, config);
             notify(`수집 완료 · 새 기억 ${saved}개`);
-        });
+        }, 'collection');
     }
-    async function recall() {
+    async function recall(options = {}) {
         return job('필요한 기억 찾는 중', async signal => {
+            lastRecall=null;
             const snapshot = structuredClone(host.context()), config = settings();
             const rows = await records(snapshot);
             const core = rows.filter(r => isCore(r.entry)).map(r => r.entry.content).join('\n\n');
             const recent = recentDialogue(snapshot.messages, config.recentCount);
-            if (!recent.text) return { text: '', core, selected: new Set(), books: host.books() };
+            await log('dialogue.context', {requested:config.recentCount, recent, sourceMessages:snapshot.messages.map((m,index)=>({index,name:m.name,is_user:m.is_user,is_system:m.is_system,text:m.mes})).filter(m=>!m.is_system&&String(m.text||'').trim()).slice(-config.recentCount)});
+            await log('core.records',{records:rows.filter(r=>isCore(r.entry)),text:core});
+            if (!recent.text) { lastRecall={text:'',core,units:[],questions:[],pending:0,candidateTotal:0,tokens:0,mode:config.mode,records:rows.filter(r=>isCore(r.entry))};await log('retrieval.empty',{reason:'no dialogue'});return { text: '', core, selected: new Set(), books: host.books() }; }
             let questions = [recent.text];
             if (config.mode === 'questions') {
                 notify('최근 대화에서 검색 질문 만드는 중');
-                const raw = parseJson(await host.ask(config.searchProfile || config.profile,
+                const raw = parseJson(await askTracked(config.searchProfile || config.profile,
                     config.prompts.questions + '\nReturn ONLY JSON: {"questions":["question"]}.', { dialogue: recent.text }, signal, 1200));
                 if (!Array.isArray(raw.questions) || raw.questions.length > 4 || raw.questions.some(q => typeof q !== 'string' || q.length > 2000))
                     throw new Error('검색 질문 형식이 올바르지 않아.');
                 questions = raw.questions.filter(q => q.trim());
             }
-            const chunks = []; let pending = 0;
+            await log('search.queries',{mode:config.mode,queries:questions});
+            const chunks = [], cacheStatus=[]; let pending = 0;
             for (const row of rows.filter(r => !isCore(r.entry))) for (const chunk of await chunksFor(row, config)) {
                 const vector = await host.store.get(chunk.cacheKey);
+                cacheStatus.push({entryId:chunk.id,chunk:chunk.index,hit:!!vector,text:chunk.text,dimensions:vector?.length});
                 if (vector) chunks.push({ ...chunk, vector }); else pending++;
             }
+            await log('retrieval.cache',{chunks:cacheStatus});
             let fitted = { text: '', units: [], tokens: 0 }, candidateTotal = 0;
             if (chunks.length && questions.length) {
                 const queryVectors = [];
                 for (const question of questions) for (const chunk of embeddingChunks({ content: question }, 1000))
-                    queryVectors.push(await host.embed(config, chunk.text, true, signal));
-                const candidates = rankChunks(chunks, queryVectors, config.candidateCount); candidateTotal = candidates.length;
+                    queryVectors.push(await embedTracked(config, chunk.text, true, signal));
+                const ranked=rankChunks(chunks,queryVectors,chunks.length);
+                await log('search.ranking',{indexedChunks:chunks.length,missingChunks:pending,queryDimensions:queryVectors.map(v=>v.length),ranked:ranked.map(({vector,cacheKey,...item},index)=>({...item,rank:index+1,offered:index<config.candidateCount})),notRanked:chunks.filter(c=>!ranked.includes(c) && !ranked.some(r=>r.id===c.id&&r.index===c.index)).map(c=>({entryId:c.id,chunk:c.index,reason:'non-positive similarity or incompatible vector dimensions'}))});
+                const candidates = ranked.slice(0,config.candidateCount); candidateTotal = candidates.length;
                 const offered = reviewUnits(candidates), selected = [];
                 let batch = [], cost = 0;
                 const review = async () => {
                     if (!batch.length) return;
                     notify('검색된 기억에서 필요한 원문 고르는 중');
-                    const response = await host.ask(config.searchProfile || config.profile,
+                    const response = await askTracked(config.searchProfile || config.profile,
                         config.prompts.select + '\nReturn ONLY JSON: {"ids":["u0"]}.',
                         { dialogue: recent.text, questions, memories: batch }, signal, 3000);
-                    selected.push(...selectedUnits(response, batch)); batch = []; cost = 0;
+                    const accepted=selectedUnits(response,batch);
+                    await log('selection.validated',{offered:batch,rawResponse:response,accepted,rejectedOrUnselected:batch.filter(u=>!accepted.some(a=>a.id===u.id))});
+                    selected.push(...accepted); batch = []; cost = 0;
                 };
                 for (const unit of offered) {
                     const size = estimateTokens(JSON.stringify(unit));
@@ -178,22 +210,25 @@ export function createLoreController(host) {
                 await review();
                 // Restore retrieval priority even when the model returns IDs in arbitrary order.
                 const selectedIds = new Set(selected.map(u => u.id));
-                fitted = await fitInjection(offered.filter(u => selectedIds.has(u.id)), config.injectionTokens, host.countTokens);
+                const beforeBudget=offered.filter(u => selectedIds.has(u.id));
+                fitted = await fitInjection(beforeBudget, config.injectionTokens, host.countTokens);
+                await log('injection.budget',{limit:config.injectionTokens,tokens:fitted.tokens,kept:fitted.units,dropped:beforeBudget.filter(u=>!fitted.units.some(k=>k.id===u.id))});
             }
             assertCurrent(snapshot, signal);
             if (JSON.stringify(snapshot.messages) !== JSON.stringify(host.context().messages)) throw new Error('검색 중 대화가 바뀌었어. 다시 시도해 줘.');
             lastRecall = { ...fitted, questions: config.mode === 'questions' ? questions : [], pending,
-                candidateTotal, shortened: recent.shortened, mode: config.mode, time: new Date().toISOString() };
+                candidateTotal, core, records:rows.filter(r=>isCore(r.entry)||fitted.units.some(u=>u.entryId===r.id)),shortened: recent.shortened, mode: config.mode, time: new Date().toISOString() };
+            await log('injection.prepared',{core,recalled:fitted.text,tokens:fitted.tokens,selected:fitted.units,pending,candidateTotal});
             notify(`회상 완료 · ${fitted.tokens}토큰${pending ? ` · 미임베딩 ${pending}구간` : ''}`);
             return { ...fitted, core, selected: new Set(fitted.units.map(u => u.entryId)), books: host.books() };
-        });
+        }, options.kind || 'preview', options.trace);
     }
     return {
         collect, recall, cancel: () => active?.abort(), clearRecall: () => { lastRecall = null; },
         index: (force = false) => job('임베딩 확인 중', async signal => {
             const result = await indexRecords(structuredClone(host.context()), signal, settings(), force);
             notify(`임베딩 완료 · ${result.complete}구간`); return result;
-        }),
+        }, 'index'),
         state: () => ({ busy: !!active, status, lastRecall }),
         async dashboard() {
             const snapshot = structuredClone(host.context()), config = settings();

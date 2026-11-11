@@ -72,7 +72,7 @@ test('server drafts survive service recreation; applying preserves history and c
 });
 test('both server retrieval modes use stored vectors and persist the full selection trace',async t=>{
     const f=fixture(t);f.replies.push(memory());let job=await f.service.submit(f.user,'collect',f.input(),randomUUID());await done(f.service,f.user,job.id);
-    for(const mode of ['dialogue','questions']){const input=f.input();input.settings.mode=mode;if(mode==='questions')f.replies.push('{"questions":["Which hospital visit?"]}');f.replies.push('{"ids":["u0"]}');job=await f.service.submit(f.user,'recall',input,randomUUID());const result=await done(f.service,f.user,job.id);assert.equal(result.status,'completed',result.message);assert(result.result.text.includes('hospital'));assert.equal(result.result.selected.length,1);}
+    for(const mode of ['dialogue','questions']){const input=f.input();input.settings.mode=mode;if(mode==='questions')f.replies.push('{"questions":["Which hospital visit?"]}');f.replies.push('{"selections":[{"id":"u0","priority":3,"reason":"supplies the requested visit fact"}]}');job=await f.service.submit(f.user,'recall',input,randomUUID());const result=await done(f.service,f.user,job.id);assert.equal(result.status,'completed',result.message);assert(result.result.text.includes('hospital'));assert.equal(result.result.selected.length,1);assert.equal(result.result.lastRecall.units[0].priority,3);}
     assert((await f.service.logs(f.user,'test-key')).some(r=>r.events.some(e=>e.stage==='selection.validated')));
 });
 test('detached backend keeps non-streaming payload and aborts only on explicit signal',async()=>{

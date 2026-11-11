@@ -2,12 +2,13 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { NS, normalizeSettings, sourceRange, matchesRange, validReceipts, nextStart,
     entryAvailable, isCore, entryId, embeddingChunks, estimateTokens, recentDialogue, parseJson,
-    parseCollection, rankChunks, reviewUnits, selectedUnits, fitInjection, materializeEntry,
+    parseCollection, reviewUnits, selectedUnits, fitInjection, materializeEntry,
     sideRecords, parseSideChanges, applySideChanges, sideSnapshot, parseStoryDate, currentStoryDate } from './lore-core.js';
 import { enabledSides, sideInstructions } from './lore-side-config.js';
 import { automaticReady, collectedHideRanges } from './lore-automation.js';
 import { consolidationView, maintenanceRequest, maintenanceResult } from './lore-maintenance.js';
 import { digest, embeddingKey, makeId } from './lore-api.js';
+import { retrievalFocus, rankFocusedChunks, chooseCandidates } from './lore-retrieval.js';
 
 const COLLECTION_SCHEMA = `Return ONLY JSON:
 {"entries":[{"title":"short English title","date":"story date/range or empty","time":"story time or empty","location":"place or empty","content":"English narrative paragraphs only, no title/metadata headings","keywords":["English keyword"],"supersedes":null}],
@@ -230,19 +231,20 @@ export function createLoreController(host) {
             const rows = await records(snapshot);
             const core = rows.filter(r => isCore(r.entry)).map(r => r.entry.content).join('\n\n');
             const recent = recentDialogue(snapshot.messages, config.recentCount);
+            const focus = retrievalFocus(snapshot.messages, config.recentCount);
             await log('dialogue.context', {requested:config.recentCount, recent, sourceMessages:snapshot.messages.map((m,index)=>({index,name:m.name,is_user:m.is_user,is_system:m.is_system,text:m.mes})).filter(m=>!m.is_system&&String(m.text||'').trim()).slice(-config.recentCount)});
             await log('core.records',{records:rows.filter(r=>isCore(r.entry)),text:core});
             if (!recent.text) { lastRecall={text:'',core,units:[],questions:[],pending:0,candidateTotal:0,tokens:0,mode:config.mode,records:rows.filter(r=>isCore(r.entry))};await log('retrieval.empty',{reason:'no dialogue'});return { text: '', core, selected: new Set(), books: host.books() }; }
-            let questions = [recent.text];
+            let questions = [];
             if (config.mode === 'questions') {
                 notify('최근 대화에서 검색 질문 만드는 중');
                 const raw = parseJson(await askTracked(config.searchProfile || config.profile,
-                    config.prompts.questions + '\nReturn ONLY JSON: {"questions":["question"]}.', { dialogue: recent.text }, signal, 1200));
+                    config.prompts.questions + '\nReturn ONLY JSON: {"questions":["question"]}.', { latestUser:focus.latestUser, dialogue: recent.text }, signal, 1200));
                 if (!Array.isArray(raw.questions) || raw.questions.length > 4 || raw.questions.some(q => typeof q !== 'string' || q.length > 2000))
                     throw new Error('검색 질문 형식이 올바르지 않아.');
                 questions = raw.questions.filter(q => q.trim());
             }
-            await log('search.queries',{mode:config.mode,queries:questions});
+            await log('search.queries',{mode:config.mode,queries:config.mode==='questions'?questions:[focus.latestUser,focus.context],latestUser:focus.latestUser,context:focus.context,policy:'latest-user-reserved-v1'});
             const chunks = [], cacheStatus=[]; let pending = 0;
             for (const row of rows.filter(r => !isCore(r.entry))) for (const chunk of await chunksFor(row, config)) {
                 const vector = await host.store.get(chunk.cacheKey);
@@ -251,36 +253,44 @@ export function createLoreController(host) {
             }
             await log('retrieval.cache',{chunks:cacheStatus});
             let fitted = { text: '', units: [], tokens: 0 }, candidateTotal = 0;
-            if (chunks.length && questions.length) {
-                const queryVectors = [];
-                for (const question of questions) for (const chunk of embeddingChunks({ content: question }, 1000))
-                    queryVectors.push(await embedTracked(config, chunk.text, true, signal));
-                const ranked=rankChunks(chunks,queryVectors,chunks.length);
-                await log('search.ranking',{indexedChunks:chunks.length,missingChunks:pending,queryDimensions:queryVectors.map(v=>v.length),ranked:ranked.map(({vector,cacheKey,...item},index)=>({...item,rank:index+1,offered:index<config.candidateCount})),notRanked:chunks.filter(c=>!ranked.includes(c) && !ranked.some(r=>r.id===c.id&&r.index===c.index)).map(c=>({entryId:c.id,chunk:c.index,reason:'non-positive similarity or incompatible vector dimensions'}))});
-                const candidates = ranked.slice(0,config.candidateCount); candidateTotal = candidates.length;
-                const offered = reviewUnits(candidates), selected = [];
-                let batch = [], cost = 0;
-                const review = async () => {
-                    if (!batch.length) return;
-                    notify('검색된 기억에서 필요한 원문 고르는 중');
-                    const response = await askTracked(config.searchProfile || config.profile,
-                        config.prompts.select + '\nReturn ONLY JSON: {"ids":["u0"]}.',
-                        { dialogue: recent.text, questions, memories: batch }, signal, 3000);
-                    const accepted=selectedUnits(response,batch);
-                    await log('selection.validated',{offered:batch,rawResponse:response,accepted,rejectedOrUnselected:batch.filter(u=>!accepted.some(a=>a.id===u.id))});
-                    selected.push(...accepted); batch = []; cost = 0;
+            if (chunks.length && focus.latestUser) {
+                const queryCache = new Map();
+                const vectors = async texts => {
+                    const result = [];
+                    for (const text of texts) for (const chunk of embeddingChunks({content:text},1000)) {
+                        if (!queryCache.has(chunk.text)) queryCache.set(chunk.text,await embedTracked(config,chunk.text,true,signal));
+                        result.push(queryCache.get(chunk.text));
+                    }
+                    return result;
                 };
+                const lanes = {focus:await vectors([focus.latestUser]),questions:await vectors(questions),context:await vectors([focus.context])};
+                const ranked=rankFocusedChunks(chunks,lanes);
+                const candidates=chooseCandidates(ranked,config.candidateCount); candidateTotal = candidates.length;
+                const candidateKeys=new Set(candidates.map(c=>JSON.stringify([c.id,c.index])));
+                await log('search.ranking',{indexedChunks:chunks.length,missingChunks:pending,queryDimensions:[...queryCache.values()].map(v=>v.length),policy:'latest-user-reserved-v1',ranked:ranked.map(({vector,cacheKey,...item},index)=>({...item,rank:index+1,offered:candidateKeys.has(JSON.stringify([item.id,item.index]))})),notRanked:chunks.filter(c=>!ranked.some(r=>r.id===c.id&&r.index===c.index)).map(c=>({entryId:c.id,chunk:c.index,reason:'non-positive similarity or incompatible vector dimensions'}))});
+                const offered = reviewUnits(candidates), selected = [];
+                const batches = [];
+                let batch = [], cost = 0;
                 for (const unit of offered) {
                     const size = estimateTokens(JSON.stringify(unit));
-                    if (batch.length && cost + size > 10000) await review();
+                    if (batch.length && cost + size > 10000) { batches.push(batch); batch = []; cost = 0; }
                     batch.push(unit); cost += size;
                 }
-                await review();
-                // Restore retrieval priority even when the model returns IDs in arbitrary order.
-                const selectedIds = new Set(selected.map(u => u.id));
-                const beforeBudget=offered.filter(u => selectedIds.has(u.id));
+                if (batch.length) batches.push(batch);
+                for (const [index,batch] of batches.entries()) {
+                    notify('검색된 기억에서 필요한 원문 고르는 중');
+                    const response = await askTracked(config.searchProfile || config.profile,
+                        config.prompts.select + '\nReturn ONLY JSON: {"selections":[{"id":"u0","priority":3,"reason":"specific missing fact needed now"}]}. Use priority 3 for direct facts, 2 for indispensable supporting context. Omit everything else. At most 24 selections in usefulness order. For no needed facts return {"selections":[]}.',
+                        { latestUser:focus.latestUser, dialogue: recent.text, questions, memories: batch,
+                            batch:index+1,batchCount:batches.length,maxSelections:24,injectionBudgetTokens:config.injectionTokens }, signal, 3000);
+                    const accepted=selectedUnits(response,batch);
+                    await log('selection.validated',{batch:index+1,batchCount:batches.length,maxSelections:24,offered:batch,rawResponse:response,accepted,rejectedOrUnselected:batch.filter(u=>!accepted.some(a=>a.id===u.id))});
+                    selected.push(...accepted);
+                }
+                // Direct answers precede supporting context; keep the AI's order within each priority.
+                const beforeBudget=selected.sort((a,b)=>b.priority-a.priority);
                 fitted = await fitInjection(beforeBudget, config.injectionTokens, host.countTokens);
-                await log('injection.budget',{limit:config.injectionTokens,tokens:fitted.tokens,kept:fitted.units,dropped:beforeBudget.filter(u=>!fitted.units.some(k=>k.id===u.id))});
+                await log('injection.budget',{policy:'selection-priority-v1',limit:config.injectionTokens,tokens:fitted.tokens,kept:fitted.units,dropped:beforeBudget.filter(u=>!fitted.units.some(k=>k.id===u.id))});
             }
             assertCurrent(snapshot, signal);
             if (JSON.stringify(snapshot.messages) !== JSON.stringify(host.context().messages)) throw new Error('검색 중 대화가 바뀌었어. 다시 시도해 줘.');

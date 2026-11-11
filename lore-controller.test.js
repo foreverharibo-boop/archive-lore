@@ -22,6 +22,32 @@ function fixture() {
         set key(v){key=v;},set failSave(v){failSave=v;},set failEmbed(v){failEmbed=v;},set config(v){config={...config,...v};}};
 }
 const memory=()=>JSON.stringify({entries:[{title:'병원 약속',content:'두 사람은 병원에 함께 가기로 약속했다.',keywords:['병원']}],sideChanges:[]});
+test('both recall modes focus the new request, select original facts, and reuse cached document embeddings',async()=>{
+    for (const mode of ['dialogue','questions']) {
+        const f=fixture();f.config={mode,candidateCount:4};
+        f.messages.splice(0,f.messages.length,{name:'B',mes:'An unrelated restaurant scene. '.repeat(500)},
+            {name:'A',is_user:true,mes:'Remember the ski resort?'});
+        f.book={entries:{0:{uid:0,comment:'Snow outing',content:'They exchanged rings at the ski resort at 9 a.m. He proposed.'},
+            ...Object.fromEntries(Array.from({length:20},(_,i)=>[i+1,{uid:i+1,comment:'Dinner '+i,content:'An unrelated restaurant scene.'}]))}};
+        let documents=0,queries=0,questionCalls=0,reviews=0;
+        f.host.embed=async(_s,text,query)=>{if(query)queries++;else documents++;return text.length<300&&/ski|Snow/.test(text)?[1,.01]:[.01,1];};
+        f.host.ask=async(_p,system,data)=>{
+            assert.equal(data.latestUser,'Remember the ski resort?');
+            if(system.includes('"questions":')){questionCalls++;return '{"questions":["What happened at the ski resort?"]}';}
+            reviews++;assert.equal(data.maxSelections,24);assert.equal(data.injectionBudgetTokens,3000);
+            const found=data.memories.find(u=>u.text.includes('exchanged rings'));
+            assert(found,'focused event must reach the selection AI');
+            assert(!data.memories.some(u=>u.text==='m.'));
+            return JSON.stringify({selections:[{id:found.id,priority:3,reason:'answers the requested ski event'}]});
+        };
+        await f.controller.index();const indexed=documents;
+        const result=await f.controller.recall();
+        assert(result.text.includes('exchanged rings'));assert(result.text.includes('9 a.m.'));
+        assert(!result.text.includes('unrelated restaurant'));assert.equal(documents,indexed);
+        assert.equal(questionCalls,mode==='questions'?1:0);assert.equal(reviews,1);assert(queries>0);
+        assert.equal(result.units[0].priority,3);assert.equal(result.units[0].reason,'answers the requested ski event');
+    }
+});
 test('collect saves receipts and memories before embeddings; next click never recollects',async()=>{
     const f=fixture();f.replies.push(memory());await f.controller.collect();
     assert.equal(Object.keys(f.book.entries).length,1);assert.equal(f.book[NS].receipts.length,1);

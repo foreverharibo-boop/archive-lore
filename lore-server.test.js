@@ -61,3 +61,15 @@ test('overlapping refreshes finish the current render and perform only one trail
     const gate=new Promise(r=>release=r);const refresh=coalesceRefresh(async()=>{count++;peak=Math.max(peak,++concurrent);if(count===1)await gate;concurrent--;});
     const first=refresh();await Promise.resolve();const burst=Array.from({length:105},()=>refresh());release();await Promise.all([first,...burst]);assert.equal(count,2);assert.equal(peak,1);
 });
+
+
+test('server timeout and network failures identify the route without claiming migration continues',async()=>{
+    for(const [name,code,pattern] of [['TimeoutError','SERVER_TIMEOUT',/30초/],['TypeError','SERVER_NETWORK',/연결 상태/]]){
+        const call=createServerClient({headers:()=>({}),request:async()=>{throw Object.assign(Error('private transport details'),{name});}});
+        await assert.rejects(call('/vectors/put'),error=>{
+            assert.equal(error.code,code);assert.equal(error.route,'/vectors/put');
+            assert.match(error.message,pattern);assert.match(error.message,/vectors\/put/);
+            assert(!error.message.includes('계속'));assert(!error.message.includes('private transport details'));return true;
+        });
+    }
+});

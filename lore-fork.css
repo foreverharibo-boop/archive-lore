@@ -1,5 +1,18 @@
 @import url('./style.build.css');
 @import url('./lore-style.css');
+/* Host themes may size .menu_button to min-content. Keep action labels horizontal. */
+:is(.al-fork-surface,.al-search-tools,.al-fork-settings,.al-feature-home) .menu_button {
+    display:inline-flex;align-items:center;justify-content:center;gap:6px;
+    box-sizing:border-box;flex:0 0 auto!important;width:max-content!important;
+    min-width:min-content!important;max-width:100%;
+    writing-mode:horizontal-tb!important;white-space:nowrap!important;
+    word-break:keep-all!important;overflow-wrap:normal!important;
+    font-size:inherit;
+}
+.al-tool-buttons,.al-range-actions,.al-extension-actions {display:flex;flex-direction:row;flex-wrap:wrap;align-items:center;gap:8px;}
+.al-fork-settings .inline-drawer-content>p {margin:8px 0;}
+.al-search-tools>label {display:block;margin:10px 0;}
+.al-search-tools .al-range-actions {margin-top:14px;}
 .al-feature-home {text-align:left;font-size:calc(var(--mainFontSize,16px) * .88);color:var(--SmartThemeBodyColor);}
 .al-home-title {font-size:1.1rem!important;text-align:left!important;margin:0 0 16px!important;}
 .al-home-tabs {display:flex;gap:4px;border-bottom:1px solid var(--SmartThemeBorderColor);margin:18px 0 8px;}
@@ -13,6 +26,7 @@
 .al-home-status small {margin-top:4px;opacity:.65;font-size:.85em;}
 .al-feature-card {padding:10px 0;border-bottom:1px solid var(--SmartThemeBorderColor);min-width:0;}
 .al-feature-button {box-sizing:border-box;max-width:100%;font:inherit!important;text-align:left;white-space:normal!important;width:100%;margin:0!important;border:0!important;box-shadow:none!important;background:transparent!important;color:inherit!important;padding:5px 0!important;cursor:pointer;}
+.al-feature-home .al-feature-button {width:100%!important;min-width:0!important;justify-content:flex-start;white-space:normal!important;word-break:keep-all!important;}
 .al-feature-card small {display:block;margin:2px 0 5px;opacity:.65;font-size:.88em;line-height:1.5;}
 .al-feature-button:focus-visible,.al-home-tabs button:focus-visible {outline:2px solid currentColor;outline-offset:3px;}
 .al-migration-panel {padding:12px 14px;border:1px solid var(--SmartThemeBorderColor);border-radius:10px;font-size:.9em;}

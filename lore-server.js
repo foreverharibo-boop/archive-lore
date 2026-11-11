@@ -17,7 +17,15 @@ export async function profileTemplate(context,profileId,proxies=[]) {
 }
 export function createServerClient({headers,request=fetch}) {
     return async function call(route,body={}) {
-        let response;try{response=await request('/api/plugins/archive-lore-server'+route,{method:'POST',headers:headers(),body:JSON.stringify(body),signal:AbortSignal.timeout(route.startsWith('/embedding')?70000:30000)});}catch{throw Error('실리 서버 연결이 끊겼어. 접속 후 서버 작업 내역을 확인해 줘. 이미 접수된 작업은 서버에서 계속돼.');}
+        const timeoutMs=route.startsWith('/embedding')?70000:30000;
+        const signal=AbortSignal.timeout(timeoutMs);
+        let response;
+        try{response=await request('/api/plugins/archive-lore-server'+route,{method:'POST',headers:headers(),body:JSON.stringify(body),signal});}
+        catch(cause){
+            const timedOut=signal.aborted || cause?.name==='TimeoutError';
+            const detail=timedOut?`서버 응답 대기 시간(${timeoutMs/1000}초)을 초과했습니다.`:'실리 서버에 요청을 전달하지 못했습니다. 연결 상태를 확인해 주세요.';
+            throw Object.assign(new Error(`${detail} [${route}]`,{cause}),{code:timedOut?'SERVER_TIMEOUT':'SERVER_NETWORK',route});
+        }
         if(response.status===404)throw Object.assign(Error('서버 기능을 찾을 수 없어. 아카이브 로어 서버 플러그인을 설치·업데이트하고 실리 서버를 재시작해 줘.'),{status:404});
         let data;try{data=await response.json();}catch{throw Error('서버 플러그인 응답을 읽을 수 없어. 서버 버전과 로그인 상태를 확인해 줘.');}
         if(!response.ok||data.error)throw Error(data.error || `서버 오류 (${response.status})`);return data;

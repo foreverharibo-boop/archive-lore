@@ -48,6 +48,7 @@ export function clampInt(n, min, max) {
 
 export function markStmbPopup(popup) {
     popup?.dlg?.classList?.add('stmb-popup');
+    if (globalThis.archiveLoreFork) popup?.dlg?.classList?.add('al-fork-surface');
     return popup;
 }
 

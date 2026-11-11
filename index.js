@@ -8133,7 +8133,7 @@ function populateInlineButtons() {
     'al-native-books': () => globalThis.archiveLoreSearch.openRecords(),
     'al-search-settings': () => globalThis.archiveLoreSearch.openSettings(),
     'al-search-tools': () => globalThis.archiveLoreSearch.openTools(),
-    'al-migrate': () => globalThis.archiveLoreMigration(),
+    'al-migrate': (report) => globalThis.archiveLoreMigration(report),
     'al-native-clear': () => {clearScene();return refreshPopupContent();},
   }, currentPopupInstance.content);
 

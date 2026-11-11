@@ -49,26 +49,40 @@ export function migrationSideTemplates(config, prefix) {
 // Host operations are injected to make partial failure and retry testable.
 export async function migrateLegacyChat(host) {
     const snapshot=host.snapshot();
-    if(snapshot.completed)return '이미 이관한 채팅이야. 새 형식의 책을 계속 사용하면 돼.';
-    if(!snapshot.key || !snapshot.books.length)throw Error('이관할 채팅과 로어북을 먼저 선택해 줘.');
-    const originals=[];
-    for(const name of snapshot.books)originals.push({name,data:await host.load(name)});
-    await host.backup({schema:1,chatKey:snapshot.key,metadata:snapshot.metadata,books:originals});
-    const copies=[];let next=0;
-    for(const original of originals){
+    if(snapshot.completed)return '이미 이관한 채팅입니다. 새 형식의 책을 계속 사용하시면 됩니다.';
+    if(!snapshot.key || !snapshot.books.length)throw Error('이관할 채팅과 로어북을 먼저 선택해 주세요.');
+    let stage='원본 로어북 읽기';
+    const report=message=>{stage=message;host.report?.(message);};
+    try {
+        const originals=[];
+        for(const name of snapshot.books){report(`원본 로어북 읽기 · ${name}`);originals.push({name,data:await host.load(name)});}
+        report('원본 백업 다운로드');
+        await host.backup({schema:1,chatKey:snapshot.key,metadata:snapshot.metadata,books:originals});
+        const copies=[];let next=0;
+        for(const original of originals){
+            host.assertCurrent(snapshot.key);
+            report(`기억 형식 변환 · ${original.name}`);
+            const converted=convertLegacyBook(original.data,snapshot.messages,snapshot.chatId,snapshot.config,snapshot.initialStart || 0);
+            report(`복사본 이름 저장 · ${original.name}`);
+            const name=await host.destination(original.name,snapshot.key);
+            report(`복사본 저장 · ${name}`);
+            await host.save(name,converted.data);
+            report(`복사본 저장 확인 · ${name}`);
+            const saved=await host.load(name);
+            if(JSON.stringify(saved.entries)!==JSON.stringify(converted.data.entries))throw Error('복사본 저장 검증에 실패했습니다.');
+            report(`기존 임베딩 복사 · ${name}`);
+            await host.copyVectors(original.name,name,original.data,converted.data);
+            copies.push({from:original.name,name,count:converted.count});
+            if(original.name===(snapshot.target || snapshot.books[0]))next=converted.next;
+        }
         host.assertCurrent(snapshot.key);
-        const converted=convertLegacyBook(original.data,snapshot.messages,snapshot.chatId,snapshot.config,snapshot.initialStart || 0);
-        const name=await host.destination(original.name,snapshot.key);
-        await host.save(name,converted.data);
-        const saved=await host.load(name);
-        if(JSON.stringify(saved.entries)!==JSON.stringify(converted.data.entries))throw Error('복사본 저장 검증에 실패했어. 원본 연결은 유지했어.');
-        await host.copyVectors(original.name,name,original.data,converted.data);
-        copies.push({from:original.name,name,count:converted.count});
-        if(original.name===(snapshot.target || snapshot.books[0]))next=converted.next;
+        report('프롬프트·사이드 설정 저장');
+        await host.savePrompts(snapshot.config);
+        host.assertCurrent(snapshot.key);
+        report('채팅 로어북 연결 저장');
+        await host.commit(snapshot,copies,next);
+        return `${copies.length}개 책 · ${copies.reduce((n,b)=>n+b.count,0)}개 항목 이관 완료. 원본 책은 보관했습니다. 다음 수집은 #${next}부터입니다.`;
+    } catch(cause) {
+        throw new Error(`이관 중단 — ${stage}: ${cause.message || cause}. 원본 책은 삭제하지 않았습니다.`,{cause});
     }
-    host.assertCurrent(snapshot.key);
-    await host.savePrompts(snapshot.config);
-    host.assertCurrent(snapshot.key);
-    await host.commit(snapshot,copies,next);
-    return `${copies.length}개 책 · ${copies.reduce((n,b)=>n+b.count,0)}개 항목 이관 완료. 원본 책은 보관했어. 다음 수집은 #${next}부터야.`;
 }

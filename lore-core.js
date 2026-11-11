@@ -17,7 +17,7 @@ export const DEFAULTS = Object.freeze({
     enabled: true, profile: '', searchProfile: '', embeddingProvider: 'gemini',
     embeddingUrl: 'https://api.openai.com/v1', embeddingModel: 'gemini-embedding-001', embeddingKey: '',
     mode: 'dialogue', recentCount: 10, injectionTokens: 3000, batchSize: 20,
-    keywordActivation: false, candidateCount: 16, prompts: DEFAULT_PROMPTS,
+    keywordActivation: false, candidateCount: 16, autoEmbed: true, prompts: DEFAULT_PROMPTS,
 });
 export function integer(value, fallback, min, max) {
     const number = Number(value);
@@ -35,6 +35,7 @@ export function normalizeSettings(value = {}) {
     }
     return { ...DEFAULTS, ...value, promptRevision: 3,
         enabled: value.enabled !== false,
+        autoEmbed: value.autoEmbed !== false,
         serverEnabled: value.serverEnabled === true,
         sideTemplates: normalizeSides(value.sideTemplates),
         autoCollect:value.autoCollect===true,autoMode:value.autoMode==='tokens'?'tokens':'messages',

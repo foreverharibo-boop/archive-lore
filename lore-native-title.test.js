@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 import { ARCHIVE_LORE_TITLE_FORMAT, titleFormatLabel, withArchiveLoreTitle } from './lore-native-title.js';
-import { applyFixedSequenceNumber, hasSequenceNumberPlaceholder } from './memoryRegeneration.js';
+import { applyFixedSequenceNumber, hasSequenceNumberPlaceholder, withoutTitleDates, extractEntrySequenceNumber } from './memoryRegeneration.js';
 function load(file,name,scope) {
  const s=fs.readFileSync(new URL(file,import.meta.url),'utf8');
  const a=s.search(new RegExp(`(?:async )?function ${name}\\(`));
@@ -27,4 +27,32 @@ test('native title rendering retains story dates/ranges or undated title and ass
  }
  assert.equal(render('{{date}} - {{title}}',{extractedTitle:'Old format'},7),'2099-01-01 - Old format');
  assert.match(titleFormatLabel(ARCHIVE_LORE_TITLE_FORMAT),/작중 날짜/);
+});
+
+function numbering() {
+ const scope={withoutTitleDates,isMemoryEntry:e=>e.stmemorybooks===true};
+ for(const name of ['escapeRegex','extractNumberFromTitle','extractNumberUsingFormat','getNextEntryNumber'])load('./addlore.js',name,scope);
+ return scope;
+}
+test('story dates never become memory 2030, including imported and regenerated entries',()=>{
+ const n=numbering();
+ const imported=['2029-10-23 작중 요약','2029.10.23 · Returning home','[2029-10-23] Returning home','2029/10/23 12:50 · Returning home'];
+ for(const comment of imported){
+   assert.equal(n.extractNumberFromTitle(comment),null,comment);
+   assert.equal(extractEntrySequenceNumber({comment}),null,comment);
+   for(const format of ['[000]-{{title}}','[000] - {{title}}',ARCHIVE_LORE_TITLE_FORMAT]){
+     assert.equal(n.getNextEntryNumber({entries:{0:{stmemorybooks:true,comment}}},format),1);
+   }
+ }
+ assert.equal(extractEntrySequenceNumber({comment:imported[0],STMB_memoryNumber:7}),7);
+ assert.equal(n.getNextEntryNumber({entries:{0:{stmemorybooks:true,comment:imported[0]},1:{stmemorybooks:true,comment:'[105] 2029-10-22 · Hospital'}}},ARCHIVE_LORE_TITLE_FORMAT),106);
+});
+test('format-aware sequence extraction matches every native rendered numbering form',()=>{
+ const n=numbering();
+ for(const format of ['[0] - {{title}}','[[00]] {{title}}','([000]) {{title}}','{[000]} {{title}}','#[000] {{title}}','(000) {{title}}','{000} {{title}}','#000 {{title}}','Memory [000] / {{title}}']){
+   const title=applyFixedSequenceNumber(format,7).replace('{{title}}','2029-10-23 · Hospital');
+   assert.equal(n.extractNumberUsingFormat(title,format),7,format);
+   assert.equal(n.getNextEntryNumber({entries:{0:{stmemorybooks:true,comment:title}}},format),8);
+ }
+ assert.equal(n.extractNumberFromTitle('#7-8 Arc'),8);
 });

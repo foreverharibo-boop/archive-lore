@@ -8,12 +8,14 @@ function fn(name,end,scope){const start=source.indexOf('function '+name+'(');vm.
 
 test('fork discovers character-only books before migration and native chat books afterwards',()=>{
     const metadata={};let nativeBooks=[];
-    const scope={archiveLoreFork:true,archiveLoreMemoryBooks:{books:()=>nativeBooks},chatSettings:()=>metadata,target:()=> 'Character book',world_names:['Character book','Chat book']};
+    const scope={archiveLoreFork:true,archiveLoreMemoryBooks:{books:()=>nativeBooks},chatSettings:()=>metadata,target:()=> 'Character book',world_names:['Character book','Chat book','New book']};
     const books=fn('books','async function saveChatSettings',scope);
     assert.deepEqual([...books()],['Character book']);
     nativeBooks=['Chat book'];assert.deepEqual([...books()],['Chat book']);
     metadata.target='Character book';metadata.books=['Character book'];assert.deepEqual([...books()],['Character book']);
     metadata.nativeFormat=1;metadata.books=['Chat book'];assert.deepEqual([...books()],['Chat book']);
+    nativeBooks=['New book'];assert.deepEqual([...books()],['New book']);
+    scope.archiveLoreFork=false;assert.deepEqual([...books()],['Chat book']);
 });
 
 test('migrated source exclusions affect only transient WI entries, even with search disabled',()=>{

@@ -45,7 +45,13 @@ function primaryBook() {
 }
 function target() { const s=chatSettings(); return Object.hasOwn(s,'target') ? s.target : primaryBook(); }
 function books() {
-    let selected = globalThis.archiveLoreFork && (chatSettings().nativeFormat || !chatSettings().target) ? [...new Set([...(globalThis.archiveLoreMemoryBooks?.books() || []),...(chatSettings().books || [])])] : chatSettings().books;
+    let selected = chatSettings().books;
+    if (globalThis.archiveLoreFork && (chatSettings().nativeFormat || !chatSettings().target)) {
+        const nativeBooks = [...(globalThis.archiveLoreMemoryBooks?.books() || [])];
+        // Once using native books, follow the current Memory Books binding.
+        // The migration's old snapshot must not keep a replaced book in search.
+        if (nativeBooks.length) selected = nativeBooks;
+    }
     if(globalThis.archiveLoreFork && !selected?.length)selected=[target()].filter(Boolean);
     return [...new Set(Array.isArray(selected) ? selected : [target()].filter(Boolean))].filter(n => world_names.includes(n));
 }

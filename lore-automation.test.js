@@ -59,3 +59,15 @@ test('server completion notifications do not enqueue another automatic index',as
     assert(!shouldIndexBookUpdate('Unrelated',books));
     assert(shouldIndexBookUpdate('Book',books));
 });
+
+test('embedding toggle defaults on and survives serialization, normalizing and unrelated edits',()=>{
+ assert.equal(normalizeSettings().autoEmbed,true);
+ for(const autoEmbed of [false,true]){
+   const saved=normalizeSettings({autoEmbed,embeddingProvider:'vertex',embeddingKey:'test-key',recentCount:17});
+   const reopened=normalizeSettings(JSON.parse(JSON.stringify(saved)));
+   const changed=normalizeSettings({...reopened,mode:'embedding'});
+   assert.equal(changed.autoEmbed,autoEmbed);
+   assert.equal(changed.embeddingKeys.vertex,'test-key');
+   assert.equal(changed.recentCount,17);
+ }
+});

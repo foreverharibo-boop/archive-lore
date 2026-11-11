@@ -257,3 +257,14 @@ test('malformed selector responses get one retry; valid empty selection does not
         assert.equal(f.calls.filter(x=>typeof x==='object').length,replies.length);
     }
 });
+
+test('cached server indexing yields to other requests and does not reread context for every chunk',async()=>{
+    const f=fixture();let reads=0,yields=0;
+    f.book={entries:Object.fromEntries(Array.from({length:105},(_,uid)=>[uid,{uid,content:'Fact '+uid}]))};
+    const context=f.host.context;f.host.context=()=>{reads++;return context();};
+    f.host.contextKey=()=>context().key;f.host.yieldControl=async()=>{yields++;};
+    f.host.store.get=async()=>[1,0];
+    await f.controller.index();
+    assert(yields>=7);assert(reads<10,`context read ${reads} times`);
+    assert(!f.calls.includes('document'));
+});

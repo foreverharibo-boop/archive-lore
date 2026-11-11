@@ -40,6 +40,14 @@ Fork UI descriptions use polite Korean. Buttons in native fork popups, migration
 
 Migration reports each phase (source read, backup, destination allocation/write/verification, vector copy, prompt save, chat binding) and includes the failing phase in errors. Transport errors distinguish timeout from network failure and show the plugin route; they no longer claim that synchronous migration continues on the server. Source books remain preserved. Prompt/token-count dry runs do not set the fork's generation-busy flags. These messages improve diagnosis; they do not guarantee server availability or repair unrelated chat integrity metadata.
 
+### Server 0.3.5: automatic indexing and polling
+
+Update both repository checkouts (extension and `plugins/archive-lore-server`) and restart the ST server, then reload the browser. Automatic indexing ignores server-result refresh notifications and is suspended during migration. An index job does not rewrite a lorebook, so completing one no longer emits book update events that schedule another index. Real native/editor saves still trigger automatic indexing.
+
+Concurrent restores share one request sequence and completed results synchronize once. The active run's polling loop does not also start the background restore timer. `/jobs/get` no longer reads/hashes the whole chat for running jobs or recall results. Completed collect/index results still refresh actual hide flags. Indexing uses a cheap chat-key check per chunk and yields to the server event loop every sixteen chunks; source-content checks before writes remain intact.
+
+The 30-second timeout applies to each ordinary HTTP request, not the total migration or AI job. Migration first checks existing server jobs, downloads a source backup, copies and verifies books and compatible cached vectors, saves native prompts, then changes chat bindings. The downloaded JSON is a backup, not a file the user must upload. There is no overall 30-second migration deadline.
+
 # Legacy standalone runtime (0.4.x; migration reference only)
 
 This repository is an AGPL-3.0-only fork of Aiko Hanasaki's Memory Books. The manifest now loads `archive-lore.js` and `lore-style.css` directly. The upstream `index.js`, bundles, and other features remain as historical fork source; they are not loaded by this runtime. Upstream connection-profile routing, chat message fingerprints, lorebook naming, and the default compaction prompt are reused. Settings, IndexedDB storage, chat metadata, prompt slots, menu IDs, and slash commands use independent Archive Lore namespaces.

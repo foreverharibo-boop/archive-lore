@@ -61,22 +61,38 @@ export function serverVectorStore({local,call,enabled}) {
 }
 export function createServerController({local,enabled,settings,context,input,call,sync,changed,countTokens,generating=()=>false}) {
     let current=null,view=[],status='',lastRecall=null,poll=null,detached=0,lastList=0;
-    const applied=new Set(),pendingDrafts=new Map();
+    const applied=new Set(),pendingDrafts=new Map(),applying=new Map();
+    let pollingRun=false,restoring=null;
     const active=job=>['queued','running'].includes(job.status);
-    async function finish(job){if(job.status!=='completed'||applied.has(job.id))return;await sync(job);applied.add(job.id);}
-    async function restore(force=false,notify=true){if(!enabled())return [];if(!force&&Date.now()-lastList<2500)return view;
+    async function finish(job){
+        if(job.status!=='completed'||applied.has(job.id))return;
+        if(applying.has(job.id))return applying.get(job.id);
+        const pending=Promise.resolve().then(()=>sync(job)).then(()=>applied.add(job.id));
+        applying.set(job.id,pending);
+        try{await pending;}finally{applying.delete(job.id);}
+    }
+    async function restore(force=false,notify=true){
+        if(!enabled())return [];
+        const epoch=detached,key=context().key;
+        if(restoring?.epoch===epoch&&restoring.key===key)return restoring.promise;
+        const task={epoch,key,promise:null};
+        task.promise=restoreOnce(force,notify).finally(()=>{if(restoring===task)restoring=null;});
+        restoring=task;return task.promise;
+    }
+    async function restoreOnce(force,notify){if(!force&&Date.now()-lastList<2500)return view;
         const key=context().key;const jobs=await call('/jobs/list',{chatKey:key});if(key!==context().key)return view;
         view=jobs;lastList=Date.now();current=jobs.find(active)||null;
         for(const job of jobs.filter(j=>j.status==='completed'&&['collect','index','applyMaintenance'].includes(j.kind)&&!applied.has(j.id)).slice(-1)){const fresh=await call('/jobs/get',{id:job.id});if(key!==context().key)break;await finish(fresh);}
         if(current){status=current.message;scheduleRestore();}else status=jobs.at(-1)?.message || status;
         if(notify)changed?.();return view;
     }
-    function scheduleRestore(){clearTimeout(poll);poll=setTimeout(()=>void restore(true).catch(error=>{status=error.message;changed?.();}),1500);}
+    function scheduleRestore(){clearTimeout(poll);if(pollingRun)return;poll=setTimeout(()=>void restore(true).catch(error=>{status=error.message;changed?.();}),1500);}
     async function run(kind,options={},externalTrace=null) {
         if(!enabled())return kind==='index'?local.index(options.force):local[kind](options);
         const started=Date.now();
         const initialKey=context().key;await restore(true);if(initialKey!==context().key)throw Error('채팅방이 바뀌어서 접수하지 않았어.');
         if(current&&active(current))throw Error('서버 작업이 진행 중이야. 내역에서 완료를 기다리거나 중지해 줘.');
+        clearTimeout(poll);pollingRun=true;
         const epoch=detached,key=context().key;
         status='서버 작업 접수 중';current={status:'queued',message:status};changed?.();
         try{
@@ -104,7 +120,7 @@ export function createServerController({local,enabled,settings,context,input,cal
                 }
                 await new Promise(resolve=>setTimeout(resolve,900));
             }
-        }finally{if(epoch===detached)current=null;changed?.();}
+        }finally{if(epoch===detached){current=null;pollingRun=false;}changed?.();}
     }
     return {
         markInjected:elapsedMs=>{if(!enabled())return local.markInjected(elapsedMs);if(lastRecall){lastRecall.timings={...lastRecall.timings,injectionMs:elapsedMs};changed?.();}},
@@ -115,7 +131,7 @@ export function createServerController({local,enabled,settings,context,input,cal
         discardDraft:()=>{if(!enabled())local.discardDraft();},
         clearRecall:()=>{lastRecall=null;local.clearRecall();},
         cancel:()=>{if(!enabled())return local.cancel();if(current?.id)void call('/jobs/cancel',{id:current.id}).then(()=>restore(true)).catch(error=>{status=error.message;changed?.();});},
-        detach:()=>{detached++;clearTimeout(poll);current=null;view=[];lastList=0;lastRecall=null;local.cancel();},
+        detach:()=>{detached++;clearTimeout(poll);pollingRun=false;current=null;view=[];lastList=0;lastRecall=null;local.cancel();},
         state:()=>enabled()?{busy:!!current&&active(current),status:status||'서버 모드 · 준비됨',lastRecall}:local.state(),
         async dashboard(){if(enabled())await restore(false,false);return local.dashboard();},
         async maybeAutoCollect(){if(!enabled())return local.maybeAutoCollect();if(!normalizeSettings(settings()).enabled||current||generating())return false;const key=context().key;const dashboard=await local.dashboard();if(key!==context().key||generating())return false;if(automaticReady(normalizeSettings(settings()),context().messages,dashboard.next)){await run('collect');return true;}return false;},

@@ -21,6 +21,7 @@ import { proxies } from '../../../openai.js';
 import { createServerClient,serverVectorStore,createServerController,profileTemplate } from './lore-server.js';
 import { matchesRange } from './lore-core.js';
 import { createLoreUI } from './lore-ui.js';
+import { syncServerBooks } from './lore-automation.js';
 
 const PROMPT = 'archive-lore-recalled', CORE_PROMPT = 'archive-lore-core';
 let ui, recalled = new Set(), activeBooks = [], writing = false, generationInFlight=false, autoTimer=null, autoAttempt='', autoPending=false;
@@ -153,7 +154,7 @@ const controller=createServerController({local:localController,enabled:()=>!!set
             const hide=async()=>{if(start!==null){if(job.chatKey!==chatContext().key)throw new DOMException('채팅방 변경','AbortError');await executeSlashCommands(`/hide ${start}-${end}`);}};
             for(const index of indices){if(start===null){start=index;end=index;}else if(index===end+1)end=index;else {await hide();start=end=index;}}await hide();
         }
-        for(const book of job.books||[]){const data=await loadBook(book);worldInfoCache.set(book,structuredClone(data));await eventSource.emit(event_types.WORLDINFO_UPDATED,book,data);}
+        await syncServerBooks(job,{loadBook,cache:worldInfoCache,emit:(...args)=>eventSource.emit(event_types.WORLDINFO_UPDATED,...args)});
         if(!generationInFlight)clearPrompts();
     },
 });

@@ -38,7 +38,7 @@ export function createLoreController(host) {
     const settings = () => normalizeSettings(host.settings());
     const assertCurrent = (snapshot, signal) => {
         signal?.throwIfAborted();
-        if (host.context().key !== snapshot.key) throw new Error('채팅방이 바뀌어서 작업을 멈췄어.');
+        if ((host.contextKey?.() ?? host.context().key) !== snapshot.key) throw new Error('채팅방이 바뀌어서 작업을 멈췄어.');
     };
     async function job(label, callback, kind = 'operation', externalTrace = null) {
         if (active) throw new Error('진행 중인 작업을 마치거나 중지해 줘.');
@@ -78,6 +78,8 @@ export function createLoreController(host) {
         for (const row of rows) chunks.push(...await chunksFor(row, config));
         total = chunks.length;
         for (const chunk of chunks) {
+            // Cached work can otherwise monopolize the server's microtask queue.
+            if(complete%16===0)await host.yieldControl?.();
             assertCurrent(snapshot, signal);
             const cached = !force && await host.store.get(chunk.cacheKey);
             await log('embedding.cache', {entryId:chunk.id,chunk:chunk.index,hit:!!cached,force});

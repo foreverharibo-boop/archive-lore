@@ -61,7 +61,7 @@ export function organizeMemoryBooks(root, actions = {}, explicitContent = null) 
     if(actions['al-migrate']){
         const box=document.createElement('div');box.className='al-migration-panel';
         const label=document.createElement('strong');label.textContent='기존 아카이브 로어 기억 이관';
-        const help=document.createElement('small');help.textContent='기존 기억을 새 형식으로 옮깁니다. 원본은 보관됩니다.';
+        const help=document.createElement('small');help.textContent='원본 백업 파일이 먼저 다운로드됩니다. 재업로드할 필요 없이 이관이 이어집니다. 아래에 완료가 표시될 때까지 기다려 주세요.';
         const b=document.createElement('button');b.type='button';b.className='menu_button';b.textContent='기존 기억 가져오기';
         const state=document.createElement('p');state.setAttribute('role','status');
         b.onclick=async()=>{b.disabled=true;state.textContent='백업·이관 중…';try{state.textContent=await actions['al-migrate'](message=>{state.textContent=message;});}catch(e){state.textContent=e.message;}finally{b.disabled=false;}};

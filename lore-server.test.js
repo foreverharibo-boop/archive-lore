@@ -73,3 +73,16 @@ test('server timeout and network failures identify the route without claiming mi
         });
     }
 });
+
+test('concurrent restores share requests and apply a completed job exactly once',async()=>{
+    let lists=0,gets=0,syncs=0,release;
+    const gate=new Promise(r=>release=r);
+    const controller=createServerController({local:{},enabled:()=>true,context:()=>({key:'chat'}),call:async route=>{
+        if(route==='/jobs/list'){lists++;await gate;return [{id:'finished',kind:'index',status:'completed'}];}
+        if(route==='/jobs/get'){gets++;return {id:'finished',kind:'index',status:'completed'};}
+        throw Error(route);
+    },sync:async()=>{syncs++;}});
+    const requests=Array.from({length:20},()=>controller.restore(true));release();await Promise.all(requests);
+    assert.equal(lists,1);assert.equal(gets,1);assert.equal(syncs,1);
+    await controller.restore(true);assert.equal(gets,1);assert.equal(syncs,1);
+});

@@ -1,3 +1,4 @@
+import { createConnectionPicker } from './lore-native-connection.js';
 import { organizeMemoryBooks, restoreFeatureButtons } from './lore-fork-layout.js';
 import { generateProfileKey } from './utils.js';
 // Copyright (C) 2024–2026 Aiko Hanasaki
@@ -21,6 +22,7 @@ import {
 } from "../../../../script.js";
 import { Popup, POPUP_TYPE, POPUP_RESULT } from "../../../popup.js";
 import {
+  getContext,
   extension_settings,
 } from "../../../extensions.js";
 import { SlashCommandParser } from "../../../slash-commands/SlashCommandParser.js";
@@ -8127,6 +8129,10 @@ function populateInlineButtons() {
     promptButtonsContainer.appendChild(button);
   });
   if (globalThis.archiveLoreFork) organizeMemoryBooks(currentPopupInstance?.dlg, {
+    'al-connection-panel': () => createConnectionPicker({
+      settings, profiles: extension_settings.connectionManager?.profiles || [],
+      service: getContext().ConnectionManagerRequestService, save: saveSettingsDebounced,
+    }),
     'al-native-collect': () => initiateMemoryCreation(),
     'al-native-range': () => globalThis.archiveLoreSearch.openRange(),
     'al-native-consolidate': () => showSummaryConsolidationPopup({ showGoBack: true }),
@@ -8247,7 +8253,7 @@ function setupPromptManagerEventHandlers(popup) {
       e.stopPropagation();
       const row = actionBtn.closest("tr[data-preset-key]");
       const key = row?.dataset.presetKey;
-      if (!key) return;
+      if (key == null) return;
 
       // Keep row visually selected using ST theme colors
       dlg.querySelectorAll("tr[data-preset-key]").forEach((r) => {
@@ -8311,7 +8317,7 @@ function setupPromptManagerEventHandlers(popup) {
   });
 
   dlg.querySelector("#stmb-pm-edit")?.addEventListener("click", async () => {
-    if (selectedPresetKey) {
+    if (selectedPresetKey !== null) {
       await editPreset(popup, selectedPresetKey);
     }
   });
@@ -8319,13 +8325,13 @@ function setupPromptManagerEventHandlers(popup) {
   dlg
     .querySelector("#stmb-pm-duplicate")
     ?.addEventListener("click", async () => {
-      if (selectedPresetKey) {
+      if (selectedPresetKey !== null) {
         await duplicatePreset(popup, selectedPresetKey);
       }
     });
 
   dlg.querySelector("#stmb-pm-delete")?.addEventListener("click", async () => {
-    if (selectedPresetKey) {
+    if (selectedPresetKey !== null) {
       await deletePreset(popup, selectedPresetKey);
     }
   });
@@ -8403,7 +8409,7 @@ function setupPromptManagerEventHandlers(popup) {
 
   // Apply selected preset to current profile
   dlg.querySelector("#stmb-pm-apply")?.addEventListener("click", async () => {
-    if (!selectedPresetKey) {
+    if (selectedPresetKey === null) {
       toastr.error(
         translate("Select a preset first", "STMemoryBooks_SelectPresetFirst"),
         "STMemoryBooks",
@@ -8849,6 +8855,8 @@ async function showArcPromptManagerPopup() {
       '<button id="stmb-apm-recreate-builtins" class="menu_button whitespacenowrap" data-i18n="STMemoryBooks_ArcPromptManager_RecreateBuiltins">♻️ Recreate Built-in Consolidation Prompts</button>';
     content += "</div>";
 
+    if (globalThis.archiveLoreFork) content += '<button id="al-restore-default-arc" class="menu_button">기본 통합 프롬프트 복원</button>';
+
     // Hidden file input for import
     content +=
       '<input type="file" id="stmb-apm-import-file" accept=".json" style="display: none;" />';
@@ -8922,7 +8930,7 @@ function setupArcPromptManagerEventHandlers(popup) {
       e.stopPropagation();
       const row = actionBtn.closest("tr[data-preset-key]");
       const key = row?.dataset.presetKey;
-      if (!key) return;
+      if (key == null) return;
 
       dlg.querySelectorAll("tr[data-preset-key]").forEach((r) => {
         r.classList.remove("ui-state-active");
@@ -9010,6 +9018,18 @@ function setupArcPromptManagerEventHandlers(popup) {
     ?.addEventListener("change", async (e) => {
       await importArcPrompts(e, popup);
     });
+
+  dlg.querySelector('#al-restore-default-arc')?.addEventListener('click', async () => {
+    const confirmation = new Popup('<h3>기본 통합 프롬프트 복원</h3><p>기본 다중 통합 프롬프트 한 개를 원본으로 복원하고 기본값으로 선택합니다. 다른 프롬프트는 유지됩니다.</p>', POPUP_TYPE.CONFIRM, '', {okButton:'복원',cancelButton:'취소'});
+    if (await confirmation.show() !== POPUP_RESULT.AFFIRMATIVE) return;
+    try {
+      await ArcPrompts.restoreDefaultPreset();
+      window.dispatchEvent(new CustomEvent('stmb-arc-presets-updated'));
+      toastr.success('기본 통합 프롬프트를 복원했습니다.', 'Archive Lore');
+      popup.completeAffirmative();
+      await showArcPromptManagerPopup();
+    } catch (error) { toastr.error(error.message, 'Archive Lore'); }
+  });
 
   // Recreate built-ins (remove overrides for built-in keys)
   dlg

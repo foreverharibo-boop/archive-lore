@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import http from 'node:http';
+import Handlebars from 'handlebars';
 import fs from 'node:fs/promises';
 import assert from 'node:assert/strict';
 import {fileURLToPath} from 'node:url';
@@ -9,10 +10,12 @@ const root=fileURLToPath(new URL('../',import.meta.url));
 const fixture=`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">${process.env.KOREAN_FONT_ROOT ? '<link rel="stylesheet" href="/fonts/400.css">' : ''}<link rel="stylesheet" href="/lore-fork.css"><style>:root{--SmartThemeBlurTintColor:#f8f9fb;--SmartThemeBodyColor:#303740;--SmartThemeBorderColor:#d5dbe3;--mainFontSize:16px}body{background:#edf0f4;color:#303740;font:14px "Noto Sans KR",Arial;margin:12px}#content{background:#f8f9fb;padding:16px;max-width:850px;margin:auto;border-radius:12px}.menu_button{width:min-content;white-space:normal;overflow-wrap:anywhere;background:#edf0f5;color:inherit;padding:9px;border:1px solid #d5dbe3;border-radius:6px;cursor:pointer}.text_pole{max-width:100%;box-sizing:border-box}h2{font-size:18px}</style><div id="content" class="al-fork-surface"></div><script src="/handlebars.js"></script><script type="module">
 import {settingsTemplate} from '/templates.js';
 import {FEATURE_GROUPS,organizeMemoryBooks,restoreFeatureButtons} from '/lore-fork-layout.js';
+import {createConnectionPicker} from '/lore-native-connection.js';
+window.collectionSettings={defaultProfile:0,profiles:[{name:'기본 수집',connection:{model:'old'}}]};
 const root=document.querySelector('#content');root.innerHTML=settingsTemplate({profiles:[{name:'기본 수집',isDefault:true}],selectedProfile:{connection:{api:'현재 프로필',model:'연결 모델'},effectivePrompt:'Preserve established facts.'},currentLorebookName:'기존 기억',highestMemoryProcessed:2105,hasHighestMemoryProcessed:true});
 window.clicks=[];
 function populate(){for(const [, ,features] of FEATURE_GROUPS)for(const [id] of features)if(id.startsWith('stmb-')){const b=document.createElement('div');b.id=id;b.textContent=id;b.onclick=()=>clicks.push(id);root.querySelector('#stmb-prompt-manager-buttons').append(b);}}
-window.paint=()=>{restoreFeatureButtons(root);root.querySelector('#stmb-prompt-manager-buttons').replaceChildren();populate();const actions=Object.fromEntries(FEATURE_GROUPS.flatMap(g=>g[2]).filter(f=>f[0].startsWith('al-')).map(f=>[f[0],()=>clicks.push(f[0])]));actions['al-migrate']=async()=> '이관 완료';organizeMemoryBooks(root,actions,root);};paint();window.ready=true;
+window.paint=()=>{restoreFeatureButtons(root);root.querySelector('#stmb-prompt-manager-buttons').replaceChildren();populate();const actions=Object.fromEntries(FEATURE_GROUPS.flatMap(g=>g[2]).filter(f=>f[0].startsWith('al-')).map(f=>[f[0],()=>clicks.push(f[0])]));actions['al-connection-panel']=()=>createConnectionPicker({settings:collectionSettings,profiles:[{id:'saved',name:'저장된 제미나이'}],service:{getProfile:id=>({id,model:'stored-model'}),validateProfile:()=>({selected:'openai',source:'makersuite'}),sendRequest(){}},save:()=>window.savedConnection=true});actions['al-migrate']=async()=> '이관 완료';organizeMemoryBooks(root,actions,root);};paint();window.ready=true;
 </script>`;
 const server=http.createServer(async(req,res)=>{try{
     const pathname=new URL(req.url,'http://local').pathname;
@@ -41,6 +44,12 @@ try{
         assert.equal(await page.locator('.al-feature-home').getAttribute('data-tab'),'records');
         assert.equal(await page.locator('#stmb-compact-review').count(),1);
         await page.getByRole('button',{name:'기억 압축',exact:true}).focus();await page.keyboard.press('Enter');assert.equal(await page.evaluate(()=>clicks.length),2);
+        await page.locator('[data-home-tab=settings]').click();
+        assert(await page.locator('#al-home-connection').isVisible());
+        await page.locator('#al-home-connection').selectOption('saved');
+        assert.equal(await page.evaluate(()=>collectionSettings.profiles[0].archiveLoreConnectionProfileId),'saved');
+        assert.equal(await page.evaluate(()=>collectionSettings.profiles[0].connection.model),'old');
+        assert(await page.evaluate(()=>savedConnection));
         await page.locator('[data-home-tab=collect]').click();
         await page.getByRole('button',{name:'기존 기억 가져오기',exact:true}).click();await page.getByRole('status').filter({hasText:'이관 완료'}).waitFor();
         await page.evaluate(()=>document.fonts.ready);
@@ -60,5 +69,17 @@ try{
         await page.locator('#tool-fixture').evaluate(el=>el.remove());
         await page.screenshot({path:'/tmp/archive-lore-fork-'+width+'.png',fullPage:true});
     }
+    // Render the real native profile template, not a replacement UI.
+    Handlebars.registerHelper('eq',(a,b)=>a===b);
+    const source=await fs.readFile(root+'profileManager.js','utf8');
+    const marker='const profileEditTemplate = Handlebars.compile(`';
+    const start=source.indexOf(marker)+marker.length;
+    const template=Handlebars.compile(source.slice(start,source.indexOf('`);',start)));
+    await page.setContent(template({archiveLoreFork:true,name:'기본 수집',connection:{api:'current_st',model:'hidden-model'},archiveLoreConnections:[{id:'saved',name:'저장된 제미나이',selected:true}]}));
+    assert(await page.locator('#al-native-connection').isVisible());
+    assert.equal(await page.locator('#al-native-connection').inputValue(),'saved');
+    assert.equal(await page.locator('#stmb-profile-model').isVisible(),false);
+    await page.locator('.al-legacy-connection summary').click();
+    assert(await page.locator('#stmb-profile-model').isVisible());
     assert.deepEqual(errors,[]);console.log('Fork home: three tabs, visible migration, host without popup-content class, actions, refresh and mobile/desktop passed.');
 }finally{await browser.close();server.close();}

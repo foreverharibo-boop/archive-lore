@@ -1,10 +1,11 @@
+import { bindSavedConnection, savedConnectionOptions } from './lore-native-connection.js';
 // Copyright (C) 2024–2026 Aiko Hanasaki
 // SPDX-License-Identifier: AGPL-3.0-only
 
 import { saveSettingsDebounced } from '../../../../script.js';
 import { Popup, POPUP_TYPE, POPUP_RESULT } from '../../../popup.js';
 import { moment, Handlebars, DOMPurify } from '../../../../lib.js';
-import { extension_settings } from '../../../extensions.js';
+import { extension_settings, getContext } from '../../../extensions.js';
 import {
     validateProfile,
     generateSafeProfileName,
@@ -98,10 +99,10 @@ function getCustomConnectionProfileOptions(selectedProfileId = '') {
  * Profile edit template
  */
 const profileEditTemplate = Handlebars.compile(`
-    {{#if archiveLoreFork}}<label>수집·사이드 AI 연결 프로필
-    <select id="al-native-connection" class="text_pole"><option value="">메모리북의 아래 API 설정 사용</option>
+    {{#if archiveLoreFork}}<label>수집·통합·사이드 AI 연결 프로필
+    <select id="al-native-connection" class="text_pole"><option value="">기존 연결 설정 사용</option>
     {{#each archiveLoreConnections}}<option value="{{id}}" {{#if selected}}selected{{/if}}>{{name}}</option>{{/each}}</select>
-    <small>선택하면 이 프로필의 모델·연결을 사용해. 비워 두면 원본 메모리북 설정을 사용해.</small></label>{{/if}}
+    <small>실리에 저장된 연결 프로필의 모델과 연결을 사용합니다. 모델명을 따로 입력하지 않아도 됩니다.</small></label>{{/if}}
 
 <div class="popup-content">
     <div class="world_entry_form_control marginTop5">
@@ -112,6 +113,7 @@ const profileEditTemplate = Handlebars.compile(`
     </div>
 
 
+    {{#if archiveLoreFork}}<details class="al-legacy-connection"><summary>기존 수동 연결 설정 · 고급</summary>{{/if}}
     <div class="world_entry_form_control marginTop5">
         <h4 data-i18n="STMemoryBooks_ModelAndTempSettings">Model & Temperature Settings:</h4>
         <div class="info-block hint marginBot10" data-i18n="STMemoryBooks_ModelHint">
@@ -225,6 +227,7 @@ const profileEditTemplate = Handlebars.compile(`
         </div>
     </div>
 
+    {{#if archiveLoreFork}}</details>{{/if}}
     <div class="world_entry_form_control marginTop5">
         <label for="stmb-profile-preset">
             <h4 data-i18n="STMemoryBooks_Profile_MemoryMethod">Memory Creation Method:</h4>
@@ -424,7 +427,7 @@ export async function editProfile(settings, profileIndex, refreshCallback) {
             isNameLocked: isBuiltinCurrentST,
             isProviderLocked: isBuiltinCurrentST,
             archiveLoreFork:!!globalThis.archiveLoreFork,
-            archiveLoreConnections:(extension_settings.connectionManager?.profiles || []).map(p=>({id:p.id,name:p.name,selected:p.id===profile.archiveLoreConnectionProfileId})),
+            archiveLoreConnections:savedConnectionOptions(extension_settings.connectionManager?.profiles || [], profile.archiveLoreConnectionProfileId),
             // Pass title format data to the template
             titleFormat: profileTitleFormat,
             titleFormats: allTitleFormats.map(format => ({
@@ -528,7 +531,7 @@ export async function newProfile(settings, refreshCallback) {
 
         const templateData = {
             name: defaultName,
-            connection: { temperature: 0.7 },
+            connection: { temperature: 0.7, ...(globalThis.archiveLoreFork ? {api:'current_st'} : {}) },
             api: '',
             prompt: '',
             preset: '',
@@ -539,6 +542,8 @@ export async function newProfile(settings, refreshCallback) {
             useGroupSpecificPrompts: false,
             isNameLocked: false,
             isProviderLocked: false,
+            archiveLoreFork: !!globalThis.archiveLoreFork,
+            archiveLoreConnections: savedConnectionOptions(extension_settings.connectionManager?.profiles || []),
             // Pass title format data to the template
             titleFormat: currentTitleFormat,
             titleFormats: allTitleFormats.map(format => ({
@@ -1337,7 +1342,11 @@ function buildProfileFromForm(popupElement, fallbackName, existingProfile = {}) 
         data.outletName = popupElement.querySelector('#stmb-profile-outlet-name')?.value?.trim() || '';
     }
     const result=createProfileObject(data);
-    if(globalThis.archiveLoreFork)result.archiveLoreConnectionProfileId=popupElement.querySelector('#al-native-connection')?.value || '';
+    if(globalThis.archiveLoreFork) {
+        const id=popupElement.querySelector('#al-native-connection')?.value || '';
+        if(id !== (existingProfile.archiveLoreConnectionProfileId || '')) bindSavedConnection(result,id,extension_settings.connectionManager?.profiles || [],getContext().ConnectionManagerRequestService);
+        else result.archiveLoreConnectionProfileId=id;
+    }
     return result;
 }
 

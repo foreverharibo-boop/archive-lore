@@ -11,6 +11,7 @@
     "build:fork": "node build-fork.mjs",
     "test:fork": "node --test *.test.js",
     "test:fork:browser": "node tests/archive-lore-fork-layout.mjs",
+    "test:fork:layout-switch": "node tests/archive-lore-layout-switch.mjs",
     "test:fork:help": "node tests/archive-lore-help.mjs"
   },
   "dependencies": {

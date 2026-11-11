@@ -25,7 +25,7 @@ export function applyNativeTheme(root, settings) {
     root.classList.toggle('al-original-memorybooks',layout==='original');
     root.dataset.alPalette=layout==='original'?'default':palette;
 }
-export function createNativePreferences({settings,books=[],activeBook='',save}) {
+export function createNativePreferences({settings,books=[],activeBook='',save,switchLayout}) {
     const p=nativePreferences(settings), box=document.createElement('section');box.className='al-native-preferences';
     const heading=document.createElement('h4');heading.textContent='로어북 연결·테마';box.append(heading);
     const field=(label,id,items,value)=>{
@@ -39,13 +39,22 @@ export function createNativePreferences({settings,books=[],activeBook='',save}) 
     const book=field('저장·검색에 사용할 책','al-fixed-book',choices,p.book);
     const status=document.createElement('small');status.textContent='현재 대상 · '+(activeBook || '연결된 로어북 없음');box.append(status);
     const help=document.createElement('small');help.textContent='지정한 책은 모든 새 채팅에서도 유지됩니다. 캐릭터 모드는 해당 캐릭터에 연결된 월드 로어북을 따릅니다. 수집 위치는 채팅별로 따로 저장됩니다. 그룹 채팅은 채팅 연결이나 지정한 책을 선택해 주세요.';box.append(help);
-    const layout=field('화면 테마','al-layout',[['archive','아카이브 로어'],['original','오리지널 메모리북']],p.layout);
+    const layout=field('화면 구성','al-layout',[['archive','아카이브 로어'],['original','오리지널 메모리북']],p.layout);
+    const layoutHelp=document.createElement('small');layoutHelp.textContent='오리지널 메모리북은 원래 메모리북의 화면·메뉴·하단 버튼을 불러옵니다. 화면 구성은 선택하면 바로 전환됩니다.';box.append(layoutHelp);
     const palette=field('아카이브 로어 색상','al-palette',PALETTES,p.palette);
     const message=document.createElement('p');message.setAttribute('role','status');box.append(message);
     const sync=()=>{book.parentElement.hidden=mode.value!=='fixed';palette.parentElement.hidden=layout.value==='original';};sync();
     // One explicit save keeps a partially chosen destination from becoming active.
     const button=document.createElement('button');button.type='button';button.className='menu_button';button.textContent='적용';box.append(button);
-    mode.onchange=layout.onchange=sync;
+    mode.onchange=sync;
+    layout.onchange=async()=>{
+        sync();
+        if(!switchLayout)return;
+        layout.disabled=true;button.disabled=true;message.textContent='화면 전환 중…';
+        try{await switchLayout(layout.value);}
+        catch(e){layout.value=nativePreferences(settings).layout;sync();message.textContent=e.message;}
+        finally{layout.disabled=false;button.disabled=false;}
+    };
     button.onclick=async()=>{
         if(mode.value==='fixed' && !books.includes(book.value)){message.textContent='사용할 로어북을 선택해 주세요.';return;}
         button.disabled=true;

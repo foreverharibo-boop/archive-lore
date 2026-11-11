@@ -59,11 +59,7 @@ export function getSidePromptHistoryStreamKey(history) {
         history.titleSource === 'override' ? String(history.titleBase || '') : '']);
 }
 
-/** Resolves the newest version or an unambiguous legacy output for reads and locked writes. */
-export function resolveSidePromptHistory(lorebookData, history) {
-    validateSidePromptHistoryRequest(history);
-    const entries = Object.values(lorebookData?.entries || {});
-    const versions = entries.filter(entry => isSameSidePromptHistory(entry?.[SIDE_PROMPT_HISTORY_KEY], history));
+function resolveVersions(versions) {
     const sequences = new Set();
     for (const entry of versions) {
         const sequence = entry[SIDE_PROMPT_HISTORY_KEY].sequence;
@@ -71,7 +67,46 @@ export function resolveSidePromptHistory(lorebookData, history) {
         sequences.add(sequence);
     }
     versions.sort((a, b) => a[SIDE_PROMPT_HISTORY_KEY].sequence - b[SIDE_PROMPT_HISTORY_KEY].sequence);
-    if (versions.length) return { versions, latest: versions.at(-1), legacy: null };
+    return { versions, latest: versions.at(-1) || null, legacy: null };
+}
+
+/** Overwrite mode can continue a unique output in the selected book after chat import/rename. */
+function resolveInheritedOutput(entries, history) {
+    const requestedOwner = JSON.parse(history.chatKey).slice(0, 2);
+    const inherited = entries.filter(entry => {
+        if (entry?.stmemorybooks === true) return false;
+        const stored = entry?.[SIDE_PROMPT_HISTORY_KEY];
+        if (stored) {
+            if (!isSameSidePromptHistory(stored, { ...history, chatKey: stored.chatKey })) return false;
+            try {
+                const owner = JSON.parse(stored.chatKey);
+                return Array.isArray(owner) && owner.length === 3
+                    && owner[0] === requestedOwner[0] && owner[1] === requestedOwner[1];
+            } catch { return false; }
+        }
+        // A matching title alone cannot identify a record owned by another prompt.
+        const snapshot = entry?.STMB_sidePromptRegeneration;
+        return snapshot?.templateKey === history.templateKey
+            && history.legacyTitles.includes(String(entry.comment || ''));
+    });
+    if (!inherited.length) return { versions: [], latest: null, legacy: null };
+    const versions = inherited.filter(entry => entry[SIDE_PROMPT_HISTORY_KEY]);
+    if (versions.length) {
+        const streams = new Set(versions.map(entry => getSidePromptHistoryStreamKey(entry[SIDE_PROMPT_HISTORY_KEY])));
+        if (versions.length !== inherited.length || streams.size !== 1) throw sidePromptHistoryError();
+        return resolveVersions(versions);
+    }
+    if (inherited.length !== 1) throw sidePromptHistoryError();
+    return { versions: [], latest: inherited[0], legacy: inherited[0] };
+}
+
+/** Resolves the newest version or an unambiguous legacy output for reads and locked writes. */
+export function resolveSidePromptHistory(lorebookData, history) {
+    validateSidePromptHistoryRequest(history);
+    const entries = Object.values(lorebookData?.entries || {});
+    const resolved = resolveVersions(entries.filter(entry => isSameSidePromptHistory(entry?.[SIDE_PROMPT_HISTORY_KEY], history)));
+    if (resolved.latest) return resolved;
+    const { versions } = resolved;
     const candidates = entries.filter(entry => {
         if (entry?.stmemorybooks === true) return false;
         if (entry?.[SIDE_PROMPT_HISTORY_KEY]) return false;
@@ -92,7 +127,9 @@ export function resolveSidePromptHistory(lorebookData, history) {
         if(identified.length>1)throw sidePromptHistoryError();
         if(identified.length===1)return {versions,latest:identified[0],legacy:identified[0]};
     }
-    return { versions, latest: null, legacy: null };
+    // Prefer current-chat records above. Only inherit in overwrite mode, and never
+    // guess between multiple old streams or remove already-created duplicates.
+    return history.append ? resolved : resolveInheritedOutput(entries, history);
 }
 
 /** Formats a version title without truncating sequence numbers above 999. */

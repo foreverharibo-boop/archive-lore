@@ -131,8 +131,8 @@ test('concurrent restores share requests and apply a completed job exactly once'
     let lists=0,gets=0,syncs=0,release;
     const gate=new Promise(r=>release=r);
     const controller=createServerController({local:{},enabled:()=>true,context:()=>({key:'chat'}),call:async route=>{
-        if(route==='/jobs/list'){lists++;await gate;return [{id:'finished',kind:'index',status:'completed'}];}
-        if(route==='/jobs/get'){gets++;return {id:'finished',kind:'index',status:'completed'};}
+        if(route==='/jobs/list'){lists++;await gate;return [{id:'finished',chatKey:'chat',kind:'index',status:'completed'}];}
+        if(route==='/jobs/get'){gets++;return {id:'finished',chatKey:'chat',kind:'index',status:'completed'};}
         throw Error(route);
     },sync:async()=>{syncs++;}});
     const requests=Array.from({length:20},()=>controller.restore(true));release();await Promise.all(requests);
@@ -212,4 +212,30 @@ test('server client rejects a result from categories changed after submission',a
         input:async()=>({settings:structuredClone(settings),context:{messages}}),sync:async()=>{},countTokens:async()=>1,
         call:async route=>{if(route==='/jobs/list')return [];if(route==='/jobs')return {id:'job',status:'queued'};settings={selectionFocus:[]};return {id:'job',kind:'recall',status:'completed',result:{lastRecall:{units:[],records:[]}}};}});
     await assert.rejects(controller.recall(),/설정이 바뀌/);assert.equal(controller.state().lastRecall,null);
+});
+
+test('home screen never restores global history or opens an old completed chat',async()=>{
+    let calls=0;
+    const controller=createServerController({local:{},enabled:()=>true,context:()=>({key:''}),call:async route=>{
+        calls++;if(route==='/jobs/list')return [{id:'old',chatKey:'old-chat',kind:'index',status:'completed'}];
+        throw Object.assign(Error('ENOENT: old imported chat no longer exists'),{code:'ENOENT'});
+    },sync:async()=>assert.fail('must not sync on home screen')});
+    await controller.restore(true);await controller.restore(true);
+    assert.equal(calls,0);assert.deepEqual(controller.jobs(),[]);assert.equal(controller.state().busy,false);
+});
+test('restore only opens completed jobs belonging to the currently selected chat',async()=>{
+    const gets=[],synced=[];
+    const jobs=[{id:'mine',chatKey:'chat',kind:'index',status:'completed'},{id:'old',chatKey:'old-chat',kind:'index',status:'completed'}];
+    const controller=createServerController({local:{},enabled:()=>true,context:()=>({key:'chat'}),call:async(route,body)=>{
+        if(route==='/jobs/list')return jobs;gets.push(body.id);return jobs.find(j=>j.id===body.id);
+    },sync:async job=>synced.push(job.id)});
+    await controller.restore(true);assert.deepEqual(gets,['mine']);assert.deepEqual(synced,['mine']);assert.deepEqual(controller.jobs().map(j=>j.id),['mine']);
+});
+test('completed job with a missing source chat is not synchronized or repeatedly reopened',async()=>{
+    let gets=0,syncs=0;const job={id:'old',chatKey:'chat',kind:'collect',status:'completed'};
+    const controller=createServerController({local:{},enabled:()=>true,context:()=>({key:'chat'}),call:async route=>{
+        if(route==='/jobs/list')return [job];gets++;return {...job,sourceChatMissing:true,hidden:[]};
+    },sync:async()=>syncs++});
+    await controller.restore(true);await controller.restore(true);
+    assert.equal(gets,1);assert.equal(syncs,0);
 });

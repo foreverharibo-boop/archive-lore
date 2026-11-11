@@ -200,3 +200,26 @@ test('indexing 105 memories with a long chat yields and avoids per-chunk chat re
         assert(reads<20,`chat read ${reads} times`);assert(ticks>0,'other event-loop work must run while indexing');
     }finally{clearInterval(tick);fs.readFileSync=original;}
 });
+
+test('empty chat key never lists completed jobs from other chats',t=>{
+    const f=fixture(t),s=f.service.state(f.user),id=randomUUID();
+    s.jobs.set(id,{id,kind:'index',status:'completed',input:f.input(),hidden:[],message:'done'});
+    assert.deepEqual(f.service.list(f.user,''),[]);
+    assert.equal(f.service.list(f.user,'test-key').length,1);
+});
+for(const kind of ['collect','index'])test(`completed ${kind} history remains readable after source chat removal without replaying hide flags`,t=>{
+    const f=fixture(t),s=f.service.state(f.user),id=randomUUID();
+    const job={id,kind,status:'completed',input:f.input(),hidden:[{indices:[0]}],result:{saved:true},message:'done'};
+    s.jobs.set(id,job);const before=JSON.stringify(job);fs.renameSync(f.file,f.file+'.renamed');
+    const result=f.service.get(f.user,id);
+    assert.equal(result.status,'completed');assert.equal(result.sourceChatMissing,true);assert.deepEqual(result.hidden,[]);
+    assert.deepEqual(result.result,{saved:true});assert.equal(JSON.stringify(job),before);assert(!fs.existsSync(f.file));
+    fs.renameSync(f.file+'.renamed',f.file);assert.equal(f.service.get(f.user,id).sourceChatMissing,undefined);
+    fs.writeFileSync(f.file,'invalid json');assert.throws(()=>f.service.get(f.user,id),SyntaxError);
+});
+
+test('missing chat handling for completed history never permits a new job with a missing source',async t=>{
+    const f=fixture(t),input=f.input();fs.renameSync(f.file,f.file+'.renamed');
+    await assert.rejects(f.service.submit(f.user,'index',input,randomUUID()),e=>e.code==='ENOENT');
+    assert.equal(f.service.list(f.user,'test-key').length,0);assert(!fs.existsSync(f.file));
+});

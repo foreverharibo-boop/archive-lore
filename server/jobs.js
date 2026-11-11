@@ -98,14 +98,20 @@ export function createJobService({sanitize,ask,embedRequest=embed}) {
             if([...s.jobs.values()].some(j=>['queued','running'].includes(j.status)))throw Error('이미 서버 작업이 진행 중이야. 작업 내역에서 확인해 줘.');
             input=structuredClone(input);validate(s,input,kind);
             const job={id:randomUUID(),requestId,kind,status:'queued',message:'서버 작업 대기 중',input,hidden:[],created:new Date().toISOString()};s.jobs.set(job.id,job);save(s,job);setImmediate(()=>void drain(s));return publicJob(job);},
-        list(user,key){return [...state(user).jobs.values()].filter(j=>!key||j.input.context.key===key).map(job=>{const {result,hidden,...summary}=publicJob(job);return summary;});},
+        list(user,key){return [...state(user).jobs.values()].filter(j=>key===undefined||j.input.context.key===key).map(job=>{const {result,hidden,...summary}=publicJob(job);return summary;});},
         get(user,id){
             const s=state(user),job=s.jobs.get(id);if(!job)throw Error('서버 작업을 찾을 수 없어.');
             const result=publicJob(job);
             // Polling active jobs must not synchronously parse and hash the whole chat.
             // Only completed collection/index results need current hide flags for client sync.
             if(job.status!=='completed'||!['collect','index'].includes(job.kind)){result.hidden=[];return result;}
-            const messages=readChat(s,job.input).messages;
+            let messages;
+            try{messages=readChat(s,job.input).messages;}catch(error){
+                if(error.code!=='ENOENT')throw error;
+                // The job is still completed. Its history must not require restoring
+                // an old chat or replaying saved hide flags into a different chat.
+                return {...result,hidden:[],sourceChatMissing:true};
+            }
             result.hidden=messages.length?[{...sourceRange(messages,0,messages.length-1),indices:messages.map((m,i)=>m.is_system?i:-1).filter(i=>i>=0)}]:[];
             return result;
         },

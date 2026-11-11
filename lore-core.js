@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { normalizeSides } from './lore-side-config.js';
 import { fingerprintChatMessage } from './chatSelection.js';
-import { COLLECT_PROMPT, SIDE_PROMPT, QUESTIONS_PROMPT, SELECT_PROMPT, LEGACY_QUESTIONS, LEGACY_SELECT } from './lore-prompts.js';
+import { COLLECT_PROMPT, SIDE_PROMPT, QUESTIONS_PROMPT, SELECT_PROMPT, LEGACY_QUESTIONS, LEGACY_SELECT, PREVIOUS_QUESTIONS, PREVIOUS_SELECT } from './lore-prompts.js';
 import { LEGACY_COLLECT, LEGACY_SIDE } from './lore-prompts-v1.js';
 export { SIDE_PROMPT } from './lore-prompts.js';
 import { dateDay, relationshipLabel, relationshipPhase, formatRelationship } from './lore-relationship.js';
@@ -33,7 +33,11 @@ export function normalizeSettings(value = {}) {
         if (value.prompts.questions === LEGACY_QUESTIONS) value.prompts.questions = QUESTIONS_PROMPT;
         if (value.prompts.select === LEGACY_SELECT) value.prompts.select = SELECT_PROMPT;
     }
-    return { ...DEFAULTS, ...value, promptRevision: 3,
+    if ((value.promptRevision || 0) < 4) {
+        if (value.prompts.questions === PREVIOUS_QUESTIONS) value.prompts.questions = QUESTIONS_PROMPT;
+        if (value.prompts.select === PREVIOUS_SELECT) value.prompts.select = SELECT_PROMPT;
+    }
+    return { ...DEFAULTS, ...value, promptRevision: 4,
         enabled: value.enabled !== false,
         autoEmbed: value.autoEmbed !== false,
         serverEnabled: value.serverEnabled === true,

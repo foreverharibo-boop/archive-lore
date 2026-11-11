@@ -51,6 +51,8 @@ test('server completion notifications do not enqueue another automatic index',as
     // A real edit is the initial trigger. Completion must not feed itself back into the queue.
     if(shouldIndexBookUpdate('Book',books))indexes++;
     await syncServerBooks({kind:'index',books},host);
+    await syncServerBooks({kind:'recall',books},host);
+    await syncServerBooks({kind:'prepareMaintenance',books},host);
     assert.equal(indexes,1);assert.equal(loads,0);assert.equal(events,0);
     await syncServerBooks({kind:'collect',books},host);
     await syncServerBooks({kind:'applyMaintenance',books},host);

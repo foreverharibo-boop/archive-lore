@@ -3165,3 +3165,44 @@ colors with the upstream stylesheet under opposing host styles, and verify that
 switching layouts restores the remembered Archive Lore palette. This restores
 source styling; a user's previous appearance can still depend on their installed
 SillyTavern theme or custom CSS.
+
+### Archive Lore: event recall and pre-injection latency (2026-11-08)
+
+- Question search now asks distinct English retrieval questions, matching the
+  default archive summary language and preserving event qualifiers such as the
+  first occurrence. Exact previous default question/selection prompts migrate
+  to revision 4; user-edited prompts remain unchanged.
+- AI-assisted search reserves up to a quarter of candidate slots for distinct
+  records matching at least two informative query terms. Common names alone
+  cannot reserve these slots. Vector searches fill the remaining slots, and the
+  selector still decides whether any retrieved text belongs in the next reply.
+  Embedding-only mode remains cosine-only. Stored document embeddings and their
+  cache keys are unchanged; re-embedding is not required.
+- Selector requests retain every offered source sentence, date/title, order and
+  unit ID but use short entry aliases and omit repeated book paths and source
+  fingerprints. Batches use this smaller representation for their size estimate.
+  Original entry IDs and source provenance are restored through validated unit
+  IDs, including dependent context during client token fitting. Every candidate
+  batch is still reviewed; no speculative early-stop or extra concurrent AI
+  requests are introduced. A question plan containing no questions returns core
+  context without running vector searches or selection requests.
+- Selection defaults ask for original conditions, actual actions and outcomes
+  together, distinguish original events from subsequent reports and preserve
+  source chronology. This improves available evidence but does not guarantee an
+  RP model will follow it or eliminate invented details.
+- Read-only recall/maintenance previews no longer reload books or emit book-edit
+  notifications on completion. Repeated identical server progress messages do
+  not rewrite the full persisted job. Collection and maintenance writes retain
+  their synchronization and persistence behavior.
+- Diagnostics include compact-selection batch/token counts and a
+  `server.result-received` event before synchronization/token fitting. Recall
+  timings include `clientStages` for restore, input preparation, submission,
+  polling, polling sleeps, synchronization, stale-chat validation and token
+  fitting. These distinguish server processing from later client delays; do not
+  interpret cross-device timestamps as a precise latency measure when clocks
+  are not synchronized.
+
+Update both the extension and the server-plugin checkout, restart SillyTavern,
+and refresh the browser. Server plugin version **0.3.8** includes these changes.
+Offline tests and replay of recorded candidates measure request packing and
+candidate coverage, not live provider latency or final RP response quality.

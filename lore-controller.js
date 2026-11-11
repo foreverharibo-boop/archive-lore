@@ -8,7 +8,7 @@ import { enabledSides, sideInstructions } from './lore-side-config.js';
 import { automaticReady, collectedHideRanges } from './lore-automation.js';
 import { consolidationView, maintenanceRequest, maintenanceResult } from './lore-maintenance.js';
 import { digest, embeddingKey, makeId } from './lore-api.js';
-import { retrievalFocus, rankFocusedChunks, chooseCandidates, recallMessages, reviewCandidates, reviewBatches } from './lore-retrieval.js';
+import { retrievalFocus, rankFocusedChunks, chooseCandidates, recallMessages, reviewCandidates, reviewBatches, selectorMemories } from './lore-retrieval.js';
 import { withAbort } from './lore-cancellation.js';
 
 const COLLECTION_SCHEMA = `Return ONLY JSON:
@@ -259,9 +259,12 @@ export function createLoreController(host) {
                     throw new Error('검색 질문 형식이 올바르지 않아.');
                 questions = raw.questions.filter(q => q.trim());
             }
-            await log('search.queries',{mode:config.mode,queries:config.mode==='questions'?questions:config.mode==='embedding'?[recent.text]:[focus.latestUser,focus.context],latestUser:focus.latestUser,context:focus.context,policy:config.mode==='embedding'?'cosine-similarity':(config.mode==='questions'?'question-reserved-v2':'latest-user-reserved-v1')});
+            await log('search.queries',{mode:config.mode,queries:config.mode==='questions'?questions:config.mode==='embedding'?[recent.text]:[focus.latestUser,focus.context],latestUser:focus.latestUser,context:focus.context,policy:config.mode==='embedding'?'cosine-similarity':(config.mode==='questions'?'event-anchors-v3':'latest-user-reserved-v1')});
             const chunks = [], cacheStatus=[]; let pending = 0;
-            for (const row of rows.filter(r => !isCore(r.entry))) for (const chunk of await chunksFor(row, config)) {
+            // A planner that needs no past facts should not launch fallback searches and selectors.
+            const needsRecall=config.mode!=='questions'||questions.length>0;
+            if(!needsRecall)await log('retrieval.empty',{reason:'planner requested no past facts'});
+            for (const row of needsRecall ? rows.filter(r => !isCore(r.entry)) : []) for (const chunk of await chunksFor(row, config)) {
                 const vector = await host.store.get(chunk.cacheKey);
                 cacheStatus.push({entryId:chunk.id,chunk:chunk.index,hit:!!vector,text:chunk.text,dimensions:vector?.length});
                 if (vector) chunks.push({ ...chunk, vector }); else pending++;
@@ -280,10 +283,10 @@ export function createLoreController(host) {
                 };
                 const plain=config.mode==='embedding';
                 const lanes = plain ? {context:await vectors([recent.text])} : {focus:await vectors([focus.latestUser]),questions:await vectors(questions),context:await vectors([focus.context])};
-                const ranked=plain ? rankChunks(chunks,lanes.context,chunks.length) : rankFocusedChunks(chunks,lanes);
+                const ranked=plain ? rankChunks(chunks,lanes.context,chunks.length) : rankFocusedChunks(chunks,lanes,questions.length ? questions : [focus.latestUser]);
                 const candidates=plain ? ranked.slice(0,config.candidateCount) : chooseCandidates(ranked,config.candidateCount,config.mode); candidateTotal = candidates.length;
                 const candidateKeys=new Set(candidates.map(c=>JSON.stringify([c.id,c.index])));
-                await log('search.ranking',{indexedChunks:chunks.length,missingChunks:pending,queryDimensions:[...queryCache.values()].map(v=>v.length),policy:plain?'cosine-similarity':(config.mode==='questions'?'question-reserved-v2':'latest-user-reserved-v1'),ranked:ranked.map(({vector,cacheKey,...item},index)=>({...item,rank:index+1,offered:candidateKeys.has(JSON.stringify([item.id,item.index]))})),notRanked:chunks.filter(c=>!ranked.some(r=>r.id===c.id&&r.index===c.index)).map(c=>({entryId:c.id,chunk:c.index,reason:'non-positive similarity or incompatible vector dimensions'}))});
+                await log('search.ranking',{indexedChunks:chunks.length,missingChunks:pending,queryDimensions:[...queryCache.values()].map(v=>v.length),policy:plain?'cosine-similarity':(config.mode==='questions'?'event-anchors-v3':'latest-user-reserved-v1'),ranked:ranked.map(({vector,cacheKey,...item},index)=>({...item,rank:index+1,offered:candidateKeys.has(JSON.stringify([item.id,item.index]))})),notRanked:chunks.filter(c=>!ranked.some(r=>r.id===c.id&&r.index===c.index)).map(c=>({entryId:c.id,chunk:c.index,reason:'non-positive similarity or incompatible vector dimensions'}))});
                 if (plain) {
                     // Whole original chunks, in similarity order. No planner, selector or lexical fallback.
                     const groups=candidates.map(c=>{
@@ -295,13 +298,15 @@ export function createLoreController(host) {
                 } else {
                     const offered = reviewUnits(reviewCandidates(candidates,chunks)), selected = [];
                     const batches = reviewBatches(offered);
+                    await log('selection.plan',{policy:'compact-source-units-v1',units:offered.length,batches:batches.length,
+                        originalTokens:estimateTokens(JSON.stringify(offered)),selectorTokens:estimateTokens(JSON.stringify(selectorMemories(offered)))});
                     for (const [index,batch] of batches.entries()) {
                         notify('검색된 기억에서 필요한 원문 고르는 중');
                         let response, accepted;
                         for (let attempt=0;attempt<2;attempt++) {
                             response = await askTracked(config.searchProfile || config.profile,
                                 config.prompts.select + '\nReturn ONLY JSON: {"selections":[{"id":"u0","priority":3,"reason":"specific missing fact needed now","contextIds":[]}]}. Use priority 3 for direct facts, 2 for indispensable supporting context. Omit everything else. At most 24 selections in usefulness order. For no needed facts return {"selections":[]}. For each fact include contextIds (up to 8 IDs from the same entry) for sentences required to identify the owner, speaker, referent, conditions, negation, or a contrasting counterpart. Read nearby sentences before selecting. If two people have similar objects, include the distinguishing facts for each relevant owner; never assume their properties match. Before responding check that your excerpts do not change attribution or omit a qualification. Omit a fact if the supplied context cannot disambiguate it. These dependent sentences are retained together or omitted together; do not invent connective text.',
-                                { latestUser:focus.latestUser, dialogue: recent.text, questions, memories: batch,
+                                { latestUser:focus.latestUser, dialogue: recent.text, questions, memories: selectorMemories(batch),
                                     batch:index+1,batchCount:batches.length,maxSelections:24,injectionBudgetTokens:config.injectionTokens }, signal, 3000);
                             try { accepted=selectedUnits(response,batch);break; }
                             catch(error) {

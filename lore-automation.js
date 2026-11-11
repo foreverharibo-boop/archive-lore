@@ -5,8 +5,8 @@ export function shouldIndexBookUpdate(name, books, metadata, migrating = false) 
     return !migrating && !metadata?.archiveLoreServerSync && books.includes(name);
 }
 export async function syncServerBooks(job, {loadBook, cache, emit}) {
-    // Indexing changes vector storage (and possibly chat hide flags), never book content.
-    if(job.kind==='index')return;
+    // Read-only jobs and indexing never change book content or require update notifications.
+    if(['index','recall','prepareMaintenance'].includes(job.kind))return;
     for(const book of job.books || []){
         const data=await loadBook(book);
         cache.set(book,structuredClone(data));

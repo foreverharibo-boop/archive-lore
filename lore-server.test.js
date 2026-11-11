@@ -170,3 +170,28 @@ test('permanent status errors are not retried',async()=>{
     }});
     await assert.rejects(controller.index(),/missing job/);assert.equal(gets,1);
 });
+
+test('recall diagnostics distinguish result receipt, synchronization and client token fitting',async()=>{
+    const events=[],messages=[{is_user:true,mes:'Remember the drill?'}];let polls=0;
+    const controller=createServerController({local:{},enabled:()=>true,settings:()=>({}),context:()=>({key:'chat',messages}),
+        input:async()=>({context:{key:'chat',messages}}),sync:async()=>{
+            assert(events.some(e=>e.stage==='server.result-received'));
+            await new Promise(r=>setTimeout(r,5));
+        },countTokens:async()=>{await new Promise(r=>setTimeout(r,5));return 100;},wait:async()=>{},
+        call:async route=>{
+            if(route==='/jobs/list')return [];
+            if(route==='/jobs')return {id:'accepted',status:'queued'};
+            if(route==='/jobs/get'){
+                if(++polls===1)return {id:'accepted',status:'running'};
+                return {id:'accepted',kind:'recall',status:'completed',started:'2031-01-01T00:00:00Z',finished:'2031-01-01T00:00:01Z',
+                    result:{core:'',lastRecall:{units:[{id:'u0',entryId:'entry',title:'Training',text:'The drill lasted fifteen minutes.',index:0,priority:3}],records:[],timings:{totalMs:1000}}}};
+            }
+            throw Error(route);
+        }});
+    await controller.recall({trace:{event:async(stage,data)=>events.push({stage,data}),finish:async()=>{}}});
+    const stages=controller.state().lastRecall.timings.clientStages;
+    for(const key of ['restoreMs','inputMs','submitMs','pollMs','pollSleepMs','syncMs','validationMs','fitMs'])assert(Number.isFinite(stages[key])&&stages[key]>=0,key);
+    assert(stages.syncMs>0);assert(stages.fitMs>0);
+    assert.equal(events.find(e=>e.stage==='server.result-received').data.serverFinished,'2031-01-01T00:00:01Z');
+    assert.deepEqual(events.find(e=>e.stage==='server.recall').data.timings.clientStages,stages);
+});

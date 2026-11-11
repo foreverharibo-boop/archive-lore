@@ -15,7 +15,7 @@ export function createBackgroundRecall(host) {
         if(!host.supported(type)||config.keywordActivation){
             await trace?.event('relay.fallback',{reason:'unsupported-generation-or-keyword-policy'});return null;
         }
-        const p={ticket:makeId(),key:host.context().key,settings:signature(),abort:new AbortController(),attached:false};
+        const p={ticket:makeId(),generation:host.generation?.(),key:host.context().key,settings:signature(),abort:new AbortController(),attached:false};
         pending=p;
         const check=()=>{p.abort.signal.throwIfAborted();if(!valid(p))throw new DOMException('서버 답변 준비 중 설정 또는 채팅이 바뀌었어.','AbortError');};
         try {
@@ -61,7 +61,7 @@ export function createBackgroundRecall(host) {
             const state=await host.call('/reply/get',{ticket:p.ticket});
             if(state.state==='completed' && state.jobId && p.key===host.context().key){
                 const job=await host.call('/jobs/get',{id:state.jobId});
-                if(p.key===host.context().key)host.accept(job);
+                if(p.key===host.context().key)host.accept(job,p.generation);
             }
         },
     };

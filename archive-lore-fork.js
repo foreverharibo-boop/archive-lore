@@ -12,6 +12,7 @@ import { applyNativeTheme, applySceneButtonVisibility } from './lore-native-pref
 import { installSettingsHelp } from './lore-help.js';
 import { createCollectionResultPopup, createCollectionCompletionNotifier } from './lore-collection-status.js';
 import { linkedTranslation } from './lore-translations.js';
+import { createInjectionView, mountInjectionMenu } from './lore-injection-view.js';
 
 globalThis.archiveLoreFork=true;
 await import('./index.build.js');
@@ -36,6 +37,16 @@ let generating=false,indexPending=false,indexTimer;
 
 function themedPopup(content,options){
     const popup=new Popup(content,POPUP_TYPE.TEXT,'',options);applyNativeTheme(popup.dlg,native.settings());return popup;
+}
+
+async function openInjection(){
+    const node=createInjectionView(search().injectionRecorder.read());
+    await themedPopup(node,{wide:true,large:true,allowVerticalScrolling:true,okButton:false,cancelButton:'닫기'}).show();
+}
+function refreshInjectionMenu(){
+    search()?.injectionRecorder.invalidate();
+    mountInjectionMenu({root:document.querySelector('#extensionsMenu'),enabled:native.settings().moduleSettings?.archiveLoreShowInjection===true,
+        open:openInjection,onError:fail});
 }
 
 async function openRange(){
@@ -95,6 +106,7 @@ function queueIndex(){
 function setup(){
     if(!search()){setTimeout(setup,50);return;}
     search().openTools=openTools;
+    search().openInjection=openInjection;search().refreshInjectionMenu=refreshInjectionMenu;refreshInjectionMenu();
     search().openRecords=openRecords;search().openRange=openRange;
     let resultPanel=null;
     const completion=createCollectionCompletionNotifier({
@@ -118,7 +130,7 @@ function setup(){
     eventSource.on(event_types.GENERATION_ENDED,()=>{generating=false;queueIndex();});
     eventSource.on(event_types.GENERATION_STOPPED,()=>{generating=false;indexPending=false;clearTimeout(indexTimer);native.stop();});
     eventSource.on(event_types.CHAT_CHANGED,()=>{indexPending=false;clearTimeout(indexTimer);native.collectionUpdated?.();});
-    for(const [name,fn,help] of [['al',()=>native.open(),'아카이브 로어 기능별 메뉴'],['al-embed',()=>search().controller.index(),'남은 기억 임베딩'],['al-recall',()=>search().controller.recall(),'기억 검색 미리보기'],['al-stop',()=>{native.stop();search().controller.cancel();},'수집·검색 작업 중지']])SlashCommandParser.addCommandObject(SlashCommand.fromProps({name,helpString:help,callback:async()=>{await fn();return '';}}));
+    for(const [name,fn,help] of [['al',()=>native.open(),'아카이브 로어 열기'],['al-injection',openInjection,'직전 주입 내용 열기 · 추가 검색 없음'],['al-embed',()=>search().controller.index(),'남은 기억 임베딩'],['al-recall',()=>search().controller.recall(),'기억 검색 미리보기'],['al-stop',()=>{native.stop();search().controller.cancel();},'수집·검색 작업 중지']])SlashCommandParser.addCommandObject(SlashCommand.fromProps({name,helpString:help,callback:async()=>{await fn();return '';}}));
     for(const name of ['al-collect','al-catchup'])SlashCommandParser.addCommandObject(SlashCommand.fromProps({
         name,helpString:name==='al-collect'?'기억 수집. 선택 범위: /al-collect 0-19':'나눠 수집: /al-catchup 0-245 40',
         unnamedArgumentList:[SlashCommandArgument.fromProps({description:'시작-끝 (분할 개수)',typeList:[ARGUMENT_TYPE.STRING],isRequired:false})],

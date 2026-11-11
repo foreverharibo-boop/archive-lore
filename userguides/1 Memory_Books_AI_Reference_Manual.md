@@ -3499,3 +3499,31 @@ The former connection/theme control is removed; its saved value is preserved.
 The setting persists across reloads and applies to both Archive Lore and original
 Memory Books layouts. It only hides these two controls: selected ranges, message
 visibility, collection progress, and other message actions remain unchanged.
+
+### Last injection viewer (Archive Lore fork)
+
+`설정 → 일반·고급 설정 → 주입 내용 보기` enables recording and adds
+`주입 내용 보기` to the wand menu. `/al` opens Archive Lore; `/al-injection`
+opens the current chat's latest saved injection without searching, generating,
+or translating. The viewer does not open automatically. One latest snapshot is
+stored in chat metadata, scoped to the original chat key (copied branches cannot
+show another chat's record). Turning the setting off hides the wand entry and
+stops updates; the slash command can still read an existing snapshot.
+
+Normal generation records the prepared slots when `GENERATE_AFTER_DATA` builds
+a real outgoing request, ignoring dry runs and search previews. Relay mode records
+the completed server job after its result returns, never the reserved placeholder.
+An empty injection replaces the prior record. The viewer covers Archive Lore's
+core, selected memories and response guidance, not other extensions or native
+keyword-triggered lore. Token counts are the sum of tokenizer counts for those
+original slots, not the displayed translation or the entire RP request.
+
+The viewer uses lore-manager's saved translation for the exact book and UID only
+when its language and source hash match. Complete entries can display the entire
+translation. Excerpts require matching line and sentence counts and exact source
+sentence boundaries; repeated/partial/structurally mismatched passages fall back
+to the original. Positional excerpts are labelled `문장 순서 기준`: this is not
+semantic alignment, and reordered translations with identical structure cannot
+be detected. Every translated excerpt exposes the actual source in a disclosure;
+the full exact injection is also available. Viewing does not modify source,
+translation, embeddings or generation prompts.

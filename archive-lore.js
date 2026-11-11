@@ -17,6 +17,7 @@ import { ask, embed, createVectorStore, makeId } from './lore-api.js';
 import { createLoreController } from './lore-controller.js';
 import { createDiagnostics, createDiagnosticStore } from './lore-diagnostics.js';
 import { linkedTranslation } from './lore-translations.js';
+import { createInjectionRecorder } from './lore-injection-view.js';
 import { proxies } from '../../../openai.js';
 import { createServerClient,serverVectorStore,createServerController,profileTemplate,serverChatSnapshot } from './lore-server.js';
 import { matchesRange } from './lore-core.js';
@@ -179,14 +180,25 @@ const controller=createServerController({local:localController,enabled:()=>!!set
         if(!generationInFlight)clearPrompts();
     },
 });
+const injectionRecorder=createInjectionRecorder({
+    enabled:()=>extension_settings.STMemoryBooks?.moduleSettings?.archiveLoreShowInjection===true,
+    key:()=>chatContext().key,read:()=>chatSettings().lastInjection,
+    settings:()=>extension_settings,countTokens:text=>getContext().getTokenCountAsync(text,0),
+    write:async snapshot=>{const c=getContext();c.chatMetadata[NS]={...chatSettings(),lastInjection:snapshot};await c.saveMetadata();},
+    onError:e=>console.warn('[Archive Lore] 주입 내용 기록 실패',e),
+});
 const backgroundRecall=createBackgroundRecall({
-    settings:()=>normalizeSettings(settings()),context:chatContext,input:serverInput,call:serverCall,
+    settings:()=>normalizeSettings(settings()),context:chatContext,input:serverInput,call:serverCall,generation:()=>generationEpoch,
     countTokens:text=>getContext().getTokenCountAsync(text,0),
     relay:()=>globalThis.sillyRelayPreparation,
     supported:type=>!!event_types.GENERATE_AFTER_DATA && !!event_types.CHAT_COMPLETION_SETTINGS_READY
         && !getContext().groupId && getContext().mainApi==='openai' && [undefined,'normal','regenerate','swipe'].includes(type),
     tokenizer:async()=>{const module=await import('../../../tokenizers.js');return module.getTokenizerModel();},
-    accept:job=>controller.acceptBackgroundRecall(job),
+    accept:(job,epoch)=>{
+        controller.acceptBackgroundRecall(job);
+        if(epoch===generationEpoch && !generationStopped && job.chatKey===chatContext().key && job.status==='completed' && job.result?.lastRecall)
+            void injectionRecorder.capture(job.result,job.result.lastRecall);
+    },
 });
 const diagnosticView={
     async list(key){const local=await diagnostics.list(key);return settings()?.serverEnabled?[...local,...await serverCall('/logs/list',{chatKey:key})].sort((a,b)=>a.started.localeCompare(b.started)):local;},
@@ -247,11 +259,13 @@ async function saveRecord(id, changes) {
 async function intercept(_chat,_contextSize,abort,type) {
     const started=Date.now();
     const epoch=++generationEpoch;
+    injectionRecorder.invalidate();
     clearPrompts();
     generationInFlight=true;
     const context=chatContext(),searchChoice=JSON.stringify([settings().mode,settings().selectionFocus]);
     const trace=diagnostics.begin({kind:'generation',chatKey:context.key,chatName:context.name,mode:settings().mode,generationType:type,messageCount:context.messages.length});
     if(!settings().enabled || !context.key || !books().length || ['quiet','impersonate'].includes(type)) {
+        if(!['quiet','impersonate'].includes(type))injectionRecorder.stage({},null);
         await trace.finish('skipped',{enabled:settings().enabled,chat:!!context.key,books:books(),type});return;
     }
     if(pendingGeneration)await pendingGeneration.trace.finish('superseded',{nextAttempt:trace.id});
@@ -267,7 +281,10 @@ async function intercept(_chat,_contextSize,abort,type) {
         getContext().setExtensionPrompt(GUIDANCE_PROMPT,result.guidance||'',extension_prompt_types.IN_CHAT,1,false);
         if(!result.deferred)controller.markInjected(Date.now()-started);
         await trace.event(result.deferred?'injection.reserved':'injection.installed',{timings:controller.state().lastRecall?.timings,slots:[{name:PROMPT,text:result.text,position:'IN_CHAT',depth:1},{name:CORE_PROMPT,text:result.core,position:'IN_CHAT',depth:1},{name:GUIDANCE_PROMPT,text:result.guidance||'',position:'IN_CHAT',depth:1}],selected:[...result.selected]});
-        if(epoch===generationEpoch && !generationStopped)pendingGeneration={trace,key:context.key,messageCount:context.messages.length};
+        if(epoch===generationEpoch && !generationStopped){
+            pendingGeneration={trace,key:context.key,messageCount:context.messages.length};
+            if(!result.deferred)injectionRecorder.stage(result,controller.state().lastRecall);
+        }
     } catch(e){if(epoch===generationEpoch)backgroundRecall.cancel();await trace.finish(e.name==='AbortError'?'stopped':'error',{message:e.message});if(epoch===generationEpoch && chatContext().key===context.key){generationInFlight=false;clearPrompts();abort(true);error(e);}}
 }
 function nativePolicy(lists) {
@@ -317,15 +334,15 @@ function init() {
     menu.addEventListener('click',()=>void ui.open().catch(error));menu.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();void ui.open().catch(error);}});
     document.querySelector('#extensionsMenu')?.append(menu);
     }
-    globalThis.archiveLoreSearch={subscribe:listener=>{searchViewListeners.add(listener);return ()=>searchViewListeners.delete(listener);},openSettings:()=>ui.openSettings(),controller,settings,saveSettings,books,target,loadBook,saveBook,store:vectorStore,diagnostics:diagnosticView,context:chatContext,clearPrompts};
+    globalThis.archiveLoreSearch={subscribe:listener=>{searchViewListeners.add(listener);return ()=>searchViewListeners.delete(listener);},openSettings:()=>ui.openSettings(),controller,settings,saveSettings,books,target,loadBook,saveBook,store:vectorStore,diagnostics:diagnosticView,context:chatContext,clearPrompts,injectionRecorder};
     globalThis.archiveLoreInterceptor=intercept;
-    if(event_types.GENERATE_AFTER_DATA)eventSource.on(event_types.GENERATE_AFTER_DATA,(data,dryRun)=>backgroundRecall.capture(data,dryRun));
+    if(event_types.GENERATE_AFTER_DATA)eventSource.on(event_types.GENERATE_AFTER_DATA,(data,dryRun)=>{backgroundRecall.capture(data,dryRun);void injectionRecorder.commit(dryRun);});
     if(event_types.CHAT_COMPLETION_SETTINGS_READY)eventSource.on(event_types.CHAT_COMPLETION_SETTINGS_READY,data=>backgroundRecall.attach(data));
     eventSource.on(event_types.WORLDINFO_ENTRIES_LOADED,nativePolicy);
     eventSource.on(event_types.WORLDINFO_UPDATED,()=>controller.invalidateEmbeddingCounts());
     for(const event of [event_types.CHAT_CHANGED,event_types.MESSAGE_EDITED,event_types.MESSAGE_DELETED,event_types.MESSAGE_SWIPED,event_types.MESSAGE_RECEIVED])if(event)eventSource.on(event,()=>controller.invalidateEmbeddingCounts());
-    eventSource.on(event_types.CHAT_CHANGED,()=>{backgroundRecall.detach();clearTimeout(autoTimer);autoPending=false;autoAttempt='';generationInFlight=false;controller.detach();controller.discardDraft();if(pendingGeneration)void pendingGeneration.trace.event('generation.chat-changed');pendingGeneration=null;controller.clearRecall();clearPrompts();void ui.refresh().catch(error);});
-    for(const event of [event_types.MESSAGE_EDITED,event_types.MESSAGE_DELETED,event_types.MESSAGE_SWIPED])if(event)eventSource.on(event,()=>{backgroundRecall.cancel();controller.cancel();clearPrompts();});
+    eventSource.on(event_types.CHAT_CHANGED,()=>{injectionRecorder.invalidate();backgroundRecall.detach();clearTimeout(autoTimer);autoPending=false;autoAttempt='';generationInFlight=false;controller.detach();controller.discardDraft();if(pendingGeneration)void pendingGeneration.trace.event('generation.chat-changed');pendingGeneration=null;controller.clearRecall();clearPrompts();void ui.refresh().catch(error);});
+    for(const event of [event_types.MESSAGE_EDITED,event_types.MESSAGE_DELETED,event_types.MESSAGE_SWIPED])if(event)eventSource.on(event,()=>{injectionRecorder.invalidate();backgroundRecall.cancel();controller.cancel();clearPrompts();});
     if(event_types.GENERATION_STARTED)eventSource.on(event_types.GENERATION_STARTED,(_type,_options,dryRun)=>{if(dryRun)return;generationStopped=false;generationInFlight=true;clearTimeout(autoTimer);});
     if(event_types.MESSAGE_RECEIVED)eventSource.on(event_types.MESSAGE_RECEIVED,async index=>{
         scheduleAutomatic();
@@ -336,7 +353,7 @@ function init() {
     for(const name of ['GENERATION_ENDED','GENERATION_STOPPED'])if(event_types[name])eventSource.on(event_types[name],async()=>{
         generationInFlight=false;
         if(name==='GENERATION_STOPPED'){
-            backgroundRecall.cancel();generationStopped=true;generationEpoch++;clearTimeout(autoTimer);autoPending=false;
+            injectionRecorder.invalidate();backgroundRecall.cancel();generationStopped=true;generationEpoch++;clearTimeout(autoTimer);autoPending=false;
             controller.cancel();controller.clearRecall();clearPrompts();
         }else if(!generationStopped){void backgroundRecall.completed().catch(error);scheduleAutomatic();}
         const run=pendingGeneration;if(!run)return;pendingGeneration=null;

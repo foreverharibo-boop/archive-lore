@@ -1,3 +1,4 @@
+import { mountInjectionPreference } from './lore-injection-view.js';
 import { applyAutoHideRanges } from './lore-auto-hide.js';
 import { captureIntervalScene } from './lore-side-after-memory.js';
 import { nativePreferences, createNativePreferences, appendOriginalTools, mountSceneButtonPreference, BOOK_MODES } from './lore-native-preferences.js';
@@ -11479,7 +11480,10 @@ async function showGeneralSettingsPopup(options = {}) {
       onClose: handleSettingsFormPopupClose,
     });
     markStmbPopup(popup);
-    if(globalThis.archiveLoreFork)mountSceneButtonPreference(popup.dlg,{settings:initializeSettings(),save:saveSettingsDebounced});
+    if(globalThis.archiveLoreFork){
+        mountSceneButtonPreference(popup.dlg,{settings:initializeSettings(),save:saveSettingsDebounced});
+        mountInjectionPreference(popup.dlg,{settings:initializeSettings(),save:saveSettingsDebounced,changed:()=>globalThis.archiveLoreSearch?.refreshInjectionMenu?.()});
+    }
     setupSettingsEventListeners(popup);
     if (options.focusControlId) {
       setTimeout(() => {

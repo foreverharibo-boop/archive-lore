@@ -68,3 +68,15 @@ test('unsupported group/keyword mode uses existing recall instead of partial bac
     const f=fixture();f.host.supported=()=>false;f.host.relay=()=>assert.fail();
     assert.equal(await f.background.prepare('normal'),null);
 });
+test('relay completion retains its generation identity across a later generation',async()=>{
+    const f=fixture(),hold=gate();let generation=1,accepted;
+    f.host.generation=()=>generation;
+    f.host.accept=(job,epoch)=>{accepted={job,epoch};};
+    const original=f.host.call;
+    f.host.call=async(route,data)=>route==='/reply/get'?hold.promise:route==='/jobs/get'?{status:'completed',chatKey:'chat',result:{text:'old turn'}}:original(route,data);
+    const slots=await f.background.prepare('normal'),prompt=[{role:'system',content:slots.text},{role:'system',content:slots.guidance}];
+    f.background.capture({prompt});f.background.attach({messages:prompt});
+    const completion=f.background.completed();generation=2;
+    hold.resolve({state:'completed',jobId:'job'});await completion;
+    assert.equal(accepted.epoch,1);assert.equal(generation,2);
+});

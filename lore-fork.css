@@ -184,3 +184,12 @@ dialog.al-collection-completion {box-sizing:border-box;width:min-content!importa
 .al-native-preferences .menu_button,.al-original-addons .menu_button {width:auto;max-width:100%;white-space:normal;word-break:keep-all;overflow-wrap:anywhere;}
 .al-original-addons {border-top:1px solid var(--SmartThemeBorderColor);margin-top:16px;padding-top:8px;display:flex;flex-wrap:wrap;gap:8px;}
 .al-original-addons h4 {width:100%;}
+
+/* Last injection: source-safe text, compact sections, mobile wrapping. */
+.al-injection-view {text-align:left;min-width:0;}
+.al-injection-view h3 {text-align:center;}
+.al-injection-view section {margin:12px 0;padding-top:8px;border-top:1px solid var(--SmartThemeBorderColor, #8885);}
+.al-injection-view h4 {margin:0 0 4px;}
+.al-injection-view small {display:block;opacity:.75;}
+.al-injection-view pre {white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word;font:inherit;margin:8px 0;}
+.al-injection-view details {margin:8px 0;}

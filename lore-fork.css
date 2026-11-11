@@ -121,13 +121,52 @@
     .al-fork-surface #stmb-sp-set-controls tr {display:grid;grid-template-columns:1fr auto;align-items:center;}
     .al-fork-surface #stmb-sp-set-controls td:first-child {grid-column:1/-1;}
 }
-/* Palette variables are local to Archive Lore dialogs. Original MemoryBooks inherits ST. */
-.al-fork-surface[data-al-palette="rose"] {--SmartThemeBlurTintColor:#fff4f6;--SmartThemeBodyColor:#492e38;--SmartThemeBorderColor:#dec0ca;--SmartThemeQuoteColor:#9a4665;}
-.al-fork-surface[data-al-palette="lavender"] {--SmartThemeBlurTintColor:#f5f2ff;--SmartThemeBodyColor:#39304d;--SmartThemeBorderColor:#cfc5e5;--SmartThemeQuoteColor:#70539b;}
-.al-fork-surface[data-al-palette="sage"] {--SmartThemeBlurTintColor:#f2f7ef;--SmartThemeBodyColor:#2f4030;--SmartThemeBorderColor:#c2d1bc;--SmartThemeQuoteColor:#4f7050;}
-.al-fork-surface[data-al-palette="midnight"] {--SmartThemeBlurTintColor:#202638;--SmartThemeBodyColor:#e6e9f4;--SmartThemeBorderColor:#4e5975;--SmartThemeQuoteColor:#bac8f3;}
+/* Complete local palettes: host themes may force white controls with !important.
+   Background and foreground must win together, including the popup footer. */
+.al-fork-surface[data-al-palette="rose"] {
+    --SmartThemeBlurTintColor:#fff5f8;--SmartThemeBodyColor:#4b3340;--SmartThemeBorderColor:#e3c1ce;--SmartThemeQuoteColor:#ac607f;
+    --al-control-bg:#fffafb;--al-control-fg:#4b3340;--al-action-bg:#f3cade;--al-action-fg:#4b2940;--al-action-hover:#eeb9d0;--al-focus:#97536f;
+}
+.al-fork-surface[data-al-palette="lavender"] {
+    --SmartThemeBlurTintColor:#f7f4ff;--SmartThemeBodyColor:#3e3452;--SmartThemeBorderColor:#d6caed;--SmartThemeQuoteColor:#8666aa;
+    --al-control-bg:#fdfbff;--al-control-fg:#3e3452;--al-action-bg:#e2d3f6;--al-action-fg:#3f2b5c;--al-action-hover:#d7c4f0;--al-focus:#78539f;
+}
+.al-fork-surface[data-al-palette="sage"] {
+    --SmartThemeBlurTintColor:#f4f9f0;--SmartThemeBodyColor:#334633;--SmartThemeBorderColor:#cbdcc1;--SmartThemeQuoteColor:#5f8054;
+    --al-control-bg:#fcfff9;--al-control-fg:#334633;--al-action-bg:#d6e8c9;--al-action-fg:#2c472b;--al-action-hover:#c7ddb6;--al-focus:#517543;
+}
+.al-fork-surface[data-al-palette="midnight"] {
+    --SmartThemeBlurTintColor:#202638;--SmartThemeBodyColor:#e6e9f4;--SmartThemeBorderColor:#4e5975;--SmartThemeQuoteColor:#bac8f3;
+    --al-control-bg:#2a334a;--al-control-fg:#e6e9f4;--al-action-bg:#bac8f3;--al-action-fg:#202638;--al-action-hover:#d0dafa;--al-focus:#bac8f3;
+    color-scheme:dark;
+}
+.al-fork-surface:is([data-al-palette="rose"],[data-al-palette="lavender"],[data-al-palette="sage"]) {color-scheme:light;}
 .al-fork-surface[data-al-palette]:not([data-al-palette="default"]) {background:var(--SmartThemeBlurTintColor)!important;color:var(--SmartThemeBodyColor)!important;text-shadow:none;}
-.al-fork-surface[data-al-palette]:not([data-al-palette="default"]) :is(.text_pole,.menu_button,select,textarea) {background:var(--SmartThemeBlurTintColor);color:var(--SmartThemeBodyColor);border-color:var(--SmartThemeBorderColor);text-shadow:none;}
+.al-fork-surface[data-al-palette]:not([data-al-palette="default"]) :is(.text_pole,select,textarea,#al-quick-profile,.select2-selection,.select2-dropdown,.select2-search__field) {
+    background:var(--al-control-bg)!important;color:var(--al-control-fg)!important;-webkit-text-fill-color:var(--al-control-fg)!important;
+    border-color:var(--SmartThemeBorderColor)!important;text-shadow:none!important;box-shadow:none!important;
+}
+.al-fork-surface[data-al-palette]:not([data-al-palette="default"]) :is(option,.select2-selection__rendered,.select2-results__option) {
+    background:var(--al-control-bg)!important;color:var(--al-control-fg)!important;-webkit-text-fill-color:var(--al-control-fg)!important;text-shadow:none!important;
+}
+.al-fork-surface[data-al-palette]:not([data-al-palette="default"]) :is(.menu_button:not(.al-feature-button),.al-button,#al-native-collect) {
+    background:var(--al-action-bg)!important;color:var(--al-action-fg)!important;-webkit-text-fill-color:var(--al-action-fg)!important;
+    border-color:var(--SmartThemeBorderColor)!important;text-shadow:none!important;box-shadow:none!important;
+}
+.al-fork-surface[data-al-palette]:not([data-al-palette="default"]) :is(.menu_button:not(.al-feature-button),.al-button,#al-native-collect):hover:not(:disabled):not([aria-disabled="true"]) {
+    background:var(--al-action-hover)!important;
+}
+.al-fork-surface[data-al-palette]:not([data-al-palette="default"]) :is(.menu_button,.al-button) :is(span,i,svg) {color:inherit!important;-webkit-text-fill-color:inherit!important;text-shadow:none!important;}
+.al-fork-surface[data-al-palette]:not([data-al-palette="default"]) :is(button,.menu_button,input,select,textarea,.select2-selection):focus-visible {outline:2px solid var(--al-focus)!important;outline-offset:3px;}
+.al-fork-surface[data-al-palette]:not([data-al-palette="default"]) :is(input,textarea)::placeholder {color:var(--al-control-fg)!important;-webkit-text-fill-color:var(--al-control-fg)!important;opacity:.7;}
+.al-fork-surface[data-al-palette]:not([data-al-palette="default"]) :is(.menu_button,.al-button,input,select,textarea):disabled {opacity:.55;cursor:not-allowed;}
+/* Keep text-only navigation clear even when the host forces button backgrounds. */
+.al-fork-surface[data-al-palette]:not([data-al-palette="default"]) :is(.al-feature-button:not(#al-native-collect),.al-home-tabs button) {
+    background:transparent!important;color:var(--SmartThemeBodyColor)!important;-webkit-text-fill-color:var(--SmartThemeBodyColor)!important;text-shadow:none!important;
+}
+.al-fork-surface[data-al-palette]:not([data-al-palette="default"]) .select2-results__option--highlighted {
+    background:var(--al-action-bg)!important;color:var(--al-action-fg)!important;-webkit-text-fill-color:var(--al-action-fg)!important;
+}
 .al-native-preferences {display:grid;gap:12px;min-width:0;text-align:left;}
 .al-native-preferences h4 {margin:4px 0;}
 .al-native-preferences label {display:grid;gap:6px;min-width:0;}

@@ -3111,3 +3111,22 @@ explicit member destinations, constant-time endpoint previews, original markup
 and event preservation, palette persistence, mobile widths and stale lazy-load
 results. Browser checks use a host-style fixture; live provider/Termux latency is
 not simulated and no fixed opening time is promised.
+
+#### Palette contrast correction
+
+Custom palettes now own complete foreground/background pairs for inputs, native
+selects, Select2 controls and action buttons (including Apply and the popup footer
+Close button). Scoped overrides handle host styles that force white control
+backgrounds with `!important`; inherited text fill and shadows cannot make these
+controls white-on-white. Rose, Lavender and Sage use pastel action fills with dark
+text. Midnight keeps its dark surface, adds dark input backgrounds with light
+text, and uses blue action fills with dark text. Hover and keyboard focus remain
+visible; disabled controls retain their disabled state and subdued appearance.
+Text-only navigation remains transparent. Default ST and Original MemoryBooks
+continue inheriting the host theme.
+
+The browser regression fixture tests all four custom palettes against forced
+light and dark host control styles, including footer buttons, input text fill,
+hover, focus, disabled state, original/default isolation and at least 4.5:1 normal
+text contrast for the tested action and input pairs. Only extension CSS changes
+are required for this correction; update the extension and reload the page.

@@ -69,7 +69,7 @@ export function appendOriginalTools(root, actions, content) {
     root.querySelector('.al-original-addons')?.remove();
     const box=document.createElement('section');box.className='al-original-addons';
     const title=document.createElement('h4');title.textContent='아카이브 로어 추가 기능';box.append(title);
-    for(const [id,label] of [['al-native-collect','지금 수집'],['al-native-range','범위 지정·지난 대화 수집'],['al-native-books','저장된 기억'],['al-search-settings','검색·임베딩 설정'],['al-search-tools','임베딩·주입 확인'],['al-preferences','로어북 연결·테마'],['al-migrate','기존 기억 가져오기']]) {
+    for(const [id,label] of [['al-native-collect','지금 수집'],['al-native-range','범위 지정·지난 대화 수집'],['al-native-undo','직전 수집 되돌리기'],['al-native-books','저장된 기억'],['al-search-settings','검색·임베딩 설정'],['al-search-tools','임베딩·주입 확인'],['al-preferences','로어북 연결·테마'],['al-migrate','기존 기억 가져오기']]) {
         if(!actions[id])continue;
         const b=document.createElement('button');b.type='button';b.id=id;b.className='menu_button';b.textContent=label;
         b.onclick=async()=>{b.disabled=true;try{const result=await actions[id]();if(typeof result==='string')globalThis.toastr?.success(result);}catch(e){globalThis.toastr?.error(e.message);}finally{b.disabled=false;}};box.append(b);

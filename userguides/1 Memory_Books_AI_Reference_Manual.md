@@ -3360,3 +3360,44 @@ valid source chat. Update both checkouts, restart ST, and reload the browser.
 #### Resource usage update (server 0.3.15)
 
 Progress snapshots no longer duplicate the complete chat and provider preset payload on every status update. They retain chat identity, review settings (without embedding keys), results, hidden ranges and maintenance drafts. Restarted unfinished jobs remain interrupted; they are not automatically replayed. Draft preview/apply and completed result recovery remain supported. Existing historical files expire under the existing retention policy. The browser vector hot cache retains at most 128 vectors and approximately 4 MiB of numeric/key data; evictions reload stored vectors without requesting embeddings. Persistent vectors and lorebook entries are not removed.
+
+#### Last collection undo and native save integrity
+
+The collection pane and original-layout extra tools include **직전 수집 되돌리기**.
+The confirmation lists the exact source range and lorebook entries to delete or
+restore. It removes new memories/new side outputs, restores overwritten side
+records from their existing version-2 regeneration snapshots, rewinds the
+collection checkpoint when appropriate, unhides that range and saves the chat.
+It also clears the current retrieval injection. A catch-up operation targets its
+last saved range, not the complete catch-up batch. Chat source text is never
+deleted. Side-only runs with usable snapshots and legacy Archive Lore collection
+receipts are supported; missing snapshots, edited side records, ambiguous repeated
+ranges, incomplete linked copies and dependent consolidations stop the operation.
+Older records without creation timestamps use their source-range order as a
+fallback, so review the displayed range before confirming.
+
+The operation reads fresh books, checks for changes under book write lanes and
+compensates completed writes on a subsequent write failure without overwriting an
+intervening edit. A small `archiveLorePendingCollectionUndo` receipt is committed
+with each changed book. If chat progress/visibility saving fails, the next click
+resumes completion rather than deleting an earlier collection. Receipts are removed
+after completion; no full-chat backup or unbounded undo history is introduced.
+Existing side snapshots retain only their immediately previous state, not an
+unlimited multi-step undo chain. Cross-client writes still lack server-side CAS.
+
+Native narrative saves in this fork now stage changes and check the HTTP response
+before updating cache/progress or running after-memory sides. The direct memory
+path reloads the book under its write lane before inserting, preserving side or
+other edits made while the model was generating. Overwrite-mode side outputs now
+receive stable template/chat identity; unique older identity-bearing outputs can
+be recovered after a template rename. A story memory is never adopted solely
+because its title matches a side template. Explicit version-history settings
+remain honored. These fixes do not change custom summary prompts or independent
+interval-side triggers, and do not establish the cause of a particular missing
+summary without its execution data.
+
+Update the browser extension and reload. This change needs no additional server
+plugin protocol update. Automated coverage includes actual native write paths,
+undo confirmation/cancellation, partial failures, retry completion, chat/source
+changes, legacy receipts and unrelated-entry preservation. Browser engine and
+live provider behavior are not claimed by these host-mocked tests.

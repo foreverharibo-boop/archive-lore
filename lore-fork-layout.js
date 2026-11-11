@@ -3,6 +3,7 @@ export const FEATURE_GROUPS = [
     ['수집·자동화', '대화를 로어북 기억으로 저장합니다. 범위를 선택한 뒤 기억 수집을 눌러 주세요.', [
         ['al-native-collect','지금 수집','마지막 저장 위치 다음부터 현재 마지막 메시지까지 수집합니다.'],
         ['al-native-range','범위 지정·지난 대화 수집','시작·끝 번호를 지정하거나 긴 대화를 나누어 수집합니다.'],
+        ['al-native-undo','직전 수집 되돌리기','추가된 기억·사이드를 로어북에서 삭제하고, 갱신된 사이드는 이전 내용으로 복원합니다.'],
         ['stmb-automatic-memories-settings','자동 수집·지난 대화 수집','메시지·토큰 기준으로 자동 수집하거나 지난 대화를 나누어 수집합니다.'],
         ['stmb-pending-progress','진행·저장 확인','진행 중인 작업과 아직 반영되지 않은 결과를 확인합니다.'],
     ]],
@@ -31,7 +32,7 @@ export const FEATURE_GROUPS = [
 ];
 
 const PANES = [
-    ['collect','수집','새 대화는 지금 수집, 특정 대화는 범위 지정으로 저장합니다.',['al-native-collect','al-native-range','stmb-pending-progress']],
+    ['collect','수집','새 대화는 지금 수집, 특정 대화는 범위 지정으로 저장합니다.',['al-native-collect','al-native-range','al-native-undo','stmb-pending-progress']],
     ['records','저장된 기억','기억과 사이드 기록을 확인하고 정리합니다.',['al-native-books','stmb-side-prompts','al-search-tools','al-native-consolidate','stmb-compact-review','stmb-topical-clip','stmb-clip-review-suggestions','stmb-consolidation-recovery']],
     ['settings','설정','연결, 자동 수집과 프롬프트를 설정합니다.',['al-preferences','al-search-settings','stmb-automatic-memories-settings','stmb-prompt-manager','stmb-arc-prompt-manager','stmb-context-settings','stmb-general-settings']],
 ];

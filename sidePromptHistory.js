@@ -73,6 +73,7 @@ export function resolveSidePromptHistory(lorebookData, history) {
     versions.sort((a, b) => a[SIDE_PROMPT_HISTORY_KEY].sequence - b[SIDE_PROMPT_HISTORY_KEY].sequence);
     if (versions.length) return { versions, latest: versions.at(-1), legacy: null };
     const candidates = entries.filter(entry => {
+        if (entry?.stmemorybooks === true) return false;
         if (entry?.[SIDE_PROMPT_HISTORY_KEY]) return false;
         const snapshot = entry?.STMB_sidePromptRegeneration;
         return !(snapshot && (snapshot.templateKey !== history.templateKey || snapshot.chatId !== history.chatId));
@@ -81,6 +82,15 @@ export function resolveSidePromptHistory(lorebookData, history) {
         const legacy = candidates.filter(entry => String(entry?.comment || '') === title);
         if (legacy.length > 1) throw sidePromptHistoryError();
         if (legacy.length === 1) return { versions, latest: legacy[0], legacy: legacy[0] };
+    }
+    // Old overwrite-mode records did not receive history IDs. Recover a unique
+    // name-based record from its existing regeneration identity after a rename.
+    // Explicit/macro-resolved titles remain independent streams.
+    if(history.titleSource==='name') {
+        const identified=candidates.filter(entry=>entry.STMB_sidePromptRegeneration?.templateKey===history.templateKey
+            && entry.STMB_sidePromptRegeneration?.chatId===history.chatId);
+        if(identified.length>1)throw sidePromptHistoryError();
+        if(identified.length===1)return {versions,latest:identified[0],legacy:identified[0]};
     }
     return { versions, latest: null, legacy: null };
 }

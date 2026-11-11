@@ -5,6 +5,8 @@ import { captureSettingsForm, acknowledgeSettingsControl, changedSettingsForm } 
 import { titleFormatLabel } from './lore-native-title.js';
 import { createHomeContext } from './lore-native-home.js';
 import { advanceCollectionCheckpoint, nextCollectionRange } from './lore-native-progress.js';
+import {COLLECTION_UNDO_PENDING,planCollectionUndo,saveCollectionUndo} from './lore-collection-undo.js';
+import {matchesRange as matchesUndoSource} from './lore-core.js';
 import { createConnectionPicker } from './lore-native-connection.js';
 import { organizeMemoryBooks, restoreFeatureButtons } from './lore-fork-layout.js';
 import { generateProfileKey } from './utils.js';
@@ -60,6 +62,7 @@ import {
 import { createMemory, parseAIJsonResponse } from "./stmemory.js";
 import {
   addMemoryToLorebook,
+  saveSidePromptLorebookChecked,
   DEFAULT_LOREBOOK_ENTRY_SETTINGS,
   getDefaultTitleFormats,
   getAutoHideRanges,
@@ -503,7 +506,7 @@ async function handleSetHighestMemoryProcessedCommand(namedArgs, unnamedArgs) {
  * @returns {boolean} True if memory creation is in progress
  */
 export function isMemoryProcessing() {
-  return !!globalThis.archiveLoreMigrating || isProcessingMemory || hasActiveStmbJobs(getStmbChatKey());
+  return !!globalThis.archiveLoreUndoing || !!globalThis.archiveLoreMigrating || isProcessingMemory || hasActiveStmbJobs(getStmbChatKey());
 }
 
 export { currentProfile };
@@ -5791,11 +5794,12 @@ async function executeMemoryGeneration(
               characterMemoryResultsByLorebookName: characterFocusedMemories?.characterMemoryResultsByLorebookName,
             },
           )
-        : await addMemoryToLorebook(
-            finalMemoryResult,
-            lorebookValidation,
-            automaticGroupAddOptions,
-          );
+        : await withStmbWriteLane({type:'lorebook',name:lorebookValidation.name},async()=>{
+            const data=await loadWorldInfo(lorebookValidation.name);
+            if(!data?.entries)throw Error('저장할 로어북을 다시 불러오지 못했어.');
+            if(!settings.moduleSettings.allowSceneOverlap && findOverlappingMemoryInLorebook(data,sceneData))throw Error('수집 중 같은 범위의 기억이 저장됐어. 중복 저장을 멈췄어.');
+            return addMemoryToLorebook(finalMemoryResult,{...lorebookValidation,data},automaticGroupAddOptions);
+          });
 
     if (!addResult.success) {
       throw new Error(addResult.error || "Failed to add memory to lorebook");
@@ -7023,6 +7027,7 @@ async function showConsolidationRecoveryPopup() {
 }
 
 async function initiateMemoryCreation(selectedProfileIndex = null) {
+  if(globalThis.archiveLoreUndoing){toastr.info('되돌리기가 끝난 뒤 수집해 줘.','Archive Lore');return false;}
   if(globalThis.archiveLoreMigrating){toastr.info('이관이 끝난 뒤 수집해 줘.','Archive Lore');return false;}
   const reminderChatKey = getStmbChatKey();
   if (guardPendingProgress()) return false;
@@ -8175,6 +8180,7 @@ function populateInlineButtons() {
       connection:createConnectionPicker({settings,profiles:extension_settings.connectionManager?.profiles || [],service:getContext().ConnectionManagerRequestService,save:saveSettingsDebounced,compact:true}),
     }),
     'al-native-collect': async () => {try {return await collectNextArchiveLore();} finally {await refreshPopupContent();}},
+    'al-native-undo': undoLastArchiveCollection,
     'al-native-range': () => globalThis.archiveLoreSearch.openRange(),
     'al-native-consolidate': () => showSummaryConsolidationPopup({ showGoBack: true }),
     'al-native-books': () => globalThis.archiveLoreSearch.openRecords(),
@@ -12889,6 +12895,82 @@ function getMemoryRollbackChatId() {
   return String(getCurrentChatId() || getCurrentStmbChatRef()?.chatId || getCurrentStmbChatRef()?.fileName || "").trim();
 }
 
+async function undoLastArchiveCollection() {
+  const search=globalThis.archiveLoreSearch;
+  if(!search)throw Error('아카이브 로어가 준비된 뒤 다시 눌러 줘.');
+  if(isMemoryProcessing() || getStmbInFlightCount() || search.controller.state().busy || (streamingProcessor && !streamingProcessor.isFinished))
+    throw Error('진행 중인 생성·수집·사이드 작업이 끝난 뒤 되돌려 줘.');
+  const context=getContext(),chatKey=getStmbChatKey(),chatId=getMemoryRollbackChatId();
+  if(!chatId || !chat.length)throw Error('대화가 있는 채팅방에서 열어 줘.');
+  if(typeof context.saveChat!=='function')throw Error('대화 저장 기능을 확인할 수 없어. 실리태번을 새로고침해 줘.');
+  const assertCurrent=()=>{if(getStmbChatKey()!==chatKey || getMemoryRollbackChatId()!==chatId)throw Error('채팅이 바뀌어서 되돌리기를 멈췄어. 원래 채팅에서 다시 열어 줘.');};
+  globalThis.archiveLoreUndoing=true;
+  try {
+    await search.controller.restore?.(true,false);assertCurrent();
+    if(search.controller.state().busy)throw Error('서버 작업이 아직 진행 중이야. 완료하거나 중지한 뒤 되돌려 줘.');
+    const settings=initializeSettings(),markers=getSceneMarkers();
+    const manager=await import('./sidePromptsManager.js');
+    const names=new Set([...getCurrentChatLorebookNames(settings),...search.books()]);
+    for(const name of Object.values(markers.sidePromptLorebookOverrides || {}))if(name && name!=='__memory__' && world_names.includes(name))names.add(name);
+    for(const tpl of await manager.listTemplates()) {
+      const name=tpl.settings?.lorebook?.targetLorebookName;if(name && world_names.includes(name))names.add(name);
+    }
+    let books=[];
+    for(const name of names){assertCurrent();books.push({name,data:await search.loadBook(name)});}
+    const pending=books.map(b=>b.data[COLLECTION_UNDO_PENDING]).find(p=>p?.chatKey===chatKey);
+    let receipt,states;
+    if(pending) {
+      receipt=pending;
+      for(const name of receipt.books)if(!names.has(name)){books.push({name,data:await search.loadBook(name)});names.add(name);}
+      if(books.some(b=>b.data[COLLECTION_UNDO_PENDING]?.chatKey===chatKey && b.data[COLLECTION_UNDO_PENDING].id!==receipt.id))throw Error('중단된 되돌리기 정보가 여러 개라서 먼저 확인이 필요해.');
+    } else {
+      const plan=planCollectionUndo(books,{chatId,messages:chat,checkpoint:markers.highestMemoryProcessed});
+      const node=document.createElement('div');
+      const title=document.createElement('h3');title.textContent='직전 수집 되돌리기';
+      const note=document.createElement('p');note.textContent=`#${plan.range.start}–#${plan.range.end} 수집을 되돌립니다. 아래 항목은 로어북에서도 삭제·복원되고, 이 범위의 대화 숨김을 해제합니다. 대화 원문은 삭제하지 않습니다. 나눠 수집은 마지막 범위만 대상입니다.`;
+      const list=document.createElement('ul');for(const row of plan.rows){const li=document.createElement('li');li.textContent=`${row.action} · ${row.title || '제목 없음'} (${row.book})`;list.append(li);}
+      node.append(title,note,list);
+      const popup=new Popup(node,POPUP_TYPE.CONFIRM,'',{okButton:'되돌리기',cancelButton:'취소',wide:true,allowVerticalScrolling:true});markStmbPopup(popup);
+      if(await popup.show()!==POPUP_RESULT.AFFIRMATIVE)return;
+      assertCurrent();
+      if(getStmbInFlightCount() || hasActiveStmbJobs(chatKey) || search.controller.state().busy || (streamingProcessor && !streamingProcessor.isFinished))throw Error('새 작업이 시작돼서 되돌리기를 멈췄어. 완료 후 다시 눌러 줘.');
+      if(!matchesUndoSource(plan.source,chat))throw Error('확인 중 대화가 수정됐어. 다시 열어서 확인해 줘.');
+      receipt={id:globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`,chatKey,chatId,source:plan.source,
+        checkpoint:plan.checkpoint,previousCheckpoint:markers.highestMemoryProcessed??null,books:plan.states.map(s=>s.name)};
+      states=plan.states;
+      for(const s of states) {
+        if(s.data[COLLECTION_UNDO_PENDING])throw Error('이 책에 다른 채팅의 중단된 되돌리기가 있어. 해당 채팅에서 먼저 완료해 줘.');
+        s.data[COLLECTION_UNDO_PENDING]=receipt;
+      }
+      await withLorebookWriteLanes(states.map(s=>s.name),()=>saveCollectionUndo(states,{load:search.loadBook,save:search.saveBook,assertCurrent}));
+    }
+    assertCurrent();
+    if(!matchesUndoSource(receipt.source,chat))throw Error('대화가 수정돼서 숨김·수집 위치 복원을 멈췄어. 로어북 되돌리기 결과는 저장되어 있어.');
+    const current=markers.highestMemoryProcessed??null;
+    if(current!==receipt.previousCheckpoint && current!==receipt.checkpoint && !(current===null&&receipt.checkpoint<0))throw Error('수집 위치가 변경돼서 자동 복원을 멈췄어.');
+    invalidatePendingProgress();
+    if(receipt.checkpoint<0)delete markers.highestMemoryProcessed;else markers.highestMemoryProcessed=receipt.checkpoint;
+    delete markers.highestMemoryProcessedManuallySet;
+    await context.saveMetadata();assertCurrent();
+    await executeSlashCommands(`/unhide ${receipt.source.start}-${receipt.source.end}`);assertCurrent();
+    await context.saveChat();assertCurrent();
+    // Tiny in-book receipt survives a failed chat save/unhide. A second click resumes
+    // that operation instead of deleting the previous collection as well.
+    await withLorebookWriteLanes(receipt.books,async()=>{
+      const cleanup=[];
+      for(const name of receipt.books){assertCurrent();const originalData=await search.loadBook(name);
+        if(originalData[COLLECTION_UNDO_PENDING]?.id!==receipt.id)continue;
+        const data=structuredClone(originalData);delete data[COLLECTION_UNDO_PENDING];cleanup.push({name,data,originalData});}
+      await saveCollectionUndo(cleanup,{load:search.loadBook,save:search.saveBook,assertCurrent});
+    });
+    assertCurrent();
+    search.controller.clearRecall();search.clearPrompts();search.controller.invalidateEmbeddingCounts?.();
+    clearAutoSummaryState();refreshMemoryBoundaryUi();
+    for(const name of receipt.books)try{await reloadEditor(name);}catch(e){console.warn('Archive Lore: undo editor refresh failed',e);}
+    toastr.success('직전 수집을 되돌렸어. 로어북과 수집 위치에 반영했어.','Archive Lore');
+  } finally {globalThis.archiveLoreUndoing=false;await refreshPopupContent();}
+}
+
 function getLorebookDataFingerprint(data) {
   return fingerprintRollbackEntry(data);
 }
@@ -14927,7 +15009,7 @@ $(document).ready(() => {
 // Narrow bridge: the fork uses the original workflows rather than reimplementing them.
 if (globalThis.archiveLoreFork) globalThis.archiveLoreMemoryBooks = {
   initialize: init, open: showSettingsPopup, settings: initializeSettings, busy: isMemoryProcessing,
-  collect: collectNextArchiveLore, collectRange: runSceneMemoryRange, catchup: handleStmbCatchupCommand, stop: stmbStopAllInFlight,
+  collect: collectNextArchiveLore, collectRange: runSceneMemoryRange, catchup: handleStmbCatchupCommand, undo: undoLastArchiveCollection, stop: stmbStopAllInFlight,
   route: getArchiveLoreBookRoute,
   books: () => [...getCurrentChatLorebookNames(initializeSettings())],
   refresh: refreshPopupContent,

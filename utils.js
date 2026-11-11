@@ -1602,6 +1602,7 @@ export function throwIfStmbStopped(epoch) {
  * - Call `throwIfStopped()` before applying any results.
  */
 export function createStmbInFlightTask(label = 'STMB') {
+    if(globalThis.archiveLoreUndoing)throw new StmbCancelledError('직전 수집 되돌리기가 진행 중이야. 완료 후 다시 실행해 줘.');
     const id = stmbInFlightNextId++;
     const epoch = stmbStopEpoch;
     const controller = new AbortController();

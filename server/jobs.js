@@ -9,6 +9,7 @@ import { createDiagnostics } from '../lore-diagnostics.js';
 import { diagnosticFiles,diagnosticStream } from './diagnostics.js';
 import { normalizeSettings,NS,sourceRange,matchesRange,estimateTokens } from '../lore-core.js';
 import { embed,completionText } from '../lore-api.js';
+import { normalizeCompletionRequest } from '../completionCompatibility.js';
 globalThis.crypto ||= webcrypto;
 export function createJobService({sanitize,ask,embedRequest=embed}) {
     const users=new Map(),vectorStores=new Map(),exports=new Map();
@@ -91,7 +92,7 @@ export function createJobService({sanitize,ask,embedRequest=embed}) {
             newEntry:data=>{const uid=Math.max(-1,...Object.keys(data.entries).map(Number))+1;return data.entries[uid]={...input.entryTemplate,uid,key:[],keysecondary:[],comment:'',content:'',constant:false,vectorized:false,disable:false};},
             store:s.vectors,embed:embedRequest,
             ask:async(profile,system,data,signal,tokens)=>{const template=profile===config.searchProfile&&config.searchProfile?input.templates.search:input.templates.collection;
-                return completionText(await ask(s.user,{...template,stream:false,temperature:.2,max_tokens:tokens,max_completion_tokens:undefined,max_output_tokens:undefined,max_new_tokens:undefined,json_schema:undefined,messages:[{role:'system',content:system},{role:'user',content:JSON.stringify(data)}]},signal));},
+                return completionText(await ask(s.user,normalizeCompletionRequest({...template,stream:false,temperature:.2,max_tokens:tokens,max_completion_tokens:undefined,max_output_tokens:undefined,max_new_tokens:undefined,json_schema:undefined,messages:[{role:'system',content:system},{role:'user',content:JSON.stringify(data)}]}),signal));},
             countTokens:async text=>estimateTokens(text),diagnostics,profileInfo:()=>Object.entries(input.templates||{}).map(([role,p])=>({role,model:p.model,source:p.chat_completion_source})),
             hideRange:async(range)=>{const chat=readChat(s,input),source=sourceRange(chat.messages,range.start,range.end);for(let i=range.start;i<=range.end;i++)chat.lines[chat.offset+i].is_system=true;
                 if(fs.readFileSync(chat.file,'utf8')!==chat.raw)throw Error('채팅 파일이 바뀌어서 숨기기를 멈췄어.');backup(s,job,chat.file,chat.raw);atomic(chat.file,chat.lines.map(l=>JSON.stringify(l)).join('\n')+'\n');job.hidden.push(source);save(s,job);},

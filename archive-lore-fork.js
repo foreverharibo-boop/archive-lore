@@ -1,7 +1,7 @@
 // Archive Lore, based on Memory Books by Aiko Hanasaki — AGPL-3.0-only.
 import { getContext, extension_settings } from '../../../extensions.js';
 import { eventSource, event_types, saveSettingsDebounced } from '../../../../script.js';
-import { Popup, POPUP_TYPE } from '../../../popup.js';
+import { Popup, POPUP_TYPE, POPUP_RESULT } from '../../../popup.js';
 import { SlashCommandParser } from '../../../slash-commands/SlashCommandParser.js';
 import { SlashCommand } from '../../../slash-commands/SlashCommand.js';
 import { SlashCommandArgument, ARGUMENT_TYPE } from '../../../slash-commands/SlashCommandArgument.js';
@@ -10,6 +10,7 @@ import { shouldIndexBookUpdate } from './lore-automation.js';
 import { createSearchToolsPanel } from './lore-native-tools.js';
 import { applyNativeTheme } from './lore-native-preferences.js';
 import { installSettingsHelp } from './lore-help.js';
+import { createCollectionResultPopup, createCollectionCompletionNotifier } from './lore-collection-status.js';
 
 globalThis.archiveLoreFork=true;
 await import('./index.build.js');
@@ -86,6 +87,17 @@ function setup(){
     if(!search()){setTimeout(setup,50);return;}
     search().openTools=openTools;
     search().openRecords=openRecords;search().openRange=openRange;
+    let resultPanel=null;
+    const completion=createCollectionCompletionNotifier({
+        currentKey:()=>native.collectionKey(),readResult:()=>native.collectionResult(),busy:()=>native.busy(),onError:fail,
+        open:async(snapshot,key)=>{
+            const {panel,popup}=createCollectionResultPopup({search:search(),native,snapshot,key,createPopup:themedPopup,
+                affirmative:POPUP_RESULT.AFFIRMATIVE,openRecords});
+            resultPanel=panel;
+            try{await popup.show();}finally{panel.dispose();if(resultPanel===panel)resultPanel=null;}
+        },
+    });
+    native.collectionUpdated=()=>{resultPanel?.refresh();completion.check();};
     const container=document.createElement('div');container.className='extension_container al-fork-settings';
     container.innerHTML='<div class="inline-drawer"><div class="inline-drawer-toggle inline-drawer-header"><b>Archive Lore</b><div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div></div><div class="inline-drawer-content"><p>메모리북의 수집·관리 기능과 아카이브 검색을 함께 사용합니다.</p><button type="button" class="menu_button" data-home>기능별 메뉴 열기</button><button type="button" class="menu_button" data-search>검색·임베딩 설정</button></div></div>';
     container.querySelector('[data-home]').textContent='아카이브 로어 열기';
@@ -96,7 +108,7 @@ function setup(){
     eventSource.on(event_types.GENERATION_STARTED,(_type,_options,dryRun)=>{if(!dryRun)generating=true;});
     eventSource.on(event_types.GENERATION_ENDED,()=>{generating=false;queueIndex();});
     eventSource.on(event_types.GENERATION_STOPPED,()=>{generating=false;indexPending=false;clearTimeout(indexTimer);native.stop();});
-    eventSource.on(event_types.CHAT_CHANGED,()=>{indexPending=false;clearTimeout(indexTimer);});
+    eventSource.on(event_types.CHAT_CHANGED,()=>{indexPending=false;clearTimeout(indexTimer);native.collectionUpdated?.();});
     for(const [name,fn,help] of [['al',()=>native.open(),'아카이브 로어 기능별 메뉴'],['al-embed',()=>search().controller.index(),'남은 기억 임베딩'],['al-recall',()=>search().controller.recall(),'기억 검색 미리보기'],['al-stop',()=>{native.stop();search().controller.cancel();},'수집·검색 작업 중지']])SlashCommandParser.addCommandObject(SlashCommand.fromProps({name,helpString:help,callback:async()=>{await fn();return '';}}));
     for(const name of ['al-collect','al-catchup'])SlashCommandParser.addCommandObject(SlashCommand.fromProps({
         name,helpString:name==='al-collect'?'기억 수집. 선택 범위: /al-collect 0-19':'나눠 수집: /al-catchup 0-245 40',

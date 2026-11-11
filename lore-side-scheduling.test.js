@@ -14,7 +14,7 @@ function harness() {
   hasPendingProgress:()=>false,hasActiveStmbJobs:()=>busy,retryAutoSummaryAfterJobIdle:async()=>{},
   console,translate:s=>s,
  };
- vm.createContext(scope);vm.runInContext(extract('handleMessageReceived',true)+'\n'+extract('handleStmbJobStateChanged'),scope);
+ vm.createContext(scope);vm.runInContext(extract('notifyCollectionCompletion')+'\n'+extract('handleMessageReceived',true)+'\n'+extract('handleStmbJobStateChanged'),scope);
  return {scope,calls,set busy(v){busy=v},stop(){epoch++},changeChat(){key='other'}};
 }
 test('independent interval follows the memory eligibility check when no memory is due',async()=>{

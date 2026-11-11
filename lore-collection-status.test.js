@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {recordCollectionResult,collectionResult,dismissCollectionResult,markDeferredCollectionHideDone,collectionResultLines,createCollectionStatusPanel} from './lore-collection-status.js';
+import {recordCollectionResult,collectionResult,dismissCollectionResult,markDeferredCollectionHideDone,collectionResultLines,createCollectionStatusPanel,createCollectionCompletionNotifier} from './lore-collection-status.js';
 
 test('only saved memories create queued cards; other chats and uncommitted failures do not leak',()=>{
     const memory={id:'memory',chatKey:'queue',type:'memory',createdAt:10,state:'completed',range:{sceneStart:0,sceneEnd:19},result:{memorySaved:true,memoryCount:2,autoHide:{status:'failed'}}};
@@ -59,4 +59,17 @@ test('home reads counts without embedding and avoids rescanning on every progres
 test('slow count responses cannot paint another chat or a disposed home',async()=>{
     const f=fixture();f.key='b';f.resolve({embedded:9,pending:0});await new Promise(r=>setImmediate(r));
     f.panel.paint();assert.equal(f.panel.card.hidden,true);assert.equal(f.panel.status.hidden,true);f.panel.dispose();
+});
+test('completion opens once without a home, waits for side jobs and stays until explicitly resolved',async()=>{
+    let result={id:'first',complete:false,side:{pending:true}},busy=true,key='a',close;
+    const shown=[];
+    const notifier=createCollectionCompletionNotifier({readResult:()=>result,currentKey:()=>key,busy:()=>busy,open:async(r,k)=>{shown.push([r.id,k]);await new Promise(resolve=>close=resolve);}});
+    const tick=()=>new Promise(r=>setImmediate(r));
+    notifier.check();await tick();assert.equal(shown.length,0);
+    result.complete=true;busy=false;notifier.check();await tick();assert.equal(shown.length,0);
+    result.side.pending=false;notifier.check();await tick();assert.deepEqual(shown,[['first','a']]);
+    for(let i=0;i<50;i++)notifier.check();await tick();assert.equal(shown.length,1);
+    result={id:'next',complete:true,side:{}};notifier.check();await tick();assert.equal(shown.length,1);
+    close();await tick();assert.deepEqual(shown,[['first','a'],['next','a']]);
+    close();await tick();notifier.check();await tick();assert.equal(shown.length,2);
 });

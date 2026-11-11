@@ -3446,7 +3446,7 @@ Unset settings and the previous `append`/`update` values map to `continue`; prun
 
 Auto-hide runs after a memory is saved, not merely when its settings are changed. The keep count is reserved at the end of the collected scene. The settings action “저장된 수집 구간에 숨기기 지금 적용” can apply the current mode and count to an already collected range without requesting another AI summary. Hiding uses the host visibility/save function and verifies message flags. Failures are reported separately from successful memory storage. A failed hide/save is retried once immediately while the same chat remains active. If both attempts fail, a warning is shown and the pending save remains retryable even when the in-memory flags already look hidden. Successfully saved, already-hidden ranges are skipped, and a changed chat prevents hiding in a different chat.
 
-### Home status and collection result cards
+### Home status and collection completion popup
 
 The home screen keeps its existing destination, profile selection/edit/add and AI
 connection controls. Two read-only status labels below the next collection range
@@ -3454,10 +3454,16 @@ show retrieval activation and the number of pending lorebook embedding entries.
 Opening this screen only reads existing embedding presence; it never requests new
 embeddings. Progress notifications do not repeatedly scan the books.
 
-A small inline card below the collection action shows the most recent saved
-collection for the current chat during this browser session. Closing and reopening
-the home preserves it; reloading the browser clears these session receipts. This
-is not an automatic modal, a persistent audit log or a summary of an entire batch.
+A completion popup opens after a saved collection and its after-memory side jobs
+finish, even when the home is closed. It stays open until the user presses Close;
+there is no timeout, backdrop dismissal or Escape dismissal. The home contains no
+result card. Embedding status can continue updating inside the open popup without
+closing it. Each result is shown once per browser session. Later results wait
+while a completion popup is open; reloading clears session receipts. A result
+refers to one saved range, not the total of an entire catch-up batch.
+The popup is an independent host dialog over the chat, not content inside the
+Memory Books home. Its width fits the three compact action buttons with 6px gaps and 12px outer
+padding. View saved memories, Undo, and Close share a single row, including on mobile.
 It reports successful memory writes (including group copies), saved after-memory
 side outputs, side failures/pending work and the actual automatic hide outcome.
 Hidden counts mean newly hidden messages; the retained-message number is the
@@ -3467,5 +3473,5 @@ Embedding status is reported for the connected lorebooks, not just the latest
 collection. Disabled retrieval/automatic embedding, queued/running work and
 failures remain distinct. Deferred hides update after successful completion.
 The existing records view and confirmed last-collection undo are reused. Undo
-removes the card only on successful completion; changing chats never redirects an
-in-flight card action. Original-layout controls and collection prompts are unchanged.
+updates the popup to show the successful undo without closing it. Changing chats
+keeps the popup visible and disables its actions; it never redirects them. Original-layout controls and collection prompts are unchanged.

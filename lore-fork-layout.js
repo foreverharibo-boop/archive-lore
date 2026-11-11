@@ -84,7 +84,6 @@ export function organizeMemoryBooks(root, actions = {}, explicitContent = null) 
             control.removeAttribute('data-i18n');control.className='menu_button interactable al-feature-button';control.textContent=label;
             if(control.tagName!=='BUTTON'){control.setAttribute('role','button');control.tabIndex=0;control.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();control.click();}});}
             const card=document.createElement('div');card.className='al-feature-card';const desc=document.createElement('small');desc.textContent=help;card.append(control,desc);pane.append(card);
-            if(id==='al-native-collect' && actions['al-collection-result'])pane.append(actions['al-collection-result']());
         }
         panes.set(key,pane);home.append(pane);
     }

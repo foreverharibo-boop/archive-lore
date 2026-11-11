@@ -754,6 +754,14 @@ function getBranchLorebookController() {
 // Current state variables
 let currentPopupInstance = null;
 let collectionStatusPanel = null;
+function notifyCollectionCompletion(){
+  try{globalThis.archiveLoreMemoryBooks?.collectionUpdated?.();}
+  catch(error){console.warn('Collection completion display failed',error);}
+}
+function refreshCollectionStatus(){
+  collectionStatusPanel?.refresh();
+  notifyCollectionCompletion();
+}
 let isProcessingMemory = false;
 let isProcessingArc = false;
 let currentProfile = null;
@@ -1609,6 +1617,7 @@ async function handleMessageReceived() {
 }
 
 function handleStmbJobStateChanged() {
+  notifyCollectionCompletion();
   if (autoSummaryJobRetryInFlight) return;
   if (hasPendingProgress()) return;
   if (hasActiveStmbJobs(getStmbChatKey())) return;
@@ -5914,7 +5923,7 @@ async function executeMemoryGeneration(
       minTargetTier: 1,
       lorebookValidation,
     });
-    if(collectionReceipt){collectionReceipt.complete=true;collectionStatusPanel?.refresh();}
+    if(collectionReceipt){collectionReceipt.complete=true;refreshCollectionStatus();}
     return true;
   } catch (error) {
     if (isStmbStopError(error)) {
@@ -6045,7 +6054,7 @@ async function executeMemoryGeneration(
     }
     if(collectionReceipt){
       if(!collectionReceipt.complete){collectionReceipt.complete=true;collectionReceipt.interrupted=true;}
-      collectionStatusPanel?.refresh();
+      refreshCollectionStatus();
     }
   }
 }
@@ -6326,7 +6335,7 @@ async function flushDeferredQueuedAutoHideRanges() {
   try {
     await runAutoHideRangesForCurrentChat(ranges);
     deferredQueuedAutoHideRanges.delete(chatKey);
-    if(globalThis.archiveLoreFork){markDeferredCollectionHideDone(chatKey);collectionStatusPanel?.refresh();}
+    if(globalThis.archiveLoreFork){markDeferredCollectionHideDone(chatKey);refreshCollectionStatus();}
   } catch (error) {
     console.warn("STMemoryBooks: deferred queued auto-hide failed:", error);
     toastr.warning(`보류한 메시지 숨기기에 실패했습니다. ${error.message}`, 'Archive Lore');
@@ -7297,7 +7306,7 @@ async function initiateMemoryCreation(selectedProfileIndex = null) {
   } finally {
     // ALWAYS reset the flag, no matter how we exit
     isProcessingMemory = false;
-    collectionStatusPanel?.refresh();
+    refreshCollectionStatus();
     if (getStmbChatKey() === reminderChatKey) getMemoryReminderController().check({ notify: true });
   }
 }
@@ -8211,7 +8220,7 @@ function populateInlineButtons() {
   if(nativePreferences(settings).layout!=='original' && globalThis.archiveLoreSearch){
     collectionStatusPanel=createCollectionStatusPanel({
       search:globalThis.archiveLoreSearch,
-      readResult:()=>collectionResult(getStmbChatKey(),getCurrentStoreRows()),
+      readResult:()=>null,
       busy:()=>isMemoryProcessing()||getStmbInFlightCount()>0,
       subscribeJobs:subscribeToStmbJobs,
       openRecords:()=>globalThis.archiveLoreSearch.openRecords(),undo:undoLastArchiveCollection,
@@ -8246,7 +8255,6 @@ function populateInlineButtons() {
       connection:createConnectionPicker({settings,profiles:extension_settings.connectionManager?.profiles || [],service:getContext().ConnectionManagerRequestService,save:saveSettingsDebounced,compact:true}),
     }),
     'al-native-collect': async () => {try {return await collectNextArchiveLore();} finally {await refreshPopupContent();}},
-    'al-collection-result':()=>collectionStatusPanel?.card || document.createElement('span'),
     'al-native-undo': undoLastArchiveCollection,
     'al-native-range': () => globalThis.archiveLoreSearch.openRange(),
     'al-native-consolidate': () => showSummaryConsolidationPopup({ showGoBack: true }),
@@ -14215,7 +14223,7 @@ async function applyManualFixedJson(correctedRaw) {
     // ALWAYS reset the flag, no matter how we exit.
     // This clears the `isProcessingMemory` flag set inside the try block above.
     isProcessingMemory = false;
-    if(collectionReceipt){collectionReceipt.complete=true;collectionStatusPanel?.refresh();}
+    if(collectionReceipt){collectionReceipt.complete=true;refreshCollectionStatus();}
     if (getStmbChatKey() === reminderChatKey) getMemoryReminderController().check({ notify: true });
   }
 }
@@ -15134,5 +15142,8 @@ if (globalThis.archiveLoreFork) globalThis.archiveLoreMemoryBooks = {
   route: getArchiveLoreBookRoute,
   books: () => [...getCurrentChatLorebookNames(initializeSettings())],
   refresh: refreshPopupContent,
-  refreshHomeStatus:()=>collectionStatusPanel?.refresh(),
+  refreshHomeStatus:refreshCollectionStatus,
+  collectionResult:()=>collectionResult(getStmbChatKey(),getCurrentStoreRows()),
+  collectionKey:getStmbChatKey,
+  subscribeJobs:subscribeToStmbJobs,
 };

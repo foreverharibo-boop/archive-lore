@@ -62,7 +62,7 @@ export function collectionResultLines(result) {
     return lines;
 }
 
-export function createCollectionStatusPanel({ search, readResult, busy, subscribeJobs, openRecords, undo, document: doc = globalThis.document }) {
+export function createCollectionStatusPanel({ search, readResult, busy, subscribeJobs, openRecords, undo, retainResult = false, document: doc = globalThis.document }) {
     const key = search.context().key;
     let disposed = false, reading = false, rerun = false, counts = search.controller.cachedEmbeddingCounts?.() || null;
     let wasBusy = search.controller.state().busy;
@@ -81,21 +81,28 @@ export function createCollectionStatusPanel({ search, readResult, busy, subscrib
     };
     const view = button('저장된 기억 보기',openRecords), back = button('되돌리기',undo);
     function paint() {
-        if(!current()){status.hidden=true;card.hidden=true;return;}
+        if(!current()){
+            status.hidden=true;
+            if(retainResult && !disposed){view.disabled=true;back.disabled=true;notice.textContent='채팅이 변경되었습니다. 원래 채팅으로 돌아오면 결과 작업을 사용할 수 있습니다.';}
+            else card.hidden=true;
+            return;
+        }
+        if(retainResult && notice.textContent==='채팅이 변경되었습니다. 원래 채팅으로 돌아오면 결과 작업을 사용할 수 있습니다.')notice.textContent='';
         const config=search.settings(),state=search.controller.state(),auto=search.autoEmbeddingState;
         enabled.textContent=`검색·주입 ${config.enabled?'켜짐':'꺼짐'}`;
         pending.textContent=counts ? `임베딩 대기 ${counts.pending}개` : '임베딩 개수 확인 중…';
         const result=readResult();card.hidden=!result;if(!result)return;
-        title.textContent=result.complete && !result.side?.pending ? '최근 수집 결과' : '기억 저장 완료 · 후속 작업 중';
+        title.textContent=result.undone?'수집 되돌림':result.complete && !result.side?.pending ? '수집 완료' : '기억 저장 완료 · 후속 작업 중';
+        if(result.interrupted || result.side?.failed || result.side?.interrupted)title.textContent='수집 결과 · 확인 필요';
         if(result.range)title.textContent+=` · #${result.range.sceneStart}–#${result.range.sceneEnd}`;
-        lines.replaceChildren();for(const text of collectionResultLines(result)){const p=doc.createElement('p');p.textContent=text;lines.append(p);}
+        lines.replaceChildren();for(const text of result.undone?['직전 수집을 되돌렸습니다.']:collectionResultLines(result)){const p=doc.createElement('p');p.textContent=text;lines.append(p);}
         embedding.textContent=!config.enabled?'자동 임베딩 미실행 · 검색·주입 꺼짐':config.autoEmbed===false?'자동 임베딩 꺼짐':
             state.busy && /^임베딩/.test(state.status)?'임베딩 진행 중':
             counts?.pending===0?'연결된 로어북 임베딩 완료':
             auto?.key===key && auto.status==='failed'?'자동 임베딩 실패 · 남은 임베딩에서 다시 실행할 수 있습니다.':
             auto?.key===key && auto.status==='cancelled'?'자동 임베딩 중단':
             counts?'임베딩 대기 중':'임베딩 상태 확인 중…';
-        view.disabled=acting;back.disabled=acting||busy()||state.busy||!result.complete||!!result.side?.pending;
+        view.disabled=acting;back.disabled=acting||busy()||state.busy||!result.complete||!!result.side?.pending||!!result.undone;
     }
     async function refresh() {
         paint();if(!current()||search.controller.state().busy||busy())return;
@@ -108,4 +115,53 @@ export function createCollectionStatusPanel({ search, readResult, busy, subscrib
     const stopJobs=subscribeJobs?.(()=>{const now=busy(),finished=wasNativeBusy&&!now;wasNativeBusy=now;paint();if(finished)void refresh();});
     paint();void refresh();
     return { status, card, refresh, paint, dispose(){disposed=true;stopSearch?.();stopJobs?.();} };
+}
+
+// Completion notices run independently of the home screen and never block a
+// collection/embedding task while waiting for the user's explicit close.
+export function createCollectionResultPopup({search,native,snapshot,key,createPopup,affirmative,openRecords}) {
+    let undone=false;
+    const readResult=()=>{
+        const latest=native.collectionKey()===key?native.collectionResult():null;
+        return {...(latest?.id===snapshot.id?latest:snapshot),undone};
+    };
+    const panel=createCollectionStatusPanel({search,readResult,busy:()=>native.busy(),subscribeJobs:native.subscribeJobs,
+        openRecords,retainResult:true,
+        undo:async()=>{
+            if(native.collectionKey()!==key || native.collectionResult()?.id!==snapshot.id)
+                throw Error('더 최근 수집이 있거나 채팅이 변경되었습니다. 원래 채팅의 되돌리기 메뉴에서 확인해 주세요.');
+            await native.undo();undone=native.collectionResult()?.id!==snapshot.id;
+        },
+    });
+    panel.card.classList.add('al-collection-result-popup');
+    const popup=createPopup(panel.card,{okButton:'닫기',cancelButton:false,allowVerticalScrolling:true,
+        onClosing:closing=>closing.result===affirmative});
+    popup.dlg.classList.add('al-collection-completion');
+    // Keep the host close button and its keyboard/click handlers in the same row.
+    panel.card.querySelector('.al-range-actions').append(popup.okButton);
+    popup.dlg.addEventListener('cancel',event=>{event.preventDefault();event.stopImmediatePropagation();},true);
+    return {panel,popup};
+}
+
+export function createCollectionCompletionNotifier({readResult,currentKey,busy,open,onError=()=>{}}) {
+    const seen=new Set(),waiting=new Map();let active=false,scheduled=false;
+    const token=(key,result)=>JSON.stringify([key,result.id]);
+    function check(){
+        const key=currentKey(),result=readResult();
+        if(result?.complete && !result.side?.pending && !result.undone){
+            const id=token(key,result);
+            if(!seen.has(id))waiting.set(id,{key,result:structuredClone(result)});
+        }
+        if(!scheduled){scheduled=true;queueMicrotask(()=>{scheduled=false;void pump();});}
+    }
+    async function pump(){
+        if(active||busy())return;
+        const next=[...waiting].find(([,item])=>item.key===currentKey());if(!next)return;
+        const [id,item]=next;waiting.delete(id);seen.add(id);
+        if(seen.size>100)seen.delete(seen.values().next().value);
+        active=true;
+        try{await open(item.result,item.key);}catch(error){onError(error);}
+        finally{active=false;check();}
+    }
+    return {check};
 }

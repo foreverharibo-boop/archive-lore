@@ -14,14 +14,26 @@ import {FEATURE_GROUPS,organizeMemoryBooks,restoreFeatureButtons} from '/lore-fo
 import {createConnectionPicker} from '/lore-native-connection.js';
 import {createHomeContext} from '/lore-native-home.js';
 import {createSearchToolsPanel} from '/lore-native-tools.js';
-import {createCollectionStatusPanel} from '/lore-collection-status.js';
+import {createCollectionStatusPanel,createCollectionCompletionNotifier,createCollectionResultPopup} from '/lore-collection-status.js';
 window.mountCollectionStatus=()=>{
  const listeners=new Set();window.statusKey='chat';window.statusReads=0;window.statusRecord=null;window.statusCounts={embedded:20,pending:3};window.statusBusy=false;
  window.statusSearch={context:()=>({key:statusKey}),settings:()=>({enabled:true,autoEmbed:true}),subscribe:fn=>{listeners.add(fn);return()=>listeners.delete(fn);},controller:{state:()=>({busy:statusBusy,status:statusBusy?'임베딩 진행 중':''}),embeddingCounts:async()=>{statusReads++;return statusCounts;}}};
  window.statusEmit=()=>listeners.forEach(fn=>fn());
- window.statusPanel=createCollectionStatusPanel({search:statusSearch,readResult:()=>statusRecord,busy:()=>false,openRecords:async()=>window.statusViewed=true,undo:async()=>{statusRecord=null;},document});
- document.querySelector('.al-next-collection').append(statusPanel.status);document.querySelector('#al-native-collect').parentElement.after(statusPanel.card);
- document.querySelector('#al-native-collect').addEventListener('click',()=>{statusRecord={complete:true,range:{sceneStart:2106,sceneEnd:2119},memoryCount:1,side:{updated:2,failed:0},hide:{status:'done',changed:6,keep:8}};statusPanel.paint();});
+ window.statusPanel=createCollectionStatusPanel({search:statusSearch,readResult:()=>null,busy:()=>false,document});
+ document.querySelector('.al-next-collection').append(statusPanel.status);
+ const native={collectionKey:()=>statusKey,collectionResult:()=>statusRecord,busy:()=>false,undo:async()=>{statusRecord=null;}};
+ const createPopup=(content,options)=>{
+   const dlg=document.createElement('dialog');dlg.className='al-fork-surface';dlg.style.cssText='width:min(440px,calc(100% - 24px));box-sizing:border-box;border:1px solid var(--SmartThemeBorderColor);border-radius:12px;padding:18px;background:var(--SmartThemeBlurTintColor);color:var(--SmartThemeBodyColor)';
+   const close=document.createElement('button');close.textContent=options.okButton;close.className='menu_button';dlg.append(content,close);document.body.append(dlg);
+   let resolve;const popup={dlg,okButton:close,result:null,show:()=>{dlg.showModal();return new Promise(r=>resolve=r);},complete:result=>{popup.result=result;if(options.onClosing(popup)!==false){dlg.close();dlg.remove();resolve(result);}}};
+   close.onclick=()=>popup.complete(1);dlg.addEventListener('cancel',()=>popup.complete(null));dlg.addEventListener('click',e=>{if(e.target===dlg)popup.complete(null);});return popup;
+ };
+ window.statusNotifier=createCollectionCompletionNotifier({readResult:()=>statusRecord,currentKey:()=>statusKey,busy:()=>false,open:async(snapshot,key)=>{
+   const {panel,popup}=createCollectionResultPopup({search:statusSearch,native,snapshot,key,createPopup,affirmative:1,openRecords:async()=>window.statusViewed=true});
+   window.resultPanel=panel;try{await popup.show();}finally{panel.dispose();}
+ }});
+ window.finishCollection=()=>{statusRecord={id:'result',complete:true,range:{sceneStart:2106,sceneEnd:2119},memoryCount:1,side:{updated:2,failed:0},hide:{status:'done',changed:6,keep:8}};statusNotifier.check();};
+ document.querySelector('#al-native-collect').addEventListener('click',finishCollection);
 };
 import {mountSideAutoToggle} from '/lore-native-side-toggle.js';
 import {nativePreferences,createNativePreferences,appendOriginalTools,applyNativeTheme} from '/lore-native-preferences.js';
@@ -274,15 +286,33 @@ try{
         await page.setViewportSize({width,height:900});await page.goto('http://127.0.0.1:'+server.address().port);await page.waitForFunction(()=>window.ready);
         await page.evaluate(()=>mountCollectionStatus());await page.getByText('임베딩 대기 3개',{exact:true}).waitFor();
         assert(await page.locator('#al-quick-profile').isVisible());assert(await page.locator('#al-home-connection').isVisible());
-        assert.equal(await page.locator('.al-collection-result').isVisible(),false);
+        assert.equal(await page.locator('#content .al-collection-result').count(),0);
         await page.getByRole('button',{name:'지금 수집',exact:true}).click();await page.getByText('기억 1개 저장 · 사이드 2개 갱신',{exact:true}).waitFor();
+        assert(await page.locator('dialog[open]').isVisible());
+        const buttonRects=await page.locator('dialog[open] .al-range-actions .menu_button').evaluateAll(items=>items.map(el=>{const r=el.getBoundingClientRect();return {top:r.top,right:r.right};}));
+        assert.equal(buttonRects.length,3);assert(buttonRects.every(r=>Math.abs(r.top-buttonRects[0].top)<1),'all three actions must share one row');
+        assert(buttonRects.every(r=>r.right<=width));
+        assert((await page.locator('dialog[open]').boundingBox()).width<=270,'completion popup must be compact');
+        const actionSpacing=await page.locator('dialog[open]').evaluate(dlg=>{
+            const buttons=[...dlg.querySelectorAll('.al-range-actions .menu_button')].map(el=>el.getBoundingClientRect());
+            const box=dlg.getBoundingClientRect(),style=getComputedStyle(dlg);
+            return {gaps:buttons.slice(1).map((rect,i)=>rect.left-buttons[i].right),extra:box.right-buttons.at(-1).right-parseFloat(style.paddingRight)-parseFloat(style.borderRightWidth)};
+        });
+        assert(actionSpacing.gaps.every(gap=>Math.abs(gap-6)<1),'button gaps must stay at 6px');
+        assert(Math.abs(actionSpacing.extra)<1,'popup must fit the button row without trailing empty space');
+        await page.keyboard.press('Escape');await page.mouse.click(1,1);assert(await page.locator('dialog[open]').isVisible());
+        assert.equal(await page.locator('#content .al-collection-result').count(),0);
         await page.getByRole('button',{name:'저장된 기억 보기',exact:true}).click();assert.equal(await page.evaluate(()=>statusViewed),true);
         await page.evaluate(()=>{statusBusy=true;statusEmit();});assert(await page.getByRole('button',{name:'되돌리기',exact:true}).isDisabled());
         await page.evaluate(()=>{statusBusy=false;statusCounts={embedded:23,pending:0};statusEmit();});await page.getByText('연결된 로어북 임베딩 완료',{exact:true}).waitFor();
         assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
         await page.screenshot({path:'/tmp/collection-status-'+width+'.png',fullPage:true});
-        await page.getByRole('button',{name:'되돌리기',exact:true}).click();assert.equal(await page.locator('.al-collection-result').isVisible(),false);
+        await page.getByRole('button',{name:'되돌리기',exact:true}).click();await page.getByText('직전 수집을 되돌렸습니다.',{exact:true}).waitFor();
+        assert(await page.locator('dialog[open]').isVisible());
+        await page.getByRole('button',{name:'닫기',exact:true}).click();assert.equal(await page.locator('dialog[open]').count(),0);
+        await page.evaluate(()=>{finishCollection();document.querySelector('#content').hidden=true;statusRecord={...statusRecord,id:'next'};statusNotifier.check();});
+        await page.locator('dialog[open]').waitFor();await page.getByRole('button',{name:'닫기',exact:true}).click();
         await page.evaluate(()=>statusPanel.dispose());
     }
-    assert.deepEqual(errors,[]);console.log('Fork home: profiles preserved, inline receipts, embedding updates, undo and mobile/desktop passed.');
+    assert.deepEqual(errors,[]);console.log('Collection completion popup: explicit close, no home card, background completion, embedding updates and mobile/desktop passed.');
 }finally{await browser.close();server.close();}

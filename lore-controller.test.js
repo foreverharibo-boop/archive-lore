@@ -22,14 +22,14 @@ function fixture() {
         set key(v){key=v;},set failSave(v){failSave=v;},set failEmbed(v){failEmbed=v;},set config(v){config={...config,...v};}};
 }
 const memory=()=>JSON.stringify({entries:[{title:'병원 약속',content:'두 사람은 병원에 함께 가기로 약속했다.',keywords:['병원']}],sideChanges:[]});
-for(const mode of ['dialogue','questions','embedding'])test(`selection emphasis reaches only the selector in ${mode} mode without extra calls`,async()=>{
+for(const mode of ['dialogue','questions','embedding'])test(`selection focus reaches search, selection and response in ${mode} mode without extra completions`,async()=>{
     const f=fixture();f.config={mode,selectionFocus:['affection','meaning'],prompts:{select:'My custom selector'},injectionTokens:500};
     f.book={entries:{0:{uid:0,comment:'Hospital visit',content:'They went to the hospital together. She thanked him for staying.'}}};
     f.messages.splice(0,f.messages.length,{name:'A',is_user:true,mes:'Why was that hospital visit special?'});
     let planners=0,selectors=0;
     f.host.ask=async(_p,system,data)=>{
         if(system.includes('"questions":')){
-            planners++;assert(!system.includes('MEMORY SELECTION EMPHASIS'));assert(!('selectionFocus' in data));
+            planners++;assert(!system.includes('MEMORY SELECTION EMPHASIS'));assert.deepEqual(data.selectionFocus,['affection','meaning']);assert.match(system,/FOCUSED MEMORY SEARCH/);
             return '{"questions":["What happened at the hospital?"]}';
         }
         selectors++;assert(system.startsWith('My custom selector'));assert.match(system,/Affection and emotions/);assert.match(system,/Meaning and relationship changes/);
@@ -39,6 +39,7 @@ for(const mode of ['dialogue','questions','embedding'])test(`selection emphasis 
     };
     await f.controller.index();const indexed=f.calls.filter(x=>x==='document').length;
     const result=await f.controller.recall();assert(result.text.includes('thanked him'));assert(result.tokens<=500);
+    assert.equal(!!result.guidance,mode!=='embedding');
     assert.equal(selectors,mode==='embedding'?0:1);assert.equal(planners,mode==='questions'?1:0);
     assert.equal(f.calls.filter(x=>x==='document').length,indexed);
 });
@@ -386,4 +387,40 @@ test('English event anchors reach the selector when all vector lanes prefer unre
     const result=await f.controller.recall();
     assert.match(result.text,/2031-06-20/);assert.match(result.text,/thirty-minute/);assert.match(result.text,/fifteen minutes/);
     assert(!result.text.includes('sofa'));
+});
+
+test('same request carries different category evidence and response direction, then clearing fully restores requests',async()=>{
+    const f=fixture();f.config={mode:'questions',injectionTokens:1000};
+    f.messages.splice(0,f.messages.length,{is_user:true,mes:'What do you remember about the hospital visit?'});
+    f.book={entries:{0:{uid:0,comment:'Visit',content:'They visited the hospital. She thanked him for staying. They carried a blue umbrella.'}}};
+    const asks=[],queries=[];
+    f.host.embed=async(_c,text,query)=>{if(query)queries.push(text);return [1,0];};
+    f.host.ask=async(_p,system,data)=>{
+        asks.push({system,data});
+        if(system.includes('"questions":'))return JSON.stringify({questions:data.selectionFocus?['What happened at the hospital?','Which recorded details explain this hospital visit?']:['What happened at the hospital?']});
+        const word=data.selectionFocus?.includes('affection')?'thanked':data.selectionFocus?.includes('details')?'umbrella':'visited';
+        const unit=data.memories.find(u=>u.text.includes(word));
+        return JSON.stringify({selections:[{id:unit.id,priority:3,reason:'Answers the visit request',focusMatches:data.selectionFocus||[]}]});
+    };
+    await f.controller.index();
+    const baseline=await f.controller.recall(),baselineRequests=structuredClone(asks),baselineQueries=[...queries];
+    asks.length=0;queries.length=0;f.config={selectionFocus:['affection']};const feelings=await f.controller.recall();
+    assert.match(feelings.text,/thanked/);assert.match(feelings.guidance,/expressed feelings/);
+    assert.match(asks[0].system,/FOCUSED MEMORY SEARCH/);assert(queries.some(q=>q.includes('Which recorded details')));
+    assert.equal(asks.length,2);
+    f.config={selectionFocus:['details']};const details=await f.controller.recall();
+    assert.match(details.text,/umbrella/);assert.match(details.guidance,/distinctive places/);assert.notEqual(feelings.text,details.text);
+    f.config={selectionFocus:[]};asks.length=0;queries.length=0;const cleared=await f.controller.recall();
+    assert.deepEqual(cleared,baseline);assert.deepEqual(asks,baselineRequests);assert.deepEqual(queries,baselineQueries);
+});
+test('checked aspects cannot turn an empty question plan into retrieval or guidance',async()=>{
+    const f=fixture();f.config={mode:'questions',selectionFocus:['affection']};
+    f.book={entries:{0:{uid:0,content:'They visited the hospital.'}}};await f.controller.index();
+    f.replies.push('{"questions":[]}');const result=await f.controller.recall();
+    assert.equal(result.text,'');assert(!result.guidance);assert.equal(f.calls.filter(c=>c==='query').length,0);
+});
+test('changing categories during a noncooperative local selector rejects its stale result',async()=>{
+    const f=fixture();f.config={selectionFocus:['affection']};f.book={entries:{0:{uid:0,content:'She thanked him.'}}};await f.controller.index();
+    f.host.ask=async()=>{f.config={selectionFocus:['details']};return '{"selections":[{"id":"u0","priority":3,"reason":"gratitude"}]}';};
+    await assert.rejects(f.controller.recall(),/설정이 바뀌/);assert.equal(f.controller.state().lastRecall,null);
 });

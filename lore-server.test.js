@@ -195,3 +195,21 @@ test('recall diagnostics distinguish result receipt, synchronization and client 
     assert.equal(events.find(e=>e.stage==='server.result-received').data.serverFinished,'2031-01-01T00:00:01Z');
     assert.deepEqual(events.find(e=>e.stage==='server.recall').data.timings.clientStages,stages);
 });
+
+for(const focus of [[],['affection'],['details']])test(`server client refits separate guidance with the actual tokenizer for ${focus}`,async()=>{
+    const settings={mode:'dialogue',selectionFocus:focus,injectionTokens:500};
+    const messages=[{is_user:true,mes:'What happened at the hospital?'}];
+    const units=[{id:'u0',entryId:'visit',title:'Hospital',text:'She thanked him for staying.',index:0,priority:3}];
+    const controller=createServerController({local:{},enabled:()=>true,settings:()=>settings,context:()=>({key:'chat',messages}),
+        input:async()=>({settings:structuredClone(settings),context:{messages}}),sync:async()=>{},countTokens:async text=>Math.ceil(text.length/3),
+        call:async route=>route==='/jobs/list'?[]:route==='/jobs'?{id:'job',status:'queued'}:{id:'job',kind:'recall',status:'completed',result:{core:'',lastRecall:{units,records:[],timings:{}}}}});
+    const result=await controller.recall();assert(result.text.includes('thanked'));assert.equal(!!result.guidance,!!focus.length);assert(result.tokens<=500);
+    if(focus.length){assert.equal(controller.state().lastRecall.guidance,result.guidance);assert(result.tokens>result.memoryTokens);}
+});
+test('server client rejects a result from categories changed after submission',async()=>{
+    let settings={selectionFocus:['affection']};const messages=[{is_user:true,mes:'Remember?'}];
+    const controller=createServerController({local:{},enabled:()=>true,settings:()=>settings,context:()=>({key:'chat',messages}),
+        input:async()=>({settings:structuredClone(settings),context:{messages}}),sync:async()=>{},countTokens:async()=>1,
+        call:async route=>{if(route==='/jobs/list')return [];if(route==='/jobs')return {id:'job',status:'queued'};settings={selectionFocus:[]};return {id:'job',kind:'recall',status:'completed',result:{lastRecall:{units:[],records:[]}}};}});
+    await assert.rejects(controller.recall(),/설정이 바뀌/);assert.equal(controller.state().lastRecall,null);
+});

@@ -42,8 +42,8 @@ export function rankAnchors(chunks, queries) {
 }
 
 // Reciprocal ranks combine separate searches without letting any one long older message win by max similarity.
-export function rankFocusedChunks(chunks, { focus = [], context = [], questions = [] }, queryTexts = []) {
-    const lanes = [['focus',focus,.65],['questions',questions,.25],['context',context,.1]].filter(([,q])=>q.length);
+export function rankFocusedChunks(chunks, { focus = [], context = [], questions = [], emphasis = [] }, queryTexts = []) {
+    const lanes = (emphasis.length ? [['focus',focus,.5],['questions',questions,.2],['context',context,.1],['emphasis',emphasis,.2]] : [['focus',focus,.65],['questions',questions,.25],['context',context,.1]]).filter(([,q])=>q.length);
     const rows = new Map();
     for (const [lane, vectors, weight] of lanes) {
         const ranked = rankChunks(chunks, vectors, chunks.length);
@@ -94,7 +94,19 @@ export function chooseCandidates(ranked, limit, mode = 'dialogue') {
     for (const row of ranked) { if (selected.length>=limit) break; add(row,true); }
     // A small book or a single long event may legitimately need more than two chunks.
     for (const row of ranked) { if (selected.length>=limit) break; add(row,false); }
-    return selected;
+    const emphasized=ranked.filter(r=>r.emphasisRank).sort((a,b)=>a.emphasisRank-b.emphasisRank);
+    if(!emphasized.length || limit<2)return selected;
+    // Retain most direct-request candidates; reserve at most a third for the
+    // selected aspects, so they cannot disappear under the original query lane.
+    const quota=Math.max(1,Math.floor(limit/3)),result=selected.slice(0,limit-quota);
+    const used=new Set(result.map(chunkKey)),entries=new Set();let added=0;
+    for(const row of emphasized){
+        if(added>=quota || result.length>=limit)break;
+        if(used.has(chunkKey(row))||entries.has(row.id))continue;
+        result.push(row);used.add(chunkKey(row));entries.add(row.id);added++;
+    }
+    for(const row of selected){if(result.length>=limit)break;if(!used.has(chunkKey(row))){result.push(row);used.add(chunkKey(row));}}
+    return result;
 }
 
 // Keep the saved chat intact for receipts/stale checks; exclude only the assistant being replaced.

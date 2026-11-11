@@ -13,7 +13,7 @@ test('real RP stop listener cancels before recall finishes, blocks stale injecti
         generationInFlight:false,autoTimer:null,autoPending:true,writing:false,
         settings:()=>({enabled:true,mode:'questions'}),books:()=>['book'],chatContext:()=>({key:'chat',messages:[]}),
         diagnostics:{begin:()=>trace},getContext:()=>({setExtensionPrompt:(_key,text)=>injections.push(text)}),
-        extension_prompt_types:{IN_CHAT:1},PROMPT:'recalled',CORE_PROMPT:'core',
+        extension_prompt_types:{IN_CHAT:1},PROMPT:'recalled',GUIDANCE_PROMPT:'guidance',CORE_PROMPT:'core',
         controller:{recall:()=>{entered();return gate;},cancel:()=>cancels++,clearRecall(){},markInjected(){},state:()=>({})},
         clearPrompts(){},clearTimeout(){},scheduleAutomatic:()=>schedules++,error:()=>assert.fail('silent cancellation'),
         ui:{refresh:async()=>{}},eventSource:{on:(name,fn)=>listeners.set(name,fn)},
@@ -31,4 +31,25 @@ test('real RP stop listener cancels before recall finishes, blocks stale injecti
     resolve(result);await pending;assert.deepEqual(injections,[]);assert.equal(scope.pendingGeneration,null);
     listeners.get('start')('normal',{},false);await scope.intercept([],0,()=>{},'normal');
     assert(injections.includes('Fact'));assert(scope.pendingGeneration);
+});
+
+test('real prompt hook separates guidance, clears it on the next empty recall and blocks midflight setting changes',async()=>{
+    const slots=new Map(),events=[],errors=[];let current={enabled:true,mode:'questions',selectionFocus:['affection']},result={books:['book'],selected:new Set(['e']),text:'Past fact',core:'Core',guidance:'Response direction'};
+    const scope={Date,DOMException,Set,Error,pendingGeneration:null,generationEpoch:0,generationStopped:false,writing:false,
+        settings:()=>current,books:()=>['book'],chatContext:()=>({key:'chat',messages:[]}),
+        diagnostics:{begin:()=>({finish:async()=>{},event:async(stage,data)=>events.push({stage,data})})},
+        getContext:()=>({setExtensionPrompt:(key,text)=>slots.set(key,text)}),extension_prompt_types:{IN_CHAT:1},
+        PROMPT:'recalled',GUIDANCE_PROMPT:'guidance',CORE_PROMPT:'core',error:e=>errors.push(e),
+        controller:{recall:async()=>result,markInjected(){},state:()=>({})}};
+    vm.createContext(scope);
+    vm.runInContext(source.slice(source.indexOf('function clearPrompts('),source.indexOf('\nfunction error(')),scope);
+    vm.runInContext(source.slice(source.indexOf('async function intercept('),source.indexOf('\nfunction nativePolicy(')),scope);
+    await scope.intercept([],0,()=>assert.fail(),'normal');
+    assert.equal(slots.get('guidance'),'Response direction');assert.equal(slots.get('recalled'),'Past fact');
+    assert(events.find(e=>e.stage==='injection.installed').data.slots.some(s=>s.name==='guidance'&&s.text==='Response direction'));
+    current={...current,selectionFocus:[]};result={books:['book'],selected:new Set(),text:'',core:'Core'};
+    await scope.intercept([],0,()=>assert.fail(),'normal');assert.equal(slots.get('guidance'),'');assert.equal(slots.get('recalled'),'');
+    scope.controller.recall=async()=>{current={...current,selectionFocus:['details']};return {...result,text:'Stale',guidance:'Stale'};};
+    let aborted=false;await scope.intercept([],0,()=>aborted=true,'normal');
+    assert(aborted);assert.equal(slots.get('guidance'),'');assert.equal(slots.get('recalled'),'');assert.match(errors.at(-1).message,/설정이 바뀌/);
 });

@@ -77,6 +77,11 @@ test('server recall preserves selection emphasis in persisted jobs, AI requests 
     assert.equal(result.status,'completed',result.message);assert(result.result.text.includes('grateful'));assert.equal(f.calls.length,1);
     const saved=json(path.join(f.root,'archive-lore-server','jobs',job.id+'.json'));
     assert.deepEqual(saved.input.settings.selectionFocus,['affection','meaning']);
+    assert.match(result.result.guidance,/response guidance, not past facts/);
+    assert.equal(saved.result.guidance,result.result.guidance);
+    assert.equal(saved.result.lastRecall.guidance,result.result.guidance);
+    assert(result.result.tokens<=3000);
+    assert(result.result.tokens>result.result.memoryTokens);
     const logs=await f.service.logs(f.user,'test-key');
     assert(logs.some(r=>r.events.some(e=>e.stage==='selection.plan'&&e.data.selectionFocus.join(',')==='affection,meaning')));
 });

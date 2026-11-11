@@ -1,7 +1,7 @@
 // Archive Lore modifications Copyright (C) 2026 foreverharibo-boop
 // SPDX-License-Identifier: AGPL-3.0-only
 import { NS, normalizeSettings, sourceRange, matchesRange, validReceipts, nextStart,
-    entryAvailable, isCore, entryId, embeddingChunks, estimateTokens, recentDialogue, parseJson, rankChunks,
+    entryAvailable, isCore, entryId, embeddingChunks, estimateTokens, boundedText, recentDialogue, parseJson, rankChunks,
     parseCollection, reviewUnits, selectedUnits, fitInjection, materializeEntry,
     sideRecords, parseSideChanges, applySideChanges, sideSnapshot, parseStoryDate, currentStoryDate } from './lore-core.js';
 import { enabledSides, sideInstructions } from './lore-side-config.js';
@@ -9,7 +9,8 @@ import { automaticReady, collectedHideRanges } from './lore-automation.js';
 import { consolidationView, maintenanceRequest, maintenanceResult } from './lore-maintenance.js';
 import { digest, embeddingKey, makeId } from './lore-api.js';
 import { retrievalFocus, rankFocusedChunks, chooseCandidates, recallMessages, reviewCandidates, reviewBatches, selectorMemories } from './lore-retrieval.js';
-import { selectionFocusPrompt } from './lore-selection-focus.js';
+import { selectionFocusPrompt, focusQuestionPrompt, focusSearchQuery, orderFocusedUnits } from './lore-selection-focus.js';
+import { fitFocusedInjection } from './lore-focus-injection.js';
 import { withAbort } from './lore-cancellation.js';
 
 const COLLECTION_SCHEMA = `Return ONLY JSON:
@@ -255,12 +256,17 @@ export function createLoreController(host) {
             if (config.mode === 'questions') {
                 notify('최근 대화에서 검색 질문 만드는 중');
                 const raw = parseJson(await askTracked(config.searchProfile || config.profile,
-                    config.prompts.questions + '\nReturn ONLY JSON: {"questions":["question"]}.', { latestUser:focus.latestUser, dialogue: recent.text }, signal, 1200, 'questionMs'));
+                    config.prompts.questions + focusQuestionPrompt(config.selectionFocus) + '\nReturn ONLY JSON: {"questions":["question"]}.', { latestUser:focus.latestUser, dialogue: recent.text, ...(config.selectionFocus.length?{selectionFocus:config.selectionFocus}:{}) }, signal, 1200, 'questionMs'));
                 if (!Array.isArray(raw.questions) || raw.questions.length > 4 || raw.questions.some(q => typeof q !== 'string' || q.length > 2000))
                     throw new Error('검색 질문 형식이 올바르지 않아.');
                 questions = raw.questions.filter(q => q.trim());
             }
-            await log('search.queries',{mode:config.mode,queries:config.mode==='questions'?questions:config.mode==='embedding'?[recent.text]:[focus.latestUser,focus.context],latestUser:focus.latestUser,context:focus.context,policy:config.mode==='embedding'?'cosine-similarity':(config.mode==='questions'?'event-anchors-v3':'latest-user-reserved-v1')});
+            const emphasisQueries=config.mode==='embedding'||!config.selectionFocus.length ? [] : config.mode==='questions' ?
+                (questions.length>1 ? questions.slice(1) : questions.length ? [focusSearchQuery(config.selectionFocus,boundedText(questions[0],600))] : []) :
+                [focusSearchQuery(config.selectionFocus,boundedText(focus.latestUser+'\n'+focus.context,600))].filter(Boolean);
+            const directQuestions=emphasisQueries.length&&config.mode==='questions'?questions.slice(0,1):questions;
+            const retrievalPolicy=emphasisQueries.length?'focus-aspects-v1':config.mode==='embedding'?'cosine-similarity':config.mode==='questions'?'event-anchors-v3':'latest-user-reserved-v1';
+            await log('search.queries',{mode:config.mode,emphasisQueries,selectionFocus:config.selectionFocus,queries:config.mode==='questions'?questions:config.mode==='embedding'?[recent.text]:[focus.latestUser,focus.context],latestUser:focus.latestUser,context:focus.context,policy:retrievalPolicy});
             const chunks = [], cacheStatus=[]; let pending = 0;
             // A planner that needs no past facts should not launch fallback searches and selectors.
             const needsRecall=config.mode!=='questions'||questions.length>0;
@@ -283,11 +289,11 @@ export function createLoreController(host) {
                     return result;
                 };
                 const plain=config.mode==='embedding';
-                const lanes = plain ? {context:await vectors([recent.text])} : {focus:await vectors([focus.latestUser]),questions:await vectors(questions),context:await vectors([focus.context])};
-                const ranked=plain ? rankChunks(chunks,lanes.context,chunks.length) : rankFocusedChunks(chunks,lanes,questions.length ? questions : [focus.latestUser]);
+                const lanes = plain ? {context:await vectors([recent.text])} : {focus:await vectors([focus.latestUser]),questions:await vectors(directQuestions),context:await vectors([focus.context]),emphasis:await vectors(emphasisQueries)};
+                const ranked=plain ? rankChunks(chunks,lanes.context,chunks.length) : rankFocusedChunks(chunks,lanes,directQuestions.length ? directQuestions : [focus.latestUser]);
                 const candidates=plain ? ranked.slice(0,config.candidateCount) : chooseCandidates(ranked,config.candidateCount,config.mode); candidateTotal = candidates.length;
                 const candidateKeys=new Set(candidates.map(c=>JSON.stringify([c.id,c.index])));
-                await log('search.ranking',{indexedChunks:chunks.length,missingChunks:pending,queryDimensions:[...queryCache.values()].map(v=>v.length),policy:plain?'cosine-similarity':(config.mode==='questions'?'event-anchors-v3':'latest-user-reserved-v1'),ranked:ranked.map(({vector,cacheKey,...item},index)=>({...item,rank:index+1,offered:candidateKeys.has(JSON.stringify([item.id,item.index]))})),notRanked:chunks.filter(c=>!ranked.some(r=>r.id===c.id&&r.index===c.index)).map(c=>({entryId:c.id,chunk:c.index,reason:'non-positive similarity or incompatible vector dimensions'}))});
+                await log('search.ranking',{indexedChunks:chunks.length,missingChunks:pending,queryDimensions:[...queryCache.values()].map(v=>v.length),policy:retrievalPolicy,ranked:ranked.map(({vector,cacheKey,...item},index)=>({...item,rank:index+1,offered:candidateKeys.has(JSON.stringify([item.id,item.index]))})),notRanked:chunks.filter(c=>!ranked.some(r=>r.id===c.id&&r.index===c.index)).map(c=>({entryId:c.id,chunk:c.index,reason:'non-positive similarity or incompatible vector dimensions'}))});
                 if (plain) {
                     // Whole original chunks, in similarity order. No planner, selector or lexical fallback.
                     const groups=candidates.map(c=>{
@@ -310,7 +316,7 @@ export function createLoreController(host) {
                                 { latestUser:focus.latestUser, dialogue: recent.text, questions, memories: selectorMemories(batch),
                                     batch:index+1,batchCount:batches.length,maxSelections:24,injectionBudgetTokens:config.injectionTokens,
                                     ...(config.selectionFocus.length?{selectionFocus:config.selectionFocus}:{}) }, signal, 3000);
-                            try { accepted=selectedUnits(response,batch);break; }
+                            try { accepted=selectedUnits(response,batch,config.selectionFocus);break; }
                             catch(error) {
                                 signal.throwIfAborted();
                                 await log('selection.invalid',{batch:index+1,attempt:attempt+1,message:error.message,response});
@@ -321,20 +327,22 @@ export function createLoreController(host) {
                         await log('selection.validated',{batch:index+1,batchCount:batches.length,maxSelections:24,offered:batch,rawResponse:response,accepted,rejectedOrUnselected:batch.filter(u=>!accepted.some(a=>a.id===u.id))});
                         selected.push(...accepted);
                     }
-                    // Direct answers precede supporting context; keep the AI's order within each priority.
-                    const beforeBudget=selected.sort((a,b)=>b.priority-a.priority);
-                    fitted = await fitInjection(beforeBudget, config.injectionTokens, host.countTokens);
-                    await log('injection.budget',{policy:'selection-priority-v1',limit:config.injectionTokens,tokens:fitted.tokens,kept:fitted.units,dropped:beforeBudget.filter(u=>!fitted.units.some(k=>k.id===u.id))});
+                    // Direct facts precede support; checked aspects group matching events within each priority.
+                    const beforeBudget=orderFocusedUnits(selected.sort((a,b)=>b.priority-a.priority),config.selectionFocus);
+                    fitted = await fitFocusedInjection(beforeBudget, config, host.countTokens);
+                    await log('injection.budget',{policy:config.selectionFocus.length?'focused-event-priority-v1':'selection-priority-v1',limit:config.injectionTokens,tokens:fitted.tokens,kept:fitted.units,dropped:beforeBudget.filter(u=>!fitted.units.some(k=>k.id===u.id))});
                 }
             }
             assertCurrent(snapshot, signal);
             if (JSON.stringify(snapshot.messages) !== JSON.stringify(host.context().messages)) throw new Error('검색 중 대화가 바뀌었어. 다시 시도해 줘.');
+            const current=settings();
+            if(current.mode!==config.mode || JSON.stringify(current.selectionFocus)!==JSON.stringify(config.selectionFocus))throw new Error('검색 중 기억 선별 설정이 바뀌어서 주입하지 않았어. 다시 시도해 줘.');
             timings.totalMs=Date.now()-started;timings.otherMs=Math.max(0,timings.totalMs-timings.questionMs-timings.embeddingMs-timings.selectionMs);
             await log('recall.timing',timings);
             assertCurrent(snapshot, signal);
             lastRecall = { ...fitted, timings:{...timings}, questions: config.mode === 'questions' ? questions : [], pending,
-                candidateTotal, core, records:rows.filter(r=>isCore(r.entry)||fitted.units.some(u=>u.entryId===r.id)),shortened: recent.shortened, mode: config.mode, time: new Date().toISOString() };
-            await log('injection.prepared',{core,recalled:fitted.text,tokens:fitted.tokens,selected:fitted.units,pending,candidateTotal});
+                candidateTotal, core, selectionFocus:config.selectionFocus, emphasisQueries, records:rows.filter(r=>isCore(r.entry)||fitted.units.some(u=>u.entryId===r.id)),shortened: recent.shortened, mode: config.mode, time: new Date().toISOString() };
+            await log('injection.prepared',{core,recalled:fitted.text,guidance:fitted.guidance||'',guidanceTokens:fitted.guidanceTokens||0,guidanceOmitted:fitted.guidanceOmitted,tokens:fitted.tokens,selected:fitted.units,pending,candidateTotal});
             notify(`회상 완료 · ${(timings.totalMs/1000).toFixed(1)}초 · ${fitted.tokens}토큰${pending ? ` · 미임베딩 ${pending}구간` : ''}`);
             return { ...fitted, core, selected: new Set(fitted.units.map(u => u.entryId)), books: host.books() };
         }, options.kind || 'preview', options.trace);

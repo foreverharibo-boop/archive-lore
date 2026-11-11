@@ -197,3 +197,13 @@ test('revision-three defaults migrate without overwriting customized prompts or 
     const custom=normalizeSettings({promptRevision:3,prompts:{questions:'My custom questions',select:'My custom selector'}});
     assert.equal(custom.prompts.questions,'My custom questions');assert.equal(custom.prompts.select,'My custom selector');
 });
+
+test('aspect lane reserves missing event coverage while preserving direct-request candidates',()=>{
+    const rows=Array.from({length:30},(_,i)=>({id:'event-'+i,index:0,focusRank:i+1,questionsRank:i+1,emphasisRank:i===29?1:i+2}));
+    const baseline=chooseCandidates(rows.map(({emphasisRank,...row})=>row),12,'questions');
+    assert(!baseline.some(c=>c.id==='event-29'));
+    const focused=chooseCandidates(rows,12,'questions');
+    assert.equal(focused.length,12);assert(focused.some(c=>c.id==='event-29'));
+    assert.deepEqual(focused.slice(0,8).map(c=>c.id),baseline.slice(0,8).map(c=>c.id));
+    assert.equal(new Set(focused.map(c=>c.id)).size,12);
+});

@@ -30,6 +30,19 @@ import { fingerprintRollbackEntry } from './memoryRollback.js';
 
 const MODULE_NAME = 'STMemoryBooks-AddLore';
 
+/** Append to the editor's custom order independently of title numbering and prompt priority. */
+function createLorebookEntryAtEnd(name, data) {
+    let lastIndex = -1;
+    for (const existing of Object.values(data?.entries || {})) {
+        let index = Number(existing.displayIndex ?? existing.uid);
+        if (!Number.isFinite(index)) index = Number(existing.uid);
+        if (Number.isFinite(index)) lastIndex = Math.max(lastIndex, index);
+    }
+    const entry = createWorldInfoEntry(name, data);
+    if (entry) entry.displayIndex = lastIndex + 1;
+    return entry;
+}
+
 /** Save a staged side-prompt update and publish it only after SillyTavern accepts it. */
 export async function saveSidePromptLorebookChecked(name, data) {
     if(globalThis.archiveLoreUndoing)throw Error('직전 수집 되돌리기가 진행 중이라 저장을 멈췄어. 완료 후 다시 실행해 줘.');
@@ -533,7 +546,7 @@ export function applyLorebookEntrySettings(entry, lorebookSettings = {}, options
 
     entry.addMemo = true;
     entry.ignoreBudget = normalized.ignoreBudget;
-    entry.displayIndex = orderNumber;
+    // Display order belongs to entry creation; settings updates preserve its place.
     entry.stmemorybooks = true;
 
     return { orderNumber, lorebookSettings: normalized };
@@ -598,7 +611,7 @@ export async function addMemoryToLorebook(memoryResult, lorebookValidation, opti
             }
             : memoryResult;
 
-        const newEntry = createWorldInfoEntry(lorebookValidation.name, lorebookValidation.data);
+        const newEntry = createLorebookEntryAtEnd(lorebookValidation.name, lorebookValidation.data);
 
         if (!newEntry) {
             throw new Error(i18n('addlore.errors.createEntryFailed', 'Failed to create new lorebook entry'));
@@ -1339,7 +1352,7 @@ export async function upsertLorebookEntriesBatch(lorebookName, lorebookData, ite
         let historyCreated = false;
         let historyPriorEntry = undefined;
         if (sidePromptHistory) {
-            const resolved = applySidePromptHistory(lorebookData, title, sidePromptHistory, entry, () => createWorldInfoEntry(lorebookName, lorebookData));
+            const resolved = applySidePromptHistory(lorebookData, title, sidePromptHistory, entry, () => createLorebookEntryAtEnd(lorebookName, lorebookData));
             entry = resolved.entry;
             historyCreated = resolved.created;
             historyPriorEntry = resolved.priorEntry;
@@ -1350,7 +1363,7 @@ export async function upsertLorebookEntriesBatch(lorebookName, lorebookData, ite
         let created = historyCreated;
 
         if (!entry) {
-            entry = createWorldInfoEntry(lorebookName, lorebookData);
+            entry = createLorebookEntryAtEnd(lorebookName, lorebookData);
             if (!entry) {
                 throw new Error(i18n('addlore.upsert.errors.createFailed', 'Failed to create lorebook entry'));
             }
@@ -1464,7 +1477,7 @@ export async function upsertLorebookEntryByTitle(lorebookName, lorebookData, tit
     let historyCreated = false;
     let historyPriorEntry = undefined;
     if (sidePromptHistory) {
-        const resolved = applySidePromptHistory(lorebookData, title, sidePromptHistory, entry, () => createWorldInfoEntry(lorebookName, lorebookData));
+        const resolved = applySidePromptHistory(lorebookData, title, sidePromptHistory, entry, () => createLorebookEntryAtEnd(lorebookName, lorebookData));
         entry = resolved.entry;
         historyCreated = resolved.created;
         historyPriorEntry = resolved.priorEntry;
@@ -1475,7 +1488,7 @@ export async function upsertLorebookEntryByTitle(lorebookName, lorebookData, tit
     let created = historyCreated;
 
     if (!entry) {
-        entry = createWorldInfoEntry(lorebookName, lorebookData);
+        entry = createLorebookEntryAtEnd(lorebookName, lorebookData);
         if (!entry) {
                 throw new Error(i18n('addlore.upsert.errors.createFailed', 'Failed to create lorebook entry'));
         }

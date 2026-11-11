@@ -72,7 +72,7 @@ test('side updates preserve unrelated facts, category history, and no-op byte id
     applySideChanges([entry],[],source,()=>{throw Error('no create');},()=> 'new');assert.equal(JSON.stringify(entry),old);
     applySideChanges([entry],[change],source,()=>{throw Error('no create');},()=> 'new');
     assert.equal(entry[NS].facts[1].text,'금요일에는 전화하기.');assert.equal(entry[NS].history[0].content,JSON.parse(old).content);
-    assert(SIDE_PROMPT.includes('이번 대화에서 언급하지 않았다는 이유로'));
+    assert(SIDE_PROMPT.includes('Unmentioned facts remain unchanged.'));
 });
 test('a forked chat sees the previous side version when later branch evidence differs',()=>{
     const different=[...messages,{mes:'cancel'}], newer=sourceRange(different,2,2);

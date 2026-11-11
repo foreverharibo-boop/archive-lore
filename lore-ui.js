@@ -117,7 +117,7 @@ export function createLoreUI(api) {
             return `<details class="al-record" data-record="${escape(row.id)}"><summary><span>${escape(e.comment || '제목 없음')}</span><small>${side?'사이드':isCore(e)?'코어':'기억'}</small></summary>
             <div class="al-record-body"><span class="al-muted">${escape(row.book)}</span>
             ${check('core','코어 · 항상 주입',isCore(e))}
-            ${side ? (e[NS].facts || []).map(f=>`<textarea class="text_pole" data-fact="${escape(f.id)}">${escape(f.text)}</textarea>`).join('') : `<textarea class="text_pole" name="content">${escape(e.content)}</textarea>`}
+            ${side === 'relationship' ? `<strong>${escape(e.content)}</strong>${field('관계 명칭', input('relationshipLabel', e[NS].facts?.[0]?.text || 'Undefined'))}${field('기간 기준', select('relationshipKind', [['start','관계 시작'],['breakup','이별'],['reunion','재회'],['other','기타']], e[NS].facts?.[0]?.relationship?.kind || 'other'))}${field('시작일 · 미상은 빈칸', input('relationshipSince', e[NS].facts?.[0]?.relationship?.since || '', 'date'))}${field('현재 RP 날짜', input('relationshipToday', e[NS].storyDate || '', 'date'))}` : side ? (e[NS].facts || []).map(f=>`<textarea class="text_pole" data-fact="${escape(f.id)}">${escape(f.text)}</textarea>`).join('') : `<textarea class="text_pole" name="content">${escape(e.content)}</textarea>`}
             ${button('save-record','저장')}
             ${e[NS]?.history?.length ? `<details><summary>변경 전 기록 (${e[NS].history.length})</summary>${[...e[NS].history].reverse().map(h=>`<pre>${escape(h.content)}</pre>`).join('')}</details>`:''}
             </div></details>`;
@@ -166,7 +166,8 @@ export function createLoreUI(api) {
                     const node=b.closest('[data-record]');
                     await api.saveRecord(node.dataset.record,{core:node.querySelector('[name="core"]').checked,
                         content:node.querySelector('[name="content"]')?.value,
-                        facts:[...node.querySelectorAll('[data-fact]')].map(e=>({id:e.dataset.fact,text:e.value}))});break;
+                        facts:[...node.querySelectorAll('[data-fact]')].map(e=>({id:e.dataset.fact,text:e.value})),
+                        relationship: node.querySelector('[name="relationshipLabel"]') ? { label:node.querySelector('[name="relationshipLabel"]').value, kind:node.querySelector('[name="relationshipKind"]').value, since:node.querySelector('[name="relationshipSince"]').value || null, today:node.querySelector('[name="relationshipToday"]').value || null } : null});break;
                 }
             }
             await refresh();

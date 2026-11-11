@@ -3,12 +3,14 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { createRequire } from 'node:module';
 import { webcrypto } from 'node:crypto';
+import { Readable } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
 import { createJobService } from './jobs.js';
 import { invokeBackend } from './backend.js';
 import { embed } from '../lore-api.js';
 import { normalizeSettings } from '../lore-core.js';
 export const info={id:'archive-lore-server',name:'Archive Lore Server',description:'Persistent Archive Lore jobs and server-side embeddings.'};
-export const VERSION='0.3.11';
+export const VERSION='0.3.12';
 export async function init(router) {
     globalThis.crypto ||= webcrypto;
     const require=createRequire(path.join(process.cwd(),'package.json'));
@@ -41,5 +43,18 @@ export function registerRoutes(router,service,embedding=embed) {
     });
     route('/vectors/get',async(user,body)=>{if(typeof body.key!=='string'||body.key.length>100000)throw Error('잘못된 벡터 키야.');return {vector:await service.vectors(user).get(body.key)};});
     route('/vectors/put',async(user,body)=>{if(typeof body.key!=='string'||body.key.length>100000||!Array.isArray(body.vector)||!body.vector.length||body.vector.length>16384||!body.vector.every(Number.isFinite)||body.vector.every(v=>v===0))throw Error('잘못된 벡터야.');await service.vectors(user).put(body.key,body.vector);return {ok:true};});
-    route('/logs',(user,body)=>service.logs(user,body.chatKey));
+    route('/logs/list',(user,body)=>service.logList(user,body.chatKey));
+    // Keep /logs compatible with older clients, but stream instead of res.json
+    // constructing another copy of all diagnostic bodies in the server heap.
+    for(const url of ['/logs','/logs/export'])router.post(url,async(req,res)=>{
+        if(!req.user?.profile?.handle||!req.user?.directories?.root)return res.status(401).json({error:'실리태번 로그인이 필요해.'});
+        try {
+            const stream=await service.logStream(req.user,req.body?.chatKey,req.body?.mode||'all');
+            res.type(url==='/logs'?'application/json':'text/plain');
+            await pipeline(Readable.from(stream),res);
+        } catch(error) {
+            if(!res.headersSent&&!res.destroyed)res.status(400).json({error:error.message});
+            else if(!res.destroyed)res.destroy(error);
+        }
+    });
 }

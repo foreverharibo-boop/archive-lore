@@ -46,8 +46,12 @@ export function createDiagnosticStore(factory = indexedDB) {
 export function createDiagnostics({ store, secrets = () => [], warning = () => {} }) {
     const memory = new Map();let queue = Promise.resolve(), warned = false;
     const persist = run => {
-        const snapshot = redact(structuredClone(run), secrets());memory.set(run.id, snapshot);
-        queue = queue.then(() => store.put(snapshot)).catch(() => {
+        // redact already builds a detached snapshot. Retain only unsaved data;
+        // persisted runs remain available from the store after a reload/export.
+        const snapshot = redact(run, secrets());memory.set(run.id, snapshot);
+        queue = queue.then(() => store.put(snapshot)).then(() => {
+            if(memory.get(run.id)===snapshot)memory.delete(run.id);
+        }).catch(() => {
             if (!warned) warning('진단 기록을 브라우저에 저장하지 못했어. 창을 닫기 전에 TXT로 내려받아 줘.');
             warned = true;
         });

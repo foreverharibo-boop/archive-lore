@@ -23,7 +23,24 @@ function fixture(t){
     return {root,user,file,book,messages,writeChat,replies,calls,service,input,dependencies};
 }
 const jsonLines=file=>fs.readFileSync(file,'utf8').trim().split('\n').map(l=>JSON.parse(l));
+async function readLogs(service,user,key){let text='';for await(const chunk of await service.logStream(user,key))text+=chunk;return JSON.parse(text);}
 const memory=()=>JSON.stringify({entries:[{title:'Hospital',content:'They agreed to visit and arrived at the hospital.',keywords:['hospital']}],sideChanges:[]});
+test('completed jobs release full chat inputs from RAM but preserve result and request-ID replay on disk',async t=>{
+    const f=fixture(t);f.replies.push(memory());const requestId=randomUUID();
+    const submitted=await f.service.submit(f.user,'collect',f.input(),requestId);
+    const result=await done(f.service,f.user,submitted.id);
+    assert.equal(result.status,'completed');
+    const held=f.service.state(f.user).jobs.get(submitted.id);
+    assert.equal(held.archived,true);assert.equal(held.input.context.messages,undefined);
+    assert.equal(held.result,undefined);assert.equal(held.input.templates,undefined);
+    const stored=json(path.join(f.root,'archive-lore-server','jobs',submitted.id+'.json'));
+    assert.equal(stored.input.context.messages.length,2);assert.deepEqual(stored.result,result.result);
+    const replay=await f.service.submit(f.user,'collect',f.input(),requestId);
+    assert.equal(replay.id,submitted.id);assert.deepEqual(replay.result,result.result);assert.equal(f.calls.length,1);
+    const restarted=createJobService(f.dependencies);
+    assert.deepEqual(restarted.get(f.user,submitted.id).result,result.result);
+    assert.equal(restarted.state(f.user).jobs.get(submitted.id).input.context.messages,undefined);
+});
 test('count presence does not load vector payloads or initialize persisted job history',async t=>{
     const f=fixture(t);await f.service.vectors(f.user).put('saved',[1,2,3]);
     const jobs=path.join(f.root,'archive-lore-server','jobs');fs.mkdirSync(jobs);fs.writeFileSync(path.join(jobs,randomUUID()+'.json'),'invalid job JSON must not be opened by counting');
@@ -82,7 +99,7 @@ test('server recall preserves selection emphasis in persisted jobs, AI requests 
     assert.equal(saved.result.lastRecall.guidance,result.result.guidance);
     assert(result.result.tokens<=3000);
     assert(result.result.tokens>result.result.memoryTokens);
-    const logs=await f.service.logs(f.user,'test-key');
+    const logs=await readLogs(f.service,f.user,'test-key');
     assert(logs.some(r=>r.events.some(e=>e.stage==='selection.plan'&&e.data.selectionFocus.join(',')==='affection,meaning')));
 });
 test('accepted collection survives without polling; saves book, vector, hide flags and redacted diagnostics on disk',async t=>{
@@ -92,7 +109,7 @@ test('accepted collection survives without polling; saves book, vector, hide fla
     assert.equal(Object.keys(json(f.book).entries).length,1);assert.equal(json(f.book).archiveLore.receipts.length,1);
     assert.equal(jsonLines(f.file)[1].is_system,true);assert(!jsonLines(f.file)[2].is_system);
     assert.equal(fs.readdirSync(path.join(f.root,'archive-lore-server','vectors')).length,1);
-    const logs=await f.service.logs(f.user,'test-key');assert(logs.some(r=>r.events.some(e=>e.stage==='collection.saved')));
+    const logs=await readLogs(f.service,f.user,'test-key');assert(logs.some(r=>r.events.some(e=>e.stage==='collection.saved')));
     assert(!JSON.stringify(result).includes('private-embedding-key'));assert(!JSON.stringify(logs).includes('private-embedding-key'));
     assert(fs.readdirSync(path.join(f.root,'archive-lore-server','backups',job.id)).length>=2);
 });
@@ -133,7 +150,7 @@ test('server drafts survive service recreation; applying preserves history and c
 test('both server retrieval modes use stored vectors and persist the full selection trace',async t=>{
     const f=fixture(t);f.replies.push(memory());let job=await f.service.submit(f.user,'collect',f.input(),randomUUID());await done(f.service,f.user,job.id);
     for(const mode of ['dialogue','questions']){const input=f.input();input.settings.mode=mode;if(mode==='questions')f.replies.push('{"questions":["Which hospital visit?"]}');f.replies.push('{"selections":[{"id":"u0","priority":3,"reason":"supplies the requested visit fact"}]}');job=await f.service.submit(f.user,'recall',input,randomUUID());const result=await done(f.service,f.user,job.id);assert.equal(result.status,'completed',result.message);assert(result.result.text.includes('hospital'));assert.equal(result.result.selected.length,1);assert.equal(result.result.lastRecall.units[0].priority,3);}
-    assert((await f.service.logs(f.user,'test-key')).some(r=>r.events.some(e=>e.stage==='selection.validated')));
+    assert((await readLogs(f.service,f.user,'test-key')).some(r=>r.events.some(e=>e.stage==='selection.validated')));
 });
 test('detached backend keeps non-streaming payload and aborts only on explicit signal',async()=>{
     let req;const router={handle(request,response){req=request;setTimeout(()=>response.json({choices:[{message:{content:'done'}}]}),15);}};
@@ -168,7 +185,7 @@ test('plain vector recall on server works without completion templates and prese
     job=await f.service.submit(f.user,'recall',input,randomUUID());const result=await done(f.service,f.user,job.id);
     assert.equal(result.status,'completed',result.message);assert(result.result.text.includes('hospital'));
     assert.equal(f.calls.length,0);assert.equal(result.result.lastRecall.mode,'embedding');
-    const logs=await f.service.logs(f.user,'test-key');
+    const logs=await readLogs(f.service,f.user,'test-key');
     const context=logs.flatMap(r=>r.events).find(e=>e.stage==='dialogue.context').data;
     assert.equal(context.excludedTail,1);assert.equal(context.sourceMessages.length,1);
 });

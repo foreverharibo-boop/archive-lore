@@ -3255,6 +3255,30 @@ model-dependent. Offline regression tests verify requests, candidate coverage,
 budgeting and injection wiring; they do not measure live provider latency or prove
 that an RP model will follow every instruction.
 
+#### Diagnostic export and completed-job memory (server 0.3.12)
+
+Completed jobs retain only small history summaries in RAM. The original input,
+result and maintenance draft remain on disk and are loaded when requested;
+request-ID replay, draft application and source validation remain intact. On
+restart, old jobs are also reduced to summaries instead of retaining every chat
+snapshot. Successfully persisted diagnostic snapshots no longer stay in the
+diagnostic module's fallback memory map.
+
+The dashboard requests `/logs/list`, which reads only the compact JSON header
+before `events` (at most 64 KiB per file). Diagnostic listing/export does not
+initialize job history. `/logs/export` filters by the current chat and selected
+mode, then streams complete diagnostic files in 64 KiB chunks with HTTP
+backpressure. The browser downloads a Blob instead of parsing and re-stringifying
+all server events. The legacy `/logs` URL streams the same JSON array for older
+clients. Empty chat keys return no logs. Existing diagnostic files are neither
+deleted nor truncated. Server dashboard rows show headers; TXT includes events.
+
+Regression coverage includes 80 MiB of diagnostic bodies plus 80 MiB of stored job
+inputs processed in a Node child with a 64 MiB heap; exported bytes are verified
+by SHA-256. This verifies the bounded history/export paths, not a particular
+Android device's overall RAM usage or unrelated extensions. Both the extension
+and server-plugin copies need updating; restart SillyTavern and reload the page.
+
 #### Completed-job recovery without a selected chat (server 0.3.11)
 
 The home/recent-chats screen does not restore server jobs. A chat identity requires

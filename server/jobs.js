@@ -5,11 +5,19 @@ import { randomUUID, webcrypto } from 'node:crypto';
 import { atomic,inside,json,privateStore } from './storage.js';
 import { createLoreController } from '../lore-controller.js';
 import { createDiagnostics } from '../lore-diagnostics.js';
+import { diagnosticFiles,diagnosticStream } from './diagnostics.js';
 import { normalizeSettings,NS,sourceRange,matchesRange,estimateTokens } from '../lore-core.js';
 import { embed,completionText } from '../lore-api.js';
 globalThis.crypto ||= webcrypto;
 export function createJobService({sanitize,ask,embedRequest=embed}) {
     const users=new Map(),vectorStores=new Map();
+    // Keep completed history on disk, not one full chat/template/result per turn
+    // in the process heap. Drafts and results are loaded only when requested.
+    const archived=job=>({id:job.id,requestId:job.requestId,kind:job.kind,status:job.status,message:job.message,
+        started:job.started,finished:job.finished,created:job.created,
+        input:{context:{key:job.input.context.key},books:job.input.books},
+        archived:true,draftAvailable:!!job.draftState});
+    const fullJob=(s,id)=>{const job=s.jobs.get(id);return job?.archived?json(inside(s.jobsDir,id+'.json')):job;};
     function vectorStore(user) {
         if(!user?.profile?.handle||!user.directories?.root)throw Error('로그인한 실리태번 사용자만 사용할 수 있어.');
         const owner=fs.realpathSync(user.directories.root);
@@ -26,12 +34,12 @@ export function createJobService({sanitize,ask,embedRequest=embed}) {
         const jobsDir=inside(root,'jobs');fs.mkdirSync(jobsDir,{recursive:true,mode:0o700});
         const s={root,jobsDir,jobs:new Map(),running:false,controllers:new Map(),canceledRequests:new Map(),vectors:vectorStore(user),user};
         for(const file of fs.readdirSync(jobsDir).filter(f=>/^[a-f0-9-]+\.json$/.test(f))){
-            const job=json(inside(jobsDir,file));if(['queued','running'].includes(job.status)){job.status='interrupted';job.message='서버가 재시작됐어. 저장된 구간은 유지돼. 다시 실행해 줘.';atomic(inside(jobsDir,file),job);}s.jobs.set(job.id,job);
+            const job=json(inside(jobsDir,file));if(['queued','running'].includes(job.status)){job.status='interrupted';job.message='서버가 재시작됐어. 저장된 구간은 유지돼. 다시 실행해 줘.';atomic(inside(jobsDir,file),job);}s.jobs.set(job.id,archived(job));
         }
         users.set(owner,s);return s;
     }
-    const save=(s,job)=>{const stored=structuredClone(job);if(stored.input?.settings){delete stored.input.settings.embeddingKey;delete stored.input.settings.embeddingKeys;}for(const template of Object.values(stored.input?.templates||{}))delete template.proxy_password;atomic(inside(s.jobsDir,job.id+'.json'),stored);};
-    const publicJob=job=>({id:job.id,kind:job.kind,status:job.status,message:job.message,chatKey:job.input.context.key,started:job.started,finished:job.finished,hidden:job.hidden||[],books:job.input.books,result:job.result,draftAvailable:!!job.draftState});
+    const save=(s,job)=>{const stored=structuredClone(job);if(stored.input?.settings){delete stored.input.settings.embeddingKey;delete stored.input.settings.embeddingKeys;}for(const template of Object.values(stored.input?.templates||{}))delete template.proxy_password;atomic(inside(s.jobsDir,job.id+'.json'),stored);if(!['queued','running'].includes(job.status))s.jobs.set(job.id,archived(job));};
+    const publicJob=job=>({id:job.id,kind:job.kind,status:job.status,message:job.message,chatKey:job.input.context.key,started:job.started,finished:job.finished,hidden:job.hidden||[],books:job.input.books,result:job.result,draftAvailable:job.archived?job.draftAvailable:!!job.draftState});
     function chatFile(s,input) {
         const d=input.chat;if(!d||typeof d.id!=='string'||!d.id)throw Error('채팅 파일 정보가 없어.');
         if(d.group)return inside(s.user.directories.groupChats,sanitize(d.id+'.jsonl'));
@@ -82,25 +90,25 @@ export function createJobService({sanitize,ask,embedRequest=embed}) {
         let restoredDraft=false;const controller=createLoreController(host);s.controllers.set(job.id,controller);
         try{
             validate(s,input,job.kind);
-            if(job.kind==='applyMaintenance'){const prior=s.jobs.get(input.options?.draftJobId);if(!prior?.draftState||prior.input.context.key!==input.context.key)throw Error('서버 초안이 만료됐거나 다른 채팅방의 초안이야.');controller.restoreDraft(prior.draftState);restoredDraft=true;}
+            if(job.kind==='applyMaintenance'){const prior=fullJob(s,input.options?.draftJobId);if(!prior?.draftState||prior.input.context.key!==input.context.key)throw Error('서버 초안이 만료됐거나 다른 채팅방의 초안이야.');controller.restoreDraft(prior.draftState);restoredDraft=true;}
             let result=job.kind==='index'?await controller.index(!!input.options?.force):await controller[job.kind](input.options||{});
             if(job.kind==='recall')result={...result,selected:[...result.selected],lastRecall:controller.state().lastRecall,estimatedTokens:true};
             if(job.kind==='prepareMaintenance'){job.draftState=controller.exportDraft();result.serverJobId=job.id;}
             job.result=result;job.status='completed';job.message=controller.state().status;
-        }catch(error){job.status=job.cancelRequested?'canceled':'error';job.message=clean(error.message);}finally{if(restoredDraft&&!controller.exportDraft()){const prior=s.jobs.get(input.options?.draftJobId);if(prior){delete prior.draftState;save(s,prior);}}s.controllers.delete(job.id);job.finished=new Date().toISOString();save(s,job);}
+        }catch(error){job.status=job.cancelRequested?'canceled':'error';job.message=clean(error.message);}finally{if(restoredDraft&&!controller.exportDraft()){const prior=fullJob(s,input.options?.draftJobId);if(prior){delete prior.draftState;save(s,prior);}}s.controllers.delete(job.id);job.finished=new Date().toISOString();save(s,job);}
     }
     async function drain(s){if(s.running)return;s.running=true;try{let job;while((job=[...s.jobs.values()].find(j=>j.status==='queued'))){try{await run(s,job);}catch{job.status='error';job.message='서버 작업 파일을 저장하지 못했어. 서버 저장 공간과 권한을 확인해 줘.';job.finished=new Date().toISOString();s.controllers.delete(job.id);try{save(s,job);}catch{console.error('[Archive Lore] Could not persist job status:',job.id);}}}}finally{s.running=false;}}
     return {
         async submit(user,kind,input,requestId){const s=state(user);if(typeof requestId!=='string'||!/^[a-f0-9-]{16,80}$/.test(requestId))throw Error('작업 요청 ID가 잘못됐어.');
             for(const [id,time] of s.canceledRequests)if(Date.now()-time>300000)s.canceledRequests.delete(id);
             if(s.canceledRequests.has(requestId))return {requestId,status:'canceled',message:'취소됨'};
-            const existing=[...s.jobs.values()].find(j=>j.requestId===requestId);if(existing)return publicJob(existing);
+            const existing=[...s.jobs.values()].find(j=>j.requestId===requestId);if(existing)return publicJob(fullJob(s,existing.id));
             if([...s.jobs.values()].some(j=>['queued','running'].includes(j.status)))throw Error('이미 서버 작업이 진행 중이야. 작업 내역에서 확인해 줘.');
             input=structuredClone(input);validate(s,input,kind);
             const job={id:randomUUID(),requestId,kind,status:'queued',message:'서버 작업 대기 중',input,hidden:[],created:new Date().toISOString()};s.jobs.set(job.id,job);save(s,job);setImmediate(()=>void drain(s));return publicJob(job);},
         list(user,key){return [...state(user).jobs.values()].filter(j=>key===undefined||j.input.context.key===key).map(job=>{const {result,hidden,...summary}=publicJob(job);return summary;});},
         get(user,id){
-            const s=state(user),job=s.jobs.get(id);if(!job)throw Error('서버 작업을 찾을 수 없어.');
+            const s=state(user),job=fullJob(s,id);if(!job)throw Error('서버 작업을 찾을 수 없어.');
             const result=publicJob(job);
             // Polling active jobs must not synchronously parse and hash the whole chat.
             // Only completed collection/index results need current hide flags for client sync.
@@ -125,13 +133,16 @@ export function createJobService({sanitize,ask,embedRequest=embed}) {
                 for(const [key,time] of s.canceledRequests)if(Date.now()-time>300000)s.canceledRequests.delete(key);
                 s.canceledRequests.set(requestId,Date.now());return {requestId,status:'canceled',message:'취소됨'};
             }
-            if(!['queued','running'].includes(job.status))return publicJob(job);
+            if(!['queued','running'].includes(job.status))return publicJob(fullJob(s,job.id));
             job.cancelRequested=true;s.controllers.get(job.id)?.cancel();
             if(job.status==='queued'){job.status='canceled';job.message='취소됨';job.finished=new Date().toISOString();}
             save(s,job);return publicJob(job);
         },
         vectors:vectorStore,
-        async logs(user,key){const s=state(user),dir=inside(s.root,'diagnostics');if(!fs.existsSync(dir))return [];return fs.readdirSync(dir).filter(f=>f.endsWith('.json')).map(f=>json(inside(dir,f))).filter(r=>!key||r.chatKey===key).sort((a,b)=>a.started.localeCompare(b.started));},
+        // Listing/exporting diagnostics must not initialize the full job history.
+        async logFiles(user,key,mode='all'){vectorStore(user);return diagnosticFiles(inside(user.directories.root,'archive-lore-server'),key,mode);},
+        async logList(user,key){return (await this.logFiles(user,key)).map(({header})=>({...header,details:'전체 내용은 진단 TXT에 포함돼.'}));},
+        async logStream(user,key,mode='all'){return diagnosticStream(await this.logFiles(user,key,mode));},
         state,
     };
 }

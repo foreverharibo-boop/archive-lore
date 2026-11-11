@@ -1,4 +1,5 @@
 import { ARCHIVE_LORE_TITLE_FORMAT, isArchiveLoreDateFormat, archiveLoreDateTitle } from './lore-native-title.js';
+import { maintainArchiveDisplayOrder } from './lore-display-order.js';
 import { advanceCollectionCheckpoint } from './lore-native-progress.js';
 // Copyright (C) 2024–2026 Aiko Hanasaki
 // SPDX-License-Identifier: AGPL-3.0-only
@@ -637,6 +638,7 @@ export async function addMemoryToLorebook(memoryResult, lorebookValidation, opti
             delete newEntry.characterFilter;
         }
         if(globalThis.archiveLoreFork) {
+            maintainArchiveDisplayOrder(lorebookValidation.data, newEntry);
             newEntry.STMB_collectedAt = new Date().toISOString();
             await saveSidePromptLorebookChecked(lorebookValidation.name, lorebookValidation.data);
             Object.assign(originalLorebookData,lorebookValidation.data);
@@ -1416,6 +1418,7 @@ export async function upsertLorebookEntriesBatch(lorebookName, lorebookData, ite
             entry.disable = false;
         }
 
+        if (globalThis.archiveLoreFork) maintainArchiveDisplayOrder(lorebookData, created ? entry : null);
         // Snapshot the final saved state, including an inherited side's activation.
         if (typeof it.metadataFactory === 'function') {
             const generatedMetadata = it.metadataFactory({ entry, priorEntry, created }) || {};
@@ -1539,6 +1542,7 @@ export async function upsertLorebookEntryByTitle(lorebookName, lorebookData, tit
         entry.disable = false;
     }
 
+    if (globalThis.archiveLoreFork) maintainArchiveDisplayOrder(lorebookData, created ? entry : null);
     // Snapshot the final saved state, including an inherited side's activation.
     if (typeof metadataFactory === 'function') {
         const generatedMetadata = metadataFactory({ entry, priorEntry, created }) || {};

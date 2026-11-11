@@ -20,7 +20,7 @@ test('undo deletes new memory/new side, restores overwritten side and preserves 
     const before=structuredClone(data),result=plan([{name:'book',data}]);
     assert.deepEqual(data,before);assert.deepEqual(result.range,{start:2,end:3});assert.equal(result.checkpoint,1);
     const after=result.states[0].data.entries;
-    assert(!after[1]);assert(!after[3]);assert.deepEqual(after[2],prior);
+    assert(!after[1]);assert(!after[3]);assert.deepEqual(after[2],{...prior,displayIndex:6});
     for(const key of [0,4,5])assert.deepEqual(after[key],data.entries[key]);assert.equal(result.rows.length,3);
 });
 test('already-saved side-only run is undoable from its existing snapshot',()=>{
@@ -69,4 +69,11 @@ test('stale preview or switched chat rejects before the first write',async()=>{
     await assert.rejects(saveCollectionUndo(states,{load:async()=>({entries:{0:{content:'new'}}}),save:async()=>writes++}),/변경/);
     await assert.rejects(saveCollectionUndo(states,{load:async()=>states[0].originalData,save:async()=>writes++,assertCurrent:()=>{throw Error('chat switched');}}),/chat switched/);
     assert.equal(writes,0);
+});
+
+test('undo does not reorder a separate book with no entries in the undone collection',()=>{
+ const untouched={entries:{0:{uid:0,comment:'Other (STMB SidePrompt)',content:'side'},1:{uid:1,content:'manual'}}};
+ const result=plan([{name:'active',data:{entries:{0:memory(0,2,3)}}},{name:'unrelated',data:untouched}]);
+ assert.deepEqual(result.states.map(s=>s.name),['active']);
+ assert.equal(untouched.entries[0].displayIndex,undefined);
 });

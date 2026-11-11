@@ -3123,7 +3123,7 @@ text. Midnight keeps its dark surface, adds dark input backgrounds with light
 text, and uses blue action fills with dark text. Hover and keyboard focus remain
 visible; disabled controls retain their disabled state and subdued appearance.
 Text-only navigation remains transparent. Default ST continues inheriting the
-host theme; Original MemoryBooks uses the fixed palette documented below.
+host theme; Original MemoryBooks preserves upstream styling as documented below.
 
 The browser regression fixture tests all four custom palettes against forced
 light and dark host control styles, including footer buttons, input text fill,
@@ -3149,21 +3149,19 @@ layout, native action/footer presence, repeated round trips, close/reopen
 persistence and unsaved routing isolation at mobile and desktop widths.
 
 
-#### Original layout: fixed classic palette
+#### Original layout: preserve upstream styling
 
-Original MemoryBooks now pins its colors locally instead of inheriting the host's
-palette. It retains the native layout, controls and footer. Its dark gray surface
-(`#171717`), light text (`#dcdcd2`) and orange accent (`#e18a24`) are based on
-fallback colors present in upstream historical styles. This is a fork-specific
-fixed palette, not a claim that upstream ships a theme-independent palette or an
-exact reconstruction of any user's prior screen. Upstream itself references
-SillyTavern theme variables and mixes those colors for individual panels.
+Original MemoryBooks retains its native template, controls and footer without an
+Archive Lore color palette. The previous fork-specific dark gray surface and
+orange controls have been removed: they were not the original extension's theme.
+The supplied Memory Books 9.4.0 source uses SillyTavern theme variables and mixes
+those values for individual panels. Original mode now leaves those values and
+styles intact. Its marker class remains for layout/help isolation, while its
+palette is `default`; custom color rules target only `.al-fork-surface`.
 
-The main surface, scene excerpt, profile panel, inputs, actions and footer are
-scoped under `.al-original-memorybooks[data-al-palette="memorybooks"]`.
-The local chat-background and emphasis variables are pinned too, preventing host
-colors from leaking into nested boxes or code text. Shared accessible control
-rules apply without enabling Archive Lore's custom layout/spacing. The Archive
-Lore default choice still follows ST; its other palettes retain their behavior.
-Browser checks compare original-mode computed colors under opposing host themes,
-check text contrast, and verify switching away restores the remembered palette.
+Archive Lore's four custom palettes and saved palette selection are unchanged.
+Browser checks compare the original mode's computed panel, input and footer
+colors with the upstream stylesheet under opposing host styles, and verify that
+switching layouts restores the remembered Archive Lore palette. This restores
+source styling; a user's previous appearance can still depend on their installed
+SillyTavern theme or custom CSS.

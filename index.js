@@ -1,6 +1,6 @@
 import { applyAutoHideRanges } from './lore-auto-hide.js';
 import { captureIntervalScene } from './lore-side-after-memory.js';
-import { nativePreferences, createNativePreferences, appendOriginalTools, BOOK_MODES } from './lore-native-preferences.js';
+import { nativePreferences, createNativePreferences, appendOriginalTools, mountSceneButtonPreference, BOOK_MODES } from './lore-native-preferences.js';
 import { scenePreview, mountLazyDetails } from './lore-native-lazy.js';
 import { getArchiveLoreBookRoute } from './utils.js';
 import { captureSettingsForm, acknowledgeSettingsControl, changedSettingsForm } from './lore-native-settings.js';
@@ -11479,6 +11479,7 @@ async function showGeneralSettingsPopup(options = {}) {
       onClose: handleSettingsFormPopupClose,
     });
     markStmbPopup(popup);
+    if(globalThis.archiveLoreFork)mountSceneButtonPreference(popup.dlg,{settings:initializeSettings(),save:saveSettingsDebounced});
     setupSettingsEventListeners(popup);
     if (options.focusControlId) {
       setTimeout(() => {

@@ -3491,9 +3491,11 @@ appending the lorebook name; this is display-only and does not rename any data.
 
 ### Chat scene-marker buttons
 
-In Settings → Lorebook connection/theme, “메시지에 수집 구간 버튼 (▶ ◀) 표시”
-controls the visibility of the start/end buttons on chat messages. It is enabled
-by default; uncheck it and Apply to hide both existing and newly rendered buttons.
+In Settings → General/advanced settings, directly below Memory boundary indicator,
+“메시지에 수집 구간 버튼 (▶ ◀) 표시” controls the visibility of the start/end
+buttons on chat messages. It is enabled by default; uncheck it to immediately
+hide both existing and newly rendered buttons and save the preference.
+The former connection/theme control is removed; its saved value is preserved.
 The setting persists across reloads and applies to both Archive Lore and original
 Memory Books layouts. It only hides these two controls: selected ranges, message
 visibility, collection progress, and other message actions remain unchanged.

@@ -28,6 +28,19 @@ export function applyNativeTheme(root, settings) {
 export function applySceneButtonVisibility(settings, root=globalThis.document?.documentElement) {
     root?.classList.toggle('al-hide-scene-buttons',settings?.moduleSettings?.archiveLoreShowSceneButtons===false);
 }
+export function mountSceneButtonPreference(root, {settings,save}) {
+    const boundary=root?.querySelector('#stmb-memory-boundary-mode')?.closest('label');
+    if(!boundary || root.querySelector('#al-show-scene-buttons'))return;
+    const doc=root.ownerDocument,row=doc.createElement('label'),input=doc.createElement('input'),text=doc.createElement('span');
+    row.className='checkbox_label';input.type='checkbox';input.id='al-show-scene-buttons';
+    input.checked=settings.moduleSettings?.archiveLoreShowSceneButtons!==false;
+    text.textContent='메시지에 수집 구간 버튼 (▶ ◀) 표시';row.append(input,text);boundary.after(row);
+    input.onchange=()=>{
+        settings.moduleSettings ||= {};
+        settings.moduleSettings.archiveLoreShowSceneButtons=input.checked;
+        applySceneButtonVisibility(settings,doc.documentElement);save();
+    };
+}
 export function createNativePreferences({settings,books=[],activeBook='',save,switchLayout}) {
     const p=nativePreferences(settings), box=document.createElement('section');box.className='al-native-preferences';
     const heading=document.createElement('h4');heading.textContent='로어북 연결·테마';box.append(heading);
@@ -45,10 +58,6 @@ export function createNativePreferences({settings,books=[],activeBook='',save,sw
     const layout=field('화면 구성','al-layout',[['archive','아카이브 로어'],['original','오리지널 메모리북']],p.layout);
     const layoutHelp=document.createElement('small');layoutHelp.textContent='오리지널 메모리북은 원래 메모리북의 화면·메뉴·하단 버튼을 불러옵니다. 원본 스타일을 사용하며 아카이브 로어의 색상을 덧씌우지 않습니다. 화면 구성은 선택하면 바로 전환됩니다.';box.append(layoutHelp);
     const palette=field('아카이브 로어 색상','al-palette',PALETTES,p.palette);
-    const sceneRow=document.createElement('label'),sceneButtons=document.createElement('input'),sceneLabel=document.createElement('span');
-    sceneRow.className='checkbox_label';sceneButtons.type='checkbox';sceneButtons.id='al-show-scene-buttons';
-    sceneButtons.checked=settings.moduleSettings?.archiveLoreShowSceneButtons!==false;
-    sceneLabel.textContent='메시지에 수집 구간 버튼 (▶ ◀) 표시';sceneRow.append(sceneButtons,sceneLabel);box.append(sceneRow);
     const message=document.createElement('p');message.setAttribute('role','status');box.append(message);
     const sync=()=>{book.parentElement.hidden=mode.value!=='fixed';palette.parentElement.hidden=layout.value==='original';};sync();
     // One explicit save keeps a partially chosen destination from becoming active.
@@ -65,7 +74,7 @@ export function createNativePreferences({settings,books=[],activeBook='',save,sw
     button.onclick=async()=>{
         if(mode.value==='fixed' && !books.includes(book.value)){message.textContent='사용할 로어북을 선택해 주세요.';return;}
         button.disabled=true;
-        try{await save({archiveLoreBookMode:mode.value,archiveLoreBook:book.value,archiveLoreLayout:layout.value,archiveLorePalette:palette.value,archiveLoreShowSceneButtons:sceneButtons.checked});applySceneButtonVisibility(settings);message.textContent='적용했습니다.';}
+        try{await save({archiveLoreBookMode:mode.value,archiveLoreBook:book.value,archiveLoreLayout:layout.value,archiveLorePalette:palette.value});message.textContent='적용했습니다.';}
         catch(e){message.textContent=e.message;}finally{button.disabled=false;}
     };
     return box;

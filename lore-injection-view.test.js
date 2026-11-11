@@ -51,6 +51,22 @@ test('only latest chat capture wins; deferred slots, disabled state and other-ch
     enabled=false;await recorder.capture({text:'off'},null);assert.equal(saved.text,'new');
     enabled=true;const stopped=recorder.capture({text:'wait'},null);recorder.invalidate();release(4);await stopped;assert.equal(saved.text,'new');
 });
+test('question-mode snapshots retain exact planner questions without changing injected text or token counts',async()=>{
+    const result={text:'Selected memory.'},questions=['Where did they first meet?','What did he promise?'];
+    const args={key:'A',result,recall:{text:result.text,mode:'questions',questions},settings:{},countTokens:s=>s.length};
+    const snapshot=await injectionSnapshot(args);
+    questions.push('A later search must not change this snapshot.');
+    assert.deepEqual(snapshot.questions,['Where did they first meet?','What did he promise?']);
+    assert.equal(snapshot.text,result.text);assert.equal(snapshot.tokens.total,result.text.length);
+    assert.deepEqual(JSON.parse(JSON.stringify(snapshot)).questions,snapshot.questions);
+    for(const mode of ['dialogue','embedding',undefined]){
+        assert.deepEqual((await injectionSnapshot({...args,recall:{...args.recall,mode}})).questions,[]);
+    }
+    assert.deepEqual((await injectionSnapshot({...args,recall:{...args.recall,text:'Another turn'}})).questions,[]);
+    assert.deepEqual((await injectionSnapshot({...args,recall:null})).questions,[]);
+    const empty=await injectionSnapshot({...args,result:{text:''},recall:{text:'',mode:'questions',questions:['No matches for this question?']}});
+    assert.deepEqual(empty.questions,['No matches for this question?']);
+});
 test('empty actual injection replaces a prior injection; counting failure never fails generation',async()=>{
     let saved,errors=0;
     const recorder=createInjectionRecorder({key:()=> 'A',enabled:()=>true,read:()=>saved,write:s=>{saved=s;},settings:()=>settings,countTokens:async text=>{if(text==='fail')throw Error('tokenizer');return text.length;},onError:()=>errors++});

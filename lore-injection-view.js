@@ -53,7 +53,11 @@ export async function injectionSnapshot({key,result,recall,settings,countTokens,
     const tokens={};
     for(const [name,value] of Object.entries({core,memory:text,guidance}))tokens[name]=value?await countTokens(value):0;
     tokens.total=tokens.core+tokens.memory+tokens.guidance;
-    return {version:1,key,time,text,core,guidance,rows,tokens};
+    // Keep the planner's exact output with this turn, never the current settings
+    // or dialogue search text. Older snapshots simply have no questions field.
+    const questions=recall?.mode==='questions' && recall.text===text && Array.isArray(recall.questions)
+        ? recall.questions.filter(q=>typeof q==='string' && q.trim()) : [];
+    return {version:1,key,time,text,core,guidance,rows,tokens,questions};
 }
 
 // Store only one compact display per chat. Asynchronous token counting must not
@@ -87,6 +91,10 @@ export function createInjectionView(snapshot,doc=globalThis.document) {
     if(!snapshot){add(node,'p','아직 기록된 주입 내용이 없습니다. 주입 내용 보기를 켠 뒤 새 답변을 생성해 주세요.');return node;}
     add(node,'p',`${snapshot.tokens.total.toLocaleString()}토큰 · ${new Date(snapshot.time).toLocaleString()}`);
     add(node,'small',`아카이브 로어 원문 기준 · 코어 ${snapshot.tokens.core} · 검색 기억 ${snapshot.tokens.memory} · 답변 안내 ${snapshot.tokens.guidance}`);
+    if(snapshot.questions?.length){
+        const block=add(node,'details','');add(block,'summary',`이번 검색 질문 · ${snapshot.questions.length}개`);
+        for(const question of snapshot.questions)add(block,'pre',question);
+    }
     if(!snapshot.text && !snapshot.core && !snapshot.guidance)add(node,'p','이번에는 아카이브 로어가 주입한 내용이 없습니다.');
     for(const row of snapshot.rows){
         const section=add(node,'section','');add(section,'h4',row.title);add(section,'small',row.kind);

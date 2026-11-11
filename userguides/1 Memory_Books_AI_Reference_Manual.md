@@ -3528,6 +3528,15 @@ be detected. Every translated excerpt exposes the actual source in a disclosure;
 the full exact injection is also available. Viewing does not modify source,
 translation, embeddings or generation prompts.
 
+Question-mode snapshots also retain the exact generated retrieval questions in a
+collapsed `이번 검색 질문 · N개` disclosure above the memories. Dialogue and pure
+embedding modes do not add a search-input section. The default question prompt
+requests English; customized prompts can use another language, and the viewer
+preserves that output without another translation or AI call. Questions are
+display metadata only, excluded from the injected slots and their token counts.
+Existing snapshots without this field remain readable; new questions appear on
+the next recorded question-mode generation, including searches with no matches.
+
 The scene-button visibility preference applies inline `display: none !important`
 to existing and newly created start/end actions, so opening extra message actions
 or a more specific theme rule cannot reveal them. Re-enabling restores their

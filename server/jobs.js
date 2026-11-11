@@ -39,7 +39,7 @@ export function createJobService({sanitize,ask,embedRequest=embed}) {
         const live=readChat(s,input).messages;
         if(input.context.messages.length && !matchesRange(sourceRange(input.context.messages,0,input.context.messages.length-1),live))throw Error('대화 저장이 완료되지 않았거나 원본이 바뀌었어. 저장 후 다시 시도해 줘.');
         input.settings=normalizeSettings(input.settings);
-        if(kind!=='index'&&!input.templates?.collection?.chat_completion_source)throw Error('수집 연결 프로필을 설정해 줘.');
+        if(kind!=='index' && !(kind==='recall' && input.settings.mode==='embedding') && !input.templates?.collection?.chat_completion_source)throw Error('수집 연결 프로필을 설정해 줘.');
     }
     function backup(s,job,file,raw){const dir=inside(s.root,'backups',job.id);fs.mkdirSync(dir,{recursive:true,mode:0o700});atomic(inside(dir,randomUUID()+'.bak'),raw);}
     async function run(s,job) {

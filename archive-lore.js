@@ -136,7 +136,7 @@ const controller=createServerController({local:localController,enabled:()=>!!set
         const c=getContext();if(typeof c.saveChat!=='function')throw Error('실리태번 대화 저장 기능을 찾을 수 없어.');await c.saveChat();
         if(chatContext().key!==key)throw Error('채팅방이 바뀌어서 접수하지 않았어.');
         const config=normalizeSettings(settings()),templates={};
-        if(kind!=='index'){
+        if(kind!=='index' && !(kind==='recall' && config.mode==='embedding')){
             templates.collection=await profileTemplate(c,config.profile,proxies);
             templates.search=config.searchProfile?await profileTemplate(c,config.searchProfile,proxies):templates.collection;
         }
@@ -212,6 +212,7 @@ async function saveRecord(id, changes) {
     } finally {writing=false;if(autoPending)scheduleAutomatic();}
 }
 async function intercept(_chat,_contextSize,abort,type) {
+    const started=Date.now();
     clearPrompts();
     generationInFlight=true;
     const context=chatContext();
@@ -223,11 +224,12 @@ async function intercept(_chat,_contextSize,abort,type) {
     pendingGeneration=null;
     try {
         if(writing)throw new Error('기억 저장이 끝난 뒤 다시 전송해 줘.');
-        const result=await controller.recall({kind:'generation',trace});
+        const result=await controller.recall({kind:'generation',generationType:type,trace});
         activeBooks=result.books;recalled=result.selected;
         getContext().setExtensionPrompt(PROMPT,result.text,extension_prompt_types.IN_CHAT,1,false);
         getContext().setExtensionPrompt(CORE_PROMPT,result.core,extension_prompt_types.IN_CHAT,1,false);
-        await trace.event('injection.installed',{slots:[{name:PROMPT,text:result.text,position:'IN_CHAT',depth:1},{name:CORE_PROMPT,text:result.core,position:'IN_CHAT',depth:1}],selected:[...result.selected]});
+        controller.markInjected(Date.now()-started);
+        await trace.event('injection.installed',{timings:controller.state().lastRecall?.timings,slots:[{name:PROMPT,text:result.text,position:'IN_CHAT',depth:1},{name:CORE_PROMPT,text:result.core,position:'IN_CHAT',depth:1}],selected:[...result.selected]});
         pendingGeneration={trace,key:context.key,messageCount:context.messages.length};
     } catch(e){await trace.finish('error',{message:e.message});if(chatContext().key===context.key){generationInFlight=false;clearPrompts();abort(true);error(e);}}
 }

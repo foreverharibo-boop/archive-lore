@@ -100,3 +100,15 @@ test('batch vector presence returns only booleans, validates limits and isolates
     res=response();await handlers.get('/vectors/has')({user:f.user,body:{keys:Array(65).fill('saved')}},res);assert.equal(res.code,400);
     res=response();await handlers.get('/vectors/has')({body:{keys:['saved']}},res);assert.equal(res.code,401);
 });
+
+test('plain vector recall on server works without completion templates and preserves regeneration filtering',async t=>{
+    const f=fixture(t);atomic(f.book,{entries:{0:{uid:0,content:'The hospital visit happened.'}}});
+    const input=f.input();input.templates={};input.settings.mode='embedding';input.options={generationType:'swipe'};
+    let job=await f.service.submit(f.user,'index',input,randomUUID());assert.equal((await done(f.service,f.user,job.id)).status,'completed');
+    job=await f.service.submit(f.user,'recall',input,randomUUID());const result=await done(f.service,f.user,job.id);
+    assert.equal(result.status,'completed',result.message);assert(result.result.text.includes('hospital'));
+    assert.equal(f.calls.length,0);assert.equal(result.result.lastRecall.mode,'embedding');
+    const logs=await f.service.logs(f.user,'test-key');
+    const context=logs.flatMap(r=>r.events).find(e=>e.stage==='dialogue.context').data;
+    assert.equal(context.excludedTail,1);assert.equal(context.sourceMessages.length,1);
+});

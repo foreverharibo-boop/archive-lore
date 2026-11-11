@@ -77,7 +77,7 @@ export function createDiagnostics({ store, secrets = () => [], warning = () => {
         },
         async export(chatKey, mode = 'all') {
             const runs = (await this.list(chatKey)).filter(r => mode === 'all' || r.mode === mode);
-            const counts = Object.fromEntries(['dialogue','questions'].map(m => [m,runs.filter(r=>r.kind==='generation' && r.mode===m).length]));
+            const counts = Object.fromEntries(['dialogue','questions','embedding'].map(m => [m,runs.filter(r=>r.kind==='generation' && r.mode===m).length]));
             return 'ARCHIVE LORE · TURN DIAGNOSTICS\n' + JSON.stringify({ exported:new Date().toISOString(), chatKey, filter:mode, generationAttempts:counts, runs:runs.length },null,2)
                 + '\n\nIncludes dialogue, API text responses and installed Archive Lore prompts. Installed prompts are not proof of the final host request or model compliance. Preview/collection/index operations are separate from RP generation attempts. No hidden model reasoning is requested.\n\n'
                 + runs.map((run,i) => `===== ${i+1} · ${run.kind} · ${run.mode} · ${run.status} =====\n${JSON.stringify(redact(run,secrets()),null,2)}`).join('\n\n');

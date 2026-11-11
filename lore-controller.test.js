@@ -218,3 +218,42 @@ test('105 imported entries changed from core to recallable are visible as pendin
     for(const entry of Object.values(f.book.entries))entry.constant=false;
     const before=JSON.stringify(f.book);view=await f.controller.dashboard();assert.equal(view.pending,105);assert.equal(view.embedded,0);assert.equal(view.records.length,105);assert.equal(batches,2);assert.equal(JSON.stringify(f.book),before);assert.deepEqual(f.calls,[]);
 });
+
+test('plain embedding recall needs no AI profile/calls and injects cached source chunks within budget',async()=>{
+    const f=fixture();f.config={mode:'embedding',profile:'',searchProfile:'',injectionTokens:256};
+    f.book={entries:{0:{uid:0,comment:'Visit',content:'They visited the hospital. Her ring reads A B. His ring reads B A.'},1:{uid:1,constant:true,content:'Core stays intact.'}}};
+    await f.controller.index();f.calls.length=0;
+    f.host.ask=async()=>{throw Error('plain embedding must not call AI');};
+    const result=await f.controller.recall();
+    assert(result.text.includes('hospital'));assert(result.text.includes('Her ring'));assert(result.text.includes('His ring'));
+    assert.equal(result.core,'Core stays intact.');assert(result.tokens<=256);
+    assert(f.calls.includes('query'));assert(!f.calls.includes('document'));
+    assert.equal(f.controller.state().lastRecall.mode,'embedding');
+    assert.equal(f.controller.state().lastRecall.timings.selectionMs,0);
+    assert.equal(f.controller.state().lastRecall.timings.questionMs,0);
+});
+
+test('plain embedding with missing vectors does not generate memories or fall back to AI',async()=>{
+    const f=fixture();f.config={mode:'embedding'};f.book={entries:{0:{uid:0,content:'Not embedded.'}}};
+    const r=await f.controller.recall();assert.equal(r.text,'');assert.equal(f.controller.state().lastRecall.pending,1);assert.equal(f.calls.length,0);
+});
+
+test('recall excludes replaced answer in every mode while maintaining the full stale snapshot',async()=>{
+    for(const mode of ['dialogue','questions','embedding']){
+        const f=fixture();f.config={mode};f.messages[1].mes='OLD_ANSWER_MUST_NOT_LEAK';
+        f.book={entries:{0:{uid:0,content:'A hospital visit.'}}};await f.controller.index();
+        const embed=f.host.embed;f.host.embed=async(s,text,q,signal)=>{if(q)assert(!text.includes('OLD_ANSWER'));return embed(s,text,q,signal);};
+        f.host.ask=async(_p,_s,data)=>{assert(!JSON.stringify(data).includes('OLD_ANSWER'));return 'memories' in data?'{"selections":[]}':'{"questions":["hospital"]}';};
+        await f.controller.recall({generationType:'swipe'});assert.equal(f.messages.length,2);
+    }
+});
+
+test('malformed selector responses get one retry; valid empty selection does not retry',async()=>{
+    for(const replies of [['{}','{"selections":[]}'],['{"selections":[]}'],['{}','{}']]){
+        const f=fixture();f.book={entries:{0:{uid:0,content:'Hospital visit.'}}};await f.controller.index();f.calls.length=0;
+        f.replies.push(...replies);
+        if(replies.at(-1)==='{}')await assert.rejects(f.controller.recall(),/형식/);
+        else await f.controller.recall();
+        assert.equal(f.calls.filter(x=>typeof x==='object').length,replies.length);
+    }
+});

@@ -95,7 +95,7 @@ export function serverVectorStore({local,call,enabled}) {
         async put(key,vector,{signal}={}){signal?.throwIfAborted();if(!enabled())return local.put(key,vector);await call('/vectors/put',{key,vector},{signal});remember(key,vector);},
     };
 }
-export function createServerController({local,enabled,settings,context,input,call,sync,changed,countTokens,generating=()=>false,wait=waitForServerPoll}) {
+export function createServerController({local,enabled,settings,context,input,call,sync,changed,countTokens,generating=()=>false,wait=waitForServerPoll,cancelBackground=()=>{}}) {
     let current=null,view=[],status='',lastRecall=null,poll=null,detached=0,lastList=0;
     const applied=new Set(),pendingDrafts=new Map(),applying=new Map();
     let pollingRun=false,restoring=null,activeRun=null,cancelEpoch=0;
@@ -135,6 +135,11 @@ export function createServerController({local,enabled,settings,context,input,cal
         const key=context().key,epoch=cancelEpoch,chatEpoch=detached;const jobs=(await call('/jobs/list',{chatKey:key})).filter(job=>job.chatKey===key);if(key!==context().key||epoch!==cancelEpoch||chatEpoch!==detached)return view;
         view=jobs;lastList=Date.now();current=jobs.find(active)||null;
         for(const job of jobs.filter(j=>j.status==='completed'&&['collect','index','applyMaintenance'].includes(j.kind)&&!applied.has(j.id)).slice(-1)){const fresh=await getJob(job.id);if(key!==context().key)break;await finish(fresh);}
+        const background=jobs.filter(j=>j.kind==='recall'&&j.backgroundReply&&j.status==='completed').at(-1);
+        if(background && !applied.has(background.id) && !generating()){
+            const fresh=await getJob(background.id);
+            if(key===context().key && fresh.result?.lastRecall){lastRecall=fresh.result.lastRecall;applied.add(background.id);}
+        }
         if(current){status=current.message;scheduleRestore();}else status=jobs.at(-1)?.message || status;
         if(notify)changed?.();return view;
     }
@@ -212,6 +217,7 @@ export function createServerController({local,enabled,settings,context,input,cal
         }
     }
     return {
+        acceptBackgroundRecall(job){if(job.chatKey===context().key && job.status==='completed' && job.result?.lastRecall){lastRecall=job.result.lastRecall;applied.add(job.id);changed?.();}},
         markInjected:elapsedMs=>{if(!enabled())return local.markInjected(elapsedMs);if(lastRecall){lastRecall.timings={...lastRecall.timings,injectionMs:elapsedMs};changed?.();}},
         collect:options=>run('collect',options),index:force=>run('index',{force:!!force}),
         recall:options=>enabled()?run('recall',{generationType:options?.generationType},options?.trace):local.recall(options),
@@ -220,6 +226,7 @@ export function createServerController({local,enabled,settings,context,input,cal
         discardDraft:()=>{if(!enabled())local.discardDraft();},
         clearRecall:()=>{lastRecall=null;local.clearRecall();},
         cancel:()=>{
+            cancelBackground();
             local.cancel();
             if(!enabled())return;
             cancelEpoch++;

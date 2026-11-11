@@ -1,4 +1,7 @@
 {
+  "ArchiveLore_BackgroundReply": "Relayで返信生成までサーバーで続行",
+  "ArchiveLore_BackgroundReplyHelp": "任意機能：両方のサーバープラグインとRelayの接続維持が必要です。通常の1対1チャット用。キーワード発動は無効にしてください。注入上限分を事前に確保します。検証とチャット保存は復帰後に続行します。",
+  "ArchiveLore_SelectionConcurrency": "同時に検討するAIバッチ数（1～2）",
   "STMemoryBooks_TopicalClip_IncludeHiddenMessages": "非表示のメッセージも使用する",
   "STMemoryBooks_Clip_FormatRequired": "形式には{{CONTENT}}を1回だけ含めてください。",
   "STMemoryBooks_CombineClips_PromptRequired": "クリップ結合プロンプトには{{SOURCE_CLIPS}}を1回だけ含めてください。",

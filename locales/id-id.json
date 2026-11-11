@@ -1,4 +1,7 @@
 {
+  "ArchiveLore_BackgroundReply": "Lanjutkan balasan di server melalui Relay",
+  "ArchiveLore_BackgroundReplyHelp": "Opsional: memerlukan kedua plugin server dan Relay aktif. Untuk obrolan satu lawan satu; nonaktifkan pemicu kata kunci. Batas memori dicadangkan. Pemeriksaan dan penyimpanan obrolan dilanjutkan saat kembali.",
+  "ArchiveLore_SelectionConcurrency": "Kelompok pemeriksaan AI bersamaan (1–2)",
   "STMemoryBooks_TopicalClip_IncludeHiddenMessages": "Gunakan juga pesan tersembunyi",
   "STMemoryBooks_Clip_FormatRequired": "Format harus memuat {{CONTENT}} tepat satu kali.",
   "STMemoryBooks_CombineClips_PromptRequired": "Prompt Gabungkan Clip harus memuat {{SOURCE_CLIPS}} tepat satu kali.",

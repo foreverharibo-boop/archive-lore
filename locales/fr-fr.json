@@ -1,4 +1,7 @@
 {
+  "ArchiveLore_BackgroundReply": "Poursuivre les réponses sur le serveur via Relay",
+  "ArchiveLore_BackgroundReplyHelp": "Facultatif : nécessite les deux plugins serveur et Relay actif. Pour les discussions individuelles ; désactivez les mots-clés. Le budget mémoire est réservé. La vérification et la sauvegarde reprennent au retour.",
+  "ArchiveLore_SelectionConcurrency": "Lots de sélection IA simultanés (1–2)",
   "STMemoryBooks_TopicalClip_IncludeHiddenMessages": "Utiliser aussi les messages cachés",
   "STMemoryBooks_Clip_FormatRequired": "Le format doit contenir {{CONTENT}} une seule fois.",
   "STMemoryBooks_CombineClips_PromptRequired": "Le prompt de combinaison doit contenir {{SOURCE_CLIPS}} une seule fois.",

@@ -1,4 +1,7 @@
 {
+  "ArchiveLore_BackgroundReply": "Продолжать генерацию ответов на сервере через Relay",
+  "ArchiveLore_BackgroundReplyHelp": "Необязательно: нужны оба серверных плагина и активный Relay. Для диалогов один на один; отключите активацию по ключевым словам. Лимит памяти резервируется заранее. Проверка и сохранение чата продолжаются после возвращения.",
+  "ArchiveLore_SelectionConcurrency": "Одновременные группы отбора ИИ (1–2)",
   "STMemoryBooks_TopicalClip_IncludeHiddenMessages": "Также использовать скрытые сообщения",
   "STMemoryBooks_Clip_FormatRequired": "Формат должен содержать {{CONTENT}} ровно один раз.",
   "STMemoryBooks_CombineClips_PromptRequired": "Запрос объединения должен содержать {{SOURCE_CLIPS}} ровно один раз.",

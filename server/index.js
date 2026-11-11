@@ -7,19 +7,27 @@ import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { createJobService } from './jobs.js';
 import { invokeBackend } from './backend.js';
+import { createReplyBridge,registerReplyBridge } from './reply-bridge.js';
+import { tokenizerRequest } from './tokenizer.js';
+let unregisterReply;
+export async function exit(){unregisterReply?.();}
 import { embed } from '../lore-api.js';
 import { normalizeSettings } from '../lore-core.js';
 export const info={id:'archive-lore-server',name:'Archive Lore Server',description:'Persistent Archive Lore jobs and server-side embeddings.'};
-export const VERSION='0.3.15';
+export const VERSION='0.3.16';
 export async function init(router) {
     globalThis.crypto ||= webcrypto;
     const require=createRequire(path.join(process.cwd(),'package.json'));
     const sanitize=require('sanitize-filename');
     const {router:backend}=await import(pathToFileURL(path.join(process.cwd(),'src/endpoints/backends/chat-completions.js')).href);
-    const service=createJobService({sanitize,ask:(user,payload,signal)=>invokeBackend(backend,user,payload,signal)});
-    registerRoutes(router,service);
+    const {router:tokenizer}=await import(pathToFileURL(path.join(process.cwd(),'src/endpoints/tokenizers.js')).href);
+    const service=createJobService({sanitize,ask:(user,payload,signal)=>invokeBackend(backend,user,payload,signal),
+        countTokens:(user,model,text)=>tokenizerRequest(tokenizer,user,model,{text})});
+    const bridge=createReplyBridge({service,countMessages:(user,model,messages)=>tokenizerRequest(tokenizer,user,model,messages,true)});
+    unregisterReply=registerReplyBridge(bridge);
+    registerRoutes(router,service,embed,bridge);
 }
-export function registerRoutes(router,service,embedding=embed) {
+export function registerRoutes(router,service,embedding=embed,bridge=null) {
     const route=(url,callback,cancelOnDisconnect=false)=>router.post(url,async(req,res)=>{
         if(!req.user?.profile?.handle||!req.user?.directories?.root)return res.status(401).json({error:'실리태번 로그인이 필요해.'});
         const abort=new AbortController(),closed=()=>{if(!res.writableEnded)abort.abort();};
@@ -27,12 +35,17 @@ export function registerRoutes(router,service,embedding=embed) {
         try{return res.json(await callback(req.user,req.body || {},abort.signal));}catch(error){if(!abort.signal.aborted)return res.status(400).json({error:error.message});}
         finally{if(cancelOnDisconnect)res.removeListener?.('close',closed);}
     });
-    route('/status',user=>{service.vectors(user);return {version:VERSION,protocol:1,capabilities:['collect','index','recall','prepareMaintenance','applyMaintenance']};});
+    route('/status',user=>{service.vectors(user);return {version:VERSION,protocol:1,capabilities:['collect','index','recall','prepareMaintenance','applyMaintenance',...(bridge?['backgroundReply']:[])]};});
     route('/embedding',async(_user,body,signal)=>{
         if(typeof body.text!=='string'||body.text.length>50000)throw Error('임베딩 입력 크기를 확인해 줘.');
         const vector=await embedding(normalizeSettings(body.settings),body.text,!!body.query,signal);return {vector};
     },true);
     route('/embedding-test',async(_user,body)=>({dimensions:(await embedding(normalizeSettings(body.settings),'Archive Lore connection test.',false)).length,model:'gemini-embedding-001'}));
+    if(bridge){
+        route('/reply/prepare',(user,body)=>bridge.prepareInput(user,body));
+        route('/reply/cancel',(user,body)=>bridge.cancel(user,body.ticket));
+        route('/reply/get',(user,body)=>bridge.get(user,body.ticket));
+    }
     route('/jobs',async(user,body)=>service.submit(user,body.kind,body.input,body.requestId));
     route('/jobs/list',(user,body)=>service.list(user,body.chatKey));
     route('/jobs/get',(user,body)=>service.get(user,body.id));

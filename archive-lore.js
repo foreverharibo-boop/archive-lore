@@ -22,6 +22,8 @@ import { createServerClient,serverVectorStore,createServerController,profileTemp
 import { matchesRange } from './lore-core.js';
 import { createLoreUI } from './lore-ui.js';
 import { syncServerBooks } from './lore-automation.js';
+import { createBackgroundRecall } from './lore-background.js';
+import { translate } from '../../../i18n.js';
 
 const PROMPT = 'archive-lore-recalled', CORE_PROMPT = 'archive-lore-core', GUIDANCE_PROMPT = 'archive-lore-guidance';
 let ui, recalled = new Set(), activeBooks = [], writing = false, generationInFlight=false, autoTimer=null, autoAttempt='', autoPending=false;
@@ -143,10 +145,7 @@ const localController = createLoreController({
     countTokens:text=>getContext().getTokenCountAsync(text,0),
     changed:()=>{notifySearchViews();void ui?.refresh().catch(error);if(autoPending&&!controller.state().busy&&!generationInFlight&&!writing)scheduleAutomatic();},
 });
-const controller=createServerController({local:localController,enabled:()=>!!settings()?.serverEnabled,settings,context:chatContext,call:serverCall,
-    changed:()=>{notifySearchViews();void ui?.refresh().catch(error);if(autoPending&&!controller.state().busy&&!generationInFlight&&!writing)scheduleAutomatic();},
-    generating:()=>generationInFlight||writing,countTokens:text=>getContext().getTokenCountAsync(text,0),
-    input:async(kind,options,report=async()=>{})=>{
+const serverInput=async(kind,options,report=async()=>{})=>{
         const step=async(name,work)=>{const start=Date.now();try{return await work();}finally{await report(name,Date.now()-start);}};
         if(globalThis.archiveLoreUndoing)throw Error('직전 수집 되돌리기가 끝난 뒤 실행해 줘.');
         const key=chatContext().key;if(!key)throw Error('채팅방에서 실행해 줘.');
@@ -162,7 +161,12 @@ const controller=createServerController({local:localController,enabled:()=>!!set
         const data={entries:{}},entryTemplate=createWorldInfoEntry('',data);
         const context=await step('snapshot',()=>serverChatSnapshot(chatContext()));
         return {context,chat:{group:!!c.groupId,id:c.getCurrentChatId?.()||c.chatId,avatar:c.characters?.[c.characterId]?.avatar},settings:config,templates,books:books(),target:target(),initialStart:chatSettings().initialStart||0,options,entryTemplate};
-    },
+};
+const controller=createServerController({local:localController,enabled:()=>!!settings()?.serverEnabled,settings,context:chatContext,call:serverCall,
+    cancelBackground:()=>backgroundRecall.cancel(),
+    changed:()=>{notifySearchViews();void ui?.refresh().catch(error);if(autoPending&&!controller.state().busy&&!generationInFlight&&!writing)scheduleAutomatic();},
+    generating:()=>generationInFlight||writing,countTokens:text=>getContext().getTokenCountAsync(text,0),
+    input:serverInput,
     sync:async job=>{
         vectorStore.clear();
         if(job.chatKey!==chatContext().key)return;
@@ -174,6 +178,15 @@ const controller=createServerController({local:localController,enabled:()=>!!set
         await syncServerBooks(job,{loadBook,cache:worldInfoCache,emit:(...args)=>eventSource.emit(event_types.WORLDINFO_UPDATED,...args)});
         if(!generationInFlight)clearPrompts();
     },
+});
+const backgroundRecall=createBackgroundRecall({
+    settings:()=>normalizeSettings(settings()),context:chatContext,input:serverInput,call:serverCall,
+    countTokens:text=>getContext().getTokenCountAsync(text,0),
+    relay:()=>globalThis.sillyRelayPreparation,
+    supported:type=>!!event_types.GENERATE_AFTER_DATA && !!event_types.CHAT_COMPLETION_SETTINGS_READY
+        && !getContext().groupId && getContext().mainApi==='openai' && [undefined,'normal','regenerate','swipe'].includes(type),
+    tokenizer:async()=>{const module=await import('../../../tokenizers.js');return module.getTokenizerModel();},
+    accept:job=>controller.acceptBackgroundRecall(job),
 });
 const diagnosticView={
     async list(key){const local=await diagnostics.list(key);return settings()?.serverEnabled?[...local,...await serverCall('/logs/list',{chatKey:key})].sort((a,b)=>a.started.localeCompare(b.started)):local;},
@@ -246,17 +259,17 @@ async function intercept(_chat,_contextSize,abort,type) {
     try {
         if(globalThis.archiveLoreMigrating)throw new Error('기억 이관이 끝난 뒤 다시 전송해 줘.');
         if(writing)throw new Error('기억 저장이 끝난 뒤 다시 전송해 줘.');
-        const result=await controller.recall({kind:'generation',generationType:type,trace});
+        const result=await backgroundRecall.prepare(type,trace) || await controller.recall({kind:'generation',generationType:type,trace});
         if(epoch!==generationEpoch || generationStopped || chatContext().key!==context.key)throw new DOMException('생성이 중지되어 검색 결과를 주입하지 않았어.','AbortError');
         if(searchChoice!==JSON.stringify([settings().mode,settings().selectionFocus]))throw Error('검색 중 기억 선별 설정이 바뀌어서 주입하지 않았어. 다시 시도해 줘.');
         activeBooks=result.books;recalled=result.selected;
         getContext().setExtensionPrompt(PROMPT,result.text,extension_prompt_types.IN_CHAT,1,false);
         getContext().setExtensionPrompt(CORE_PROMPT,result.core,extension_prompt_types.IN_CHAT,1,false);
         getContext().setExtensionPrompt(GUIDANCE_PROMPT,result.guidance||'',extension_prompt_types.IN_CHAT,1,false);
-        controller.markInjected(Date.now()-started);
-        await trace.event('injection.installed',{timings:controller.state().lastRecall?.timings,slots:[{name:PROMPT,text:result.text,position:'IN_CHAT',depth:1},{name:CORE_PROMPT,text:result.core,position:'IN_CHAT',depth:1},{name:GUIDANCE_PROMPT,text:result.guidance||'',position:'IN_CHAT',depth:1}],selected:[...result.selected]});
+        if(!result.deferred)controller.markInjected(Date.now()-started);
+        await trace.event(result.deferred?'injection.reserved':'injection.installed',{timings:controller.state().lastRecall?.timings,slots:[{name:PROMPT,text:result.text,position:'IN_CHAT',depth:1},{name:CORE_PROMPT,text:result.core,position:'IN_CHAT',depth:1},{name:GUIDANCE_PROMPT,text:result.guidance||'',position:'IN_CHAT',depth:1}],selected:[...result.selected]});
         if(epoch===generationEpoch && !generationStopped)pendingGeneration={trace,key:context.key,messageCount:context.messages.length};
-    } catch(e){await trace.finish(e.name==='AbortError'?'stopped':'error',{message:e.message});if(epoch===generationEpoch && chatContext().key===context.key){generationInFlight=false;clearPrompts();abort(true);error(e);}}
+    } catch(e){if(epoch===generationEpoch)backgroundRecall.cancel();await trace.finish(e.name==='AbortError'?'stopped':'error',{message:e.message});if(epoch===generationEpoch && chatContext().key===context.key){generationInFlight=false;clearPrompts();abort(true);error(e);}}
 }
 function nativePolicy(lists) {
     // Per-chat source exclusions prevent copied books and retained originals firing together.
@@ -282,7 +295,7 @@ function nativePolicy(lists) {
 function init() {
     saveSettings();
     void diagnosticStore.ready().catch(error);
-    ui=createLoreUI({settings,saveSettings,controller,context:chatContext,error,diagnostics:diagnosticView,
+    ui=createLoreUI({settings,saveSettings,controller,context:chatContext,error,diagnostics:diagnosticView,translate,
         retrievalOnly:!!globalThis.archiveLoreFork,openHome:globalThis.archiveLoreFork?()=>globalThis.archiveLoreMemoryBooks.open():null,
         serverCheck:()=>serverCall('/status'),serverJobs:()=>controller.jobs(),
         embeddingTest:async()=>{const config=normalizeSettings(settings());return config.serverEnabled?serverCall('/embedding-test',{settings:config}):{dimensions:(await embed(config,'Archive Lore connection test.',false)).length,model:config.embeddingModel};},
@@ -307,11 +320,13 @@ function init() {
     }
     globalThis.archiveLoreSearch={subscribe:listener=>{searchViewListeners.add(listener);return ()=>searchViewListeners.delete(listener);},openSettings:()=>ui.openSettings(),controller,settings,saveSettings,books,target,loadBook,saveBook,store:vectorStore,diagnostics:diagnosticView,context:chatContext,clearPrompts};
     globalThis.archiveLoreInterceptor=intercept;
+    if(event_types.GENERATE_AFTER_DATA)eventSource.on(event_types.GENERATE_AFTER_DATA,(data,dryRun)=>backgroundRecall.capture(data,dryRun));
+    if(event_types.CHAT_COMPLETION_SETTINGS_READY)eventSource.on(event_types.CHAT_COMPLETION_SETTINGS_READY,data=>backgroundRecall.attach(data));
     eventSource.on(event_types.WORLDINFO_ENTRIES_LOADED,nativePolicy);
     eventSource.on(event_types.WORLDINFO_UPDATED,()=>controller.invalidateEmbeddingCounts());
     for(const event of [event_types.CHAT_CHANGED,event_types.MESSAGE_EDITED,event_types.MESSAGE_DELETED,event_types.MESSAGE_SWIPED,event_types.MESSAGE_RECEIVED])if(event)eventSource.on(event,()=>controller.invalidateEmbeddingCounts());
-    eventSource.on(event_types.CHAT_CHANGED,()=>{clearTimeout(autoTimer);autoPending=false;autoAttempt='';generationInFlight=false;controller.detach();controller.discardDraft();if(pendingGeneration)void pendingGeneration.trace.event('generation.chat-changed');pendingGeneration=null;controller.clearRecall();clearPrompts();void ui.refresh().catch(error);});
-    for(const event of [event_types.MESSAGE_EDITED,event_types.MESSAGE_DELETED,event_types.MESSAGE_SWIPED])if(event)eventSource.on(event,()=>{controller.cancel();clearPrompts();});
+    eventSource.on(event_types.CHAT_CHANGED,()=>{backgroundRecall.detach();clearTimeout(autoTimer);autoPending=false;autoAttempt='';generationInFlight=false;controller.detach();controller.discardDraft();if(pendingGeneration)void pendingGeneration.trace.event('generation.chat-changed');pendingGeneration=null;controller.clearRecall();clearPrompts();void ui.refresh().catch(error);});
+    for(const event of [event_types.MESSAGE_EDITED,event_types.MESSAGE_DELETED,event_types.MESSAGE_SWIPED])if(event)eventSource.on(event,()=>{backgroundRecall.cancel();controller.cancel();clearPrompts();});
     if(event_types.GENERATION_STARTED)eventSource.on(event_types.GENERATION_STARTED,(_type,_options,dryRun)=>{if(dryRun)return;generationStopped=false;generationInFlight=true;clearTimeout(autoTimer);});
     if(event_types.MESSAGE_RECEIVED)eventSource.on(event_types.MESSAGE_RECEIVED,async index=>{
         scheduleAutomatic();
@@ -322,9 +337,9 @@ function init() {
     for(const name of ['GENERATION_ENDED','GENERATION_STOPPED'])if(event_types[name])eventSource.on(event_types[name],async()=>{
         generationInFlight=false;
         if(name==='GENERATION_STOPPED'){
-            generationStopped=true;generationEpoch++;clearTimeout(autoTimer);autoPending=false;
+            backgroundRecall.cancel();generationStopped=true;generationEpoch++;clearTimeout(autoTimer);autoPending=false;
             controller.cancel();controller.clearRecall();clearPrompts();
-        }else if(!generationStopped)scheduleAutomatic();
+        }else if(!generationStopped){void backgroundRecall.completed().catch(error);scheduleAutomatic();}
         const run=pendingGeneration;if(!run)return;pendingGeneration=null;
         const context=chatContext();
         await run.trace.event(name==='GENERATION_STOPPED'?'rp.stopped':'rp.ended',{sameChat:context.key===run.key,messageCount:context.messages.length,latestAssistant:context.key===run.key?context.messages.map((m,index)=>({index,name:m.name,text:m.mes,is_user:m.is_user,is_system:m.is_system})).filter(m=>!m.is_user&&!m.is_system).slice(-1):[]});

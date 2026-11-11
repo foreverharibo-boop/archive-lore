@@ -101,3 +101,86 @@ test('collection persists six side entries and advances story dates without dupl
     assert.equal(relation().uid,uid);assert.equal(relation().content,'Ex-partners · D+1 since breakup');
     assert.equal(Object.keys(f.book.entries).length,6);assert.equal(f.book[NS].receipts.length,3);
 });
+test('automatic collection uses one request for memory and enabled custom sides; disabled categories remain unchanged',async()=>{
+    const f=fixture();f.config={autoCollect:true,autoMessages:2,sideTemplates:[{id:'inventory',title:'Inventory',prompt:'Track acquired objects',enabled:true}]};
+    f.replies.push(JSON.stringify({entries:JSON.parse(memory()).entries,sideChanges:[{op:'add',category:'inventory',text:'A hospital invitation',evidence:{message:0,quote:'병원'}}]}));
+    assert.equal(await f.controller.maybeAutoCollect(),true);
+    assert.equal(f.calls.filter(c=>typeof c==='object').length,1);
+    assert.equal(Object.values(f.book.entries).filter(e=>e[NS]?.sideCategory==='inventory').length,1);
+    assert.equal(await f.controller.maybeAutoCollect(),false);
+    f.messages.push({mes:'새 대화'});assert.equal(await f.controller.maybeAutoCollect(),false);
+});
+test('disabled side output rejects entire collection instead of updating a disabled record',async()=>{
+    const f=fixture();f.config={sideTemplates:[]};
+    f.replies.push(JSON.stringify({entries:[],sideChanges:[{op:'add',category:'plans',text:'Plan',evidence:{message:0,quote:'병원'}}]}));
+    await assert.rejects(f.controller.collect(),/변경 형식/);assert.equal(Object.keys(f.book.entries).length,0);
+});
+test('catch-up batches every message including newest without buffer; hiding occurs only after successful indexing',async()=>{
+    const f=fixture();f.messages.push({mes:'third'},{mes:'fourth'},{mes:'fifth'});f.config={keepMessages:1};
+    const hidden=[];f.host.hideRange=async range=>{hidden.push(range);for(let i=range.start;i<=range.end;i++)f.messages[i].is_system=true;};
+    for(let i=0;i<3;i++)f.replies.push(data=>JSON.stringify({entries:[{title:'Batch',content:data.dialogue.map(m=>m.text).join(' ')}],sideChanges:[]}));
+    await f.controller.collect({start:0,end:4,batchSize:2});
+    assert.deepEqual(f.book[NS].receipts.map(r=>[r.source.start,r.source.end]),[[0,1],[2,3],[4,4]]);
+    assert.deepEqual(hidden,[{start:0,end:3}]);assert(!f.messages[4].is_system);
+    const g=fixture();g.config={keepMessages:0};g.host.hideRange=async()=>{throw Error('must not hide');};g.failEmbed=true;g.replies.push(memory());
+    await assert.rejects(g.controller.collect(),/embed failed/);
+    g.failEmbed=false;let didHide=false;g.host.hideRange=async()=>{didHide=true;};await g.controller.collect();assert(didHide);
+});
+test('catch-up rejects invalid batch size; automatic collection waits for RP and current chat',async()=>{
+    const f=fixture();await assert.rejects(f.controller.collect({batchSize:0}),/분할 개수/);
+    f.config={autoCollect:true,autoMessages:1};f.host.generating=()=>true;assert.equal(await f.controller.maybeAutoCollect(),false);
+    f.host.generating=()=>false;const load=f.host.loadBook;f.host.loadBook=async()=>{f.key='other';return load();};assert.equal(await f.controller.maybeAutoCollect(),false);
+});
+const draftReply=JSON.stringify({title:'Hospital arc',content:'They planned and completed a hospital visit.'});
+function twoMemories(f){f.book={entries:{0:{uid:0,comment:'Plan',content:'They planned a visit.',[NS]:{source:sourceRange(f.messages,0,0)}},1:{uid:1,comment:'Visit',content:'They visited.',[NS]:{source:sourceRange(f.messages,1,1)}}}};}
+test('merge draft is read-only; apply keeps originals and replaces retrieval with arc',async()=>{
+    const f=fixture();twoMemories(f);const original=JSON.stringify(f.book);f.replies.push(draftReply);
+    const draft=await f.controller.prepareMaintenance({kind:'merge',ids:['["book","0"]','["book","1"]']});
+    assert.equal(JSON.stringify(f.book),original);assert(!f.calls.includes('save'));
+    await f.controller.applyMaintenance(draft);
+    assert.equal(Object.keys(f.book.entries).length,3);assert.equal(f.book.entries[0].content,'They planned a visit.');
+    assert.equal(f.book.entries[2][NS].tier,1);assert.equal((await f.controller.dashboard()).records.length,1);
+    await assert.rejects(f.controller.applyMaintenance(draft),/만료/);
+});
+test('maintenance rejects cross-book, single-item merge and mixed-tier selection',async()=>{
+    const f=fixture();twoMemories(f);
+    await assert.rejects(f.controller.prepareMaintenance({kind:'merge',ids:['["book","0"]']}),/2개 이상/);
+    f.book.entries[1][NS].tier=1;
+    await assert.rejects(f.controller.prepareMaintenance({kind:'merge',ids:['["book","0"]','["book","1"]']}),/기억끼리/);
+    await assert.rejects(f.controller.prepareMaintenance({kind:'compact',ids:['["else","0"]']}),/같은 로어북/);
+});
+test('maintenance stale draft, changed chat and changed source cannot commit',async()=>{
+    for(const change of [f=>{f.book.entries[0].content='manual change';},f=>{f.key='new';},f=>{f.messages[0].mes='edited';}]){
+        const f=fixture();twoMemories(f);f.replies.push(draftReply);const draft=await f.controller.prepareMaintenance({kind:'compact',ids:['["book","0"]']});
+        change(f);await assert.rejects(f.controller.applyMaintenance(draft));assert(!f.calls.includes('save'));
+    }
+});
+test('regeneration reads original hidden dialogue, compaction retains previous content',async()=>{
+    const f=fixture();twoMemories(f);f.messages[0].is_system=true;
+    f.replies.push(data=>{assert.equal(data.dialogue[0].text,'같이 병원에 가자.');assert(!data.memories);return draftReply;});
+    const draft=await f.controller.prepareMaintenance({kind:'regenerate',ids:['["book","0"]']});await f.controller.applyMaintenance(draft);
+    assert.equal(f.book.entries[0][NS].history[0].content,'They planned a visit.');
+    assert.equal(f.book.entries[0].content,JSON.parse(draftReply).content);
+});
+test('two arcs become a combined arc; no further tier; regeneration uses original member records',async()=>{
+    const f=fixture();twoMemories(f);f.book.entries[0][NS].tier=1;f.book.entries[1][NS].tier=1;f.replies.push(draftReply);
+    const draft=await f.controller.prepareMaintenance({kind:'merge',ids:['["book","0"]','["book","1"]']});await f.controller.applyMaintenance(draft);
+    assert.equal(f.book.entries[2][NS].tier,2);
+    await assert.rejects(f.controller.prepareMaintenance({kind:'merge',ids:['["book","2"]']}),/더 묶지 않아/);
+    f.replies.push(data=>{assert.equal(data.sourceMemories.length,2);assert.equal(data.sourceMemories[0].content,'They planned a visit.');return draftReply;});
+    await f.controller.prepareMaintenance({kind:'regenerate',ids:['["book","2"]']});
+});
+test('maintenance embedding failure retains committed version and invalidates draft to prevent duplicate apply',async()=>{
+    const f=fixture();twoMemories(f);f.replies.push(draftReply);const draft=await f.controller.prepareMaintenance({kind:'compact',ids:['["book","0"]']});
+    f.failEmbed=true;await assert.rejects(f.controller.applyMaintenance(draft),/embed failed/);
+    assert.equal(f.book.entries[0].content,JSON.parse(draftReply).content);await assert.rejects(f.controller.applyMaintenance(draft),/만료/);
+    f.failEmbed=false;await f.controller.index();assert.equal(f.book.entries[0][NS].history.length,1);
+});
+test('failed maintenance save keeps draft retryable; chat switch during last read prevents saving',async()=>{
+    const f=fixture();twoMemories(f);f.replies.push(draftReply);const draft=await f.controller.prepareMaintenance({kind:'compact',ids:['["book","0"]']});
+    f.failSave=true;await assert.rejects(f.controller.applyMaintenance(draft),/save failed/);assert.equal(f.book.entries[0].content,'They planned a visit.');
+    f.failSave=false;await f.controller.applyMaintenance(draft);assert.equal(f.book.entries[0][NS].history.length,1);
+    const g=fixture();twoMemories(g);g.replies.push(draftReply);const second=await g.controller.prepareMaintenance({kind:'compact',ids:['["book","0"]']});
+    const load=g.host.loadBook;g.host.loadBook=async()=>{g.key='other';return load();};
+    await assert.rejects(g.controller.applyMaintenance(second),/채팅방/);assert(!g.calls.includes('save'));
+});

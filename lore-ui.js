@@ -1,6 +1,10 @@
 // Archive Lore modifications Copyright (C) 2026 foreverharibo-boop
 // SPDX-License-Identifier: AGPL-3.0-only
-import { DEFAULT_PROMPTS, SIDE_PROMPT, SIDE_CATEGORIES, NS, normalizeSettings, isCore } from './lore-core.js';
+import { DEFAULT_PROMPTS, SIDE_PROMPT, NS, normalizeSettings, isCore } from './lore-core.js';
+
+import { normalizeSides, DEFAULT_SIDES, SIDE_COMMON } from './lore-side-config.js';
+import { tierLabel } from './lore-maintenance.js';
+import { makeId } from './lore-api.js';
 
 const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
 const button = (action, label, extra = '') => `<button type="button" class="menu_button al-button" data-action="${action}" ${extra}>${label}</button>`;
@@ -13,7 +17,7 @@ const download = (text, filename, type='text/plain;charset=utf-8') => {const url
 const check = (name, label, checked) => `<label class="al-check"><input type="checkbox" name="${name}" ${checked ? 'checked' : ''}><span>${label}</span></label>`;
 
 export function createLoreUI(api) {
-    let dialog = null, page = 0, redraw = 0, filter = '';
+    let dialog = null, page = 0, redraw = 0, filter = '', selected=new Set();
     const safe = callback => async event => { try { await callback(event); } catch(error) { api.error(error); } };
     function settingsHtml() {
         const s = normalizeSettings(api.settings());
@@ -36,14 +40,28 @@ export function createLoreUI(api) {
             ${field('검색 후보 구간',input('candidateCount',s.candidateCount,'number','min="1" max="40"'))}
             </div>${check('keywordActivation','기존 키워드 발동도 허용',s.keywordActivation)}
             ${check('sideEnabled','사이드 기록 변화 자동 반영',s.sideEnabled !== false)}</details>
+            <details><summary>자동 수집·숨기기</summary>
+            ${check('autoCollect','새 대화 자동 수집',s.autoCollect)}
+            ${field('수집 기준',select('autoMode',[['messages','메시지 개수'],['tokens','대화 토큰 수']],s.autoMode))}
+            ${field('메시지 기준',input('autoMessages',s.autoMessages,'number','min="1" max="1000"'))}
+            ${field('토큰 기준 · 추정값',input('autoTokens',s.autoTokens,'number','min="100" max="100000"'))}
+            ${field('수집 후 남길 메시지',input('keepMessages',s.keepMessages,'number','min="0" max="1000"'))}
+            </details>
+            <details data-side-settings><summary>사이드 항목 편집</summary>
+            ${s.sideTemplates.map(row=>`<details class="al-card" data-side="${escape(row.id)}"><summary>${escape(row.label)}</summary>
+                <label class="al-check"><input type="checkbox" data-side-field="enabled" ${row.enabled?'checked':''}><span>수집할 때 함께 갱신</span></label>
+                ${field('이름',`<input class="text_pole" data-side-field="title" value="${escape(row.title)}">`)}
+                <textarea class="text_pole al-prompt" data-side-field="prompt" spellcheck="false">${escape(row.prompt)}</textarea>
+                <div class="al-actions al-prompt-actions">${button('expand-side','전체화면 편집')}${DEFAULT_SIDES.some(r=>r.id===row.id)?button('reset-side','기본 프롬프트 복원'):button('remove-side','항목 삭제')}</div>
+            </details>`).join('')}${button('add-side','사이드 항목 추가')}</details>
             <details><summary>기본 프롬프트 편집</summary>
-            ${[['collect','기억 수집'],['sides','사이드 기록 · 변화만 반영'],['questions','질문 만들기'],['select','원문 선별']].map(([key,label]) => `<details><summary>${label}</summary><textarea class="text_pole al-prompt" name="prompt.${key}" spellcheck="false">${escape(key === 'sides' ? s.sidePrompt || SIDE_PROMPT : s.prompts[key])}</textarea><div class="al-actions al-prompt-actions">${button('expand-prompt','전체화면 편집',`data-key="${key}"`)}${button('reset-prompt','이 프롬프트 초기화',`data-key="${key}"`)}</div></details>`).join('')}
+            ${[['collect','기억 수집'],['sides','사이드 공통 지침'],['questions','질문 만들기'],['select','원문 선별']].map(([key,label]) => `<details><summary>${label}</summary><textarea class="text_pole al-prompt" name="prompt.${key}" spellcheck="false">${escape(key === 'sides' ? (s.sidePrompt && s.sidePrompt!==SIDE_PROMPT ? s.sidePrompt : SIDE_COMMON) : s.prompts[key])}</textarea><div class="al-actions al-prompt-actions">${button('expand-prompt','전체화면 편집',`data-key="${key}"`)}${button('reset-prompt','이 프롬프트 초기화',`data-key="${key}"`)}</div></details>`).join('')}
             <div class="al-actions">${button('export-prompts','프롬프트 내보내기')}${button('import-prompts','프롬프트 가져오기')}<input type="file" data-prompt-file accept="application/json,.json" hidden></div>
             </details>${button('open','아카이브 로어 열기')}
             </div>`;
     }
-    function expandPrompt(container,key) {
-        const source=container.querySelector(`[name="prompt.${key}"]`);
+    function expandPrompt(container,key,sideId=null) {
+        const source=sideId?container.querySelector(`[data-side="${sideId}"] [data-side-field="prompt"]`):container.querySelector(`[name="prompt.${key}"]`);
         const editor=document.createElement('dialog');editor.className='al-root al-editor';
         editor.innerHTML=`<header><strong>프롬프트 전체화면 편집</strong><div class="al-actions">${button('editor-save','저장 후 닫기')}${button('editor-cancel','취소')}</div></header><textarea class="text_pole" aria-label="전체화면 프롬프트" spellcheck="false"></textarea>`;
         editor.querySelector('textarea').value=source.value;
@@ -51,11 +69,12 @@ export function createLoreUI(api) {
             const action=event.target.closest('[data-action]')?.dataset.action;
             if(action==='editor-save'){
                 const value=editor.querySelector('textarea').value;
-                api.saveSettings(key==='sides'?{sidePrompt:value}:{prompts:{...api.settings().prompts,[key]:value}});source.value=value;editor.close();
+                if(sideId)saveSide(sideId,{prompt:value});else api.saveSettings(key==='sides'?{sidePrompt:value}:{prompts:{...api.settings().prompts,[key]:value}});source.value=value;editor.close();
             } else if(action==='editor-cancel')editor.close();
         }));
         editor.addEventListener('close',()=>editor.remove(),{once:true});document.body.append(editor);editor.showModal();const textarea=editor.querySelector('textarea');textarea.focus();textarea.setSelectionRange(0,0);textarea.scrollTop=0;
     }
+    function saveSide(id,patch) { api.saveSettings({sideTemplates:normalizeSides(api.settings().sideTemplates).map(row=>row.id===id?{...row,...patch}:row)}); }
     function mountSettings(container) {
         container.innerHTML = settingsHtml();
         container.addEventListener('change', safe(async event => {
@@ -65,8 +84,9 @@ export function createLoreUI(api) {
                 const payload = JSON.parse(await file.text());
                 const fields = ['collect','questions','select'];
                 if (payload.format !== 'archive-lore-prompts-v1' || fields.some(k => typeof payload.prompts?.[k] !== 'string') || typeof payload.sidePrompt !== 'string') throw new Error('아카이브 로어 프롬프트 파일이 아니야.');
-                api.saveSettings({ prompts: payload.prompts, sidePrompt: payload.sidePrompt }); container.innerHTML = settingsHtml(); return;
+                api.saveSettings({ prompts: payload.prompts, sidePrompt: payload.sidePrompt, ...(payload.sideTemplates?{sideTemplates:normalizeSides(payload.sideTemplates)}:{}) }); container.innerHTML = settingsHtml(); return;
             }
+            if(element.dataset.sideField){const name=element.dataset.sideField;saveSide(element.closest('[data-side]').dataset.side,{[name]:name==='enabled'?element.checked:element.value,...(name==='title'?{label:element.value}:{})});if(name==='title')element.closest('[data-side]').querySelector('summary').textContent=element.value;return;}
             if (!element.name) return;
             let value = element.type === 'checkbox' ? element.checked : element.value;
             if (element.name.startsWith('prompt.')) {
@@ -87,16 +107,30 @@ export function createLoreUI(api) {
             switch (target.dataset.action) {
                 case 'open': await open(); break;
                 case 'expand-prompt': expandPrompt(container,target.dataset.key);break;
+                case 'expand-side':expandPrompt(container,null,target.closest('[data-side]').dataset.side);break;
+                case 'add-side':{
+                    const sideTemplates=normalizeSides(api.settings().sideTemplates);
+                    sideTemplates.push({id:'custom_'+makeId().replace(/[^a-zA-Z0-9_-]/g,''),label:'새 사이드',title:'New side record',enabled:true,prompt:'Track changes to this topic only. Preserve unchanged facts; add or update only facts directly supported by exact dialogue evidence.'});
+                    api.saveSettings({sideTemplates});container.innerHTML=settingsHtml();container.querySelector('[data-side-settings]').open=true;container.querySelector('[data-side]:last-of-type').open=true;break;
+                }
+                case 'reset-side':{
+                    const id=target.closest('[data-side]').dataset.side;if(!window.confirm('이 사이드 프롬프트를 기본값으로 되돌릴까?'))return;
+                    const original=DEFAULT_SIDES.find(r=>r.id===id);saveSide(id,{prompt:original.prompt});target.closest('[data-side]').querySelector('textarea').value=original.prompt;break;
+                }
+                case 'remove-side':{
+                    const id=target.closest('[data-side]').dataset.side;if(!window.confirm('이 사이드 설정을 삭제할까? 이미 저장된 기록은 남아 있어.'))return;
+                    api.saveSettings({sideTemplates:normalizeSides(api.settings().sideTemplates).filter(r=>r.id!==id)});target.closest('[data-side]').remove();break;
+                }
                 case 'profiles': container.innerHTML = settingsHtml(); break;
                 case 'reset-prompt': {
                     const key = target.dataset.key;
                     if (!window.confirm('편집한 프롬프트를 기본값으로 되돌릴까?')) return;
-                    api.saveSettings(key === 'sides' ? { sidePrompt: SIDE_PROMPT } : { prompts: { ...api.settings().prompts, [key]: DEFAULT_PROMPTS[key] } });
-                    container.querySelector(`[name="prompt.${key}"]`).value = key === 'sides' ? SIDE_PROMPT : DEFAULT_PROMPTS[key]; break;
+                    api.saveSettings(key === 'sides' ? { sidePrompt: SIDE_COMMON } : { prompts: { ...api.settings().prompts, [key]: DEFAULT_PROMPTS[key] } });
+                    container.querySelector(`[name="prompt.${key}"]`).value = key === 'sides' ? SIDE_COMMON : DEFAULT_PROMPTS[key]; break;
                 }
                 case 'export-prompts': {
                     const s = normalizeSettings(api.settings());
-                    const blob = new Blob([JSON.stringify({format:'archive-lore-prompts-v1',prompts:s.prompts,sidePrompt:s.sidePrompt || SIDE_PROMPT}, null, 2)], {type:'application/json'});
+                    const blob = new Blob([JSON.stringify({format:'archive-lore-prompts-v1',prompts:s.prompts,sidePrompt:(s.sidePrompt && s.sidePrompt!==SIDE_PROMPT ? s.sidePrompt : SIDE_COMMON),sideTemplates:s.sideTemplates}, null, 2)], {type:'application/json'});
                     const url = URL.createObjectURL(blob), a = document.createElement('a'); a.href=url; a.download='archive-lore-prompts.json'; a.click(); setTimeout(() => URL.revokeObjectURL(url),1000); break;
                 }
                 case 'import-prompts': container.querySelector('[data-prompt-file]').click(); break;
@@ -119,6 +153,8 @@ export function createLoreUI(api) {
         dialog.querySelector('[data-next]').textContent = view.next < context.messages.length ? `다음 수집 #${view.next}–#${context.messages.length-1}` : '새 대화 없음';
         dialog.querySelector('[name="rangeStart"]').value = view.next;
         dialog.querySelector('[name="rangeEnd"]').value = Math.max(0,context.messages.length-1);
+        selected=new Set([...selected].filter(id=>view.records.some(r=>r.id===id&&!r.entry[NS]?.sideCategory&&!isCore(r.entry))));
+        dialog.querySelector('[data-selected]').textContent=`${selected.size}개 선택`;
         const names = api.bookNames();
         dialog.querySelector('[name="target"]').innerHTML = options([['','연결된 책 없음 · 수집 시 새로 만들기'], ...names.map(n=>[n,n])], api.target());
         const chosen = api.books();
@@ -130,11 +166,13 @@ export function createLoreUI(api) {
         dialog.querySelector('[data-action="next"]').disabled = page+1 >= pages;
         dialog.querySelector('[data-records]').innerHTML = rows.slice(page*12,page*12+12).map(row => {
             const e=row.entry, side=e[NS]?.sideCategory;
-            return `<details class="al-record" data-record="${escape(row.id)}"><summary><span>${escape(e.comment || '제목 없음')}</span><small>${side?'사이드':isCore(e)?'코어':'기억'}</small></summary>
+            return `<details class="al-record" data-record="${escape(row.id)}"><summary><span>${escape(e.comment || '제목 없음')}</span><small>${side?'사이드':isCore(e)?'코어':tierLabel(e)}</small></summary>
             <div class="al-record-body"><span class="al-muted">${escape(row.book)}</span>
             ${check('core','코어 · 항상 주입',isCore(e))}
+            ${!side&&!isCore(e)?`<label class="al-check"><input type="checkbox" data-select-memory ${selected.has(row.id)?'checked':''}><span>묶을 기억으로 선택</span></label>`:''}
             ${side === 'relationship' ? `<strong>${escape(e.content)}</strong>${field('관계 명칭', input('relationshipLabel', e[NS].facts?.[0]?.text || 'Undefined'))}${field('기간 기준', select('relationshipKind', [['start','관계 시작'],['breakup','이별'],['reunion','재회'],['other','기타']], e[NS].facts?.[0]?.relationship?.kind || 'other'))}${field('시작일 · 미상은 빈칸', input('relationshipSince', e[NS].facts?.[0]?.relationship?.since || '', 'date'))}${field('현재 RP 날짜', input('relationshipToday', e[NS].storyDate || '', 'date'))}` : side ? (e[NS].facts || []).map(f=>`<textarea class="text_pole" data-fact="${escape(f.id)}">${escape(f.text)}</textarea>`).join('') : `<textarea class="text_pole" name="content">${escape(e.content)}</textarea>`}
-            ${button('save-record','저장')}
+            <div class="al-actions">${button('save-record','저장','data-job')}${!side&&!isCore(e)?button('compact','짧게 다듬기','data-job')+button('regenerate','다시 만들기','data-job'):''}</div>
+            ${e[NS]?.members?.length?`<details><summary>묶기 전 원본 (${e[NS].members.length})</summary>${e[NS].members.map(m=>`<strong>${escape(m.title)}</strong><pre>${escape(m.content)}</pre>`).join('')}</details>`:''}
             ${translationHtml(api.translation?.(row.book,e))}
             ${e[NS]?.history?.length ? `<details><summary>변경 전 기록 (${e[NS].history.length})</summary>${[...e[NS].history].reverse().map(h=>`<pre>${escape(h.content)}</pre>`).join('')}</details>`:''}
             </div></details>`;
@@ -148,6 +186,23 @@ export function createLoreUI(api) {
         dialog.querySelector('[data-log-counts]').textContent=`대화로 검색 ${attempts.filter(r=>r.mode==='dialogue'&&!['skipped','error','canceled'].includes(r.status)).length}회 · 질문으로 검색 ${attempts.filter(r=>r.mode==='questions'&&!['skipped','error','canceled'].includes(r.status)).length}회 · 전체 기록 ${runs.length}개`;
         dialog.querySelector('[data-log-list]').innerHTML=runs.slice(-30).reverse().map(r=>`<details><summary>${escape(r.started)} · ${escape(r.kind)} · ${escape(r.mode)} · ${escape(r.status)}</summary><pre>${escape(JSON.stringify(r,null,2))}</pre></details>`).join('');
     }
+    function openDraft(draft) {
+        const editor=document.createElement('dialog');editor.className='al-root al-editor';
+        editor.innerHTML=`<header><strong>기억 정리 초안 · ${draft.beforeTokens} → ${draft.afterTokens} 추정 토큰</strong><div class="al-actions">${button('apply-draft','적용')}${button('cancel-draft','취소')}</div></header>
+            ${field('제목',input('draftTitle',draft.title))}<textarea class="text_pole" aria-label="기억 정리 초안"></textarea>
+            <details class="al-draft-originals"><summary>원본 확인</summary>${draft.originals.map(e=>`<strong>${escape(e.title)}</strong><pre>${escape(e.content)}</pre>`).join('')}</details>`;
+        editor.querySelector('textarea').value=draft.content;
+        editor.addEventListener('click',safe(async event=>{
+            const action=event.target.closest('[data-action]')?.dataset.action;
+            if(action==='cancel-draft')editor.close();
+            if(action==='apply-draft'){
+                const buttons=[...editor.querySelectorAll('button')];buttons.forEach(b=>b.disabled=true);
+                try{await api.controller.applyMaintenance({token:draft.token,title:editor.querySelector('[name="draftTitle"]').value,content:editor.querySelector('textarea').value});selected.clear();editor.close();await refresh();}
+                finally{buttons.forEach(b=>b.disabled=false);}
+            }
+        }));
+        editor.addEventListener('close',()=>{api.controller.discardDraft();editor.remove();},{once:true});document.body.append(editor);editor.showModal();
+    }
     async function open() {
         if (dialog?.isConnected) { await refresh(); return; }
         dialog = document.createElement('dialog'); dialog.className='al-dialog al-root';
@@ -155,19 +210,22 @@ export function createLoreUI(api) {
         <div class="al-scroll"><div class="al-counts" data-counts></div>
         <section class="al-card"><strong data-next></strong><div class="al-muted" data-range></div>
         <div class="al-actions">${button('collect','기억 수집','data-job')}${button('index','남은 임베딩','data-job')}${button('stop','중지')}</div><div data-status role="status" aria-live="polite"></div></section>
-        <details class="al-card"><summary>수집 범위·로어북</summary>
+        <details class="al-card"><summary>지난 대화 한꺼번에 수집·로어북</summary>
         ${field('저장할 로어북',select('target',[],''))}
         <details><summary>검색할 로어북 선택</summary><div data-books></div></details>
         <div class="al-range">${field('시작 번호',input('rangeStart',0,'number','min="0"'))}${field('끝 번호',input('rangeEnd',0,'number','min="0"'))}</div>
-        <div class="al-actions">${button('collect-range','이 범위 수집','data-job')}${button('start-here','다음 수집 시작점 지정','data-job')}${button('reindex','전체 임베딩 다시 만들기','data-job')}</div></details>
+        ${field('분할 메시지 개수',input('rangeBatch',normalizeSettings(api.settings()).batchSize,'number','min="1" max="100"'))}
+        <div class="al-actions">${button('collect-range','범위 나눠 수집','data-job')}${button('start-here','다음 수집 시작점 지정','data-job')}${button('reindex','전체 임베딩 다시 만들기','data-job')}</div></details>
         <details class="al-card"><summary>최근 주입 확인</summary>${button('preview','지금 회상 미리보기','data-job')}<pre data-recall></pre><div data-recall-translations></div></details>
         <details class="al-card"><summary>턴별 진단 기록</summary><div data-log-counts></div><div class="al-actions">${select('logMode',[['all','전체 방식'],['dialogue','대화로 검색'],['questions','질문으로 검색']],'all')}${button('export-logs','진단 TXT 다운로드')}</div><div data-log-list></div></details>
         <section class="al-card"><div class="al-actions al-between"><strong>저장된 기억·사이드 기록</strong>${button('refresh','새로고침')}</div>
+        <div class="al-actions">${button('merge','선택 기억 묶기 · 아크','data-job')}<span data-selected>0개 선택</span>${button('clear-selection','선택 해제')}</div>
         <input class="text_pole" name="filter" placeholder="내용·제목 검색" aria-label="내용·제목 검색"><div data-records></div>
         <div class="al-actions al-pagination">${button('prev','이전')}<span data-page></span>${button('next','다음')}</div></section></div>`;
         document.body.append(dialog); dialog.showModal();
         dialog.addEventListener('close',()=>{dialog?.remove();dialog=null;redraw++;});
         dialog.addEventListener('change',safe(async event=>{
+            if(event.target.matches('[data-select-memory]')){const id=event.target.closest('[data-record]').dataset.record;event.target.checked?selected.add(id):selected.delete(id);dialog.querySelector('[data-selected]').textContent=`${selected.size}개 선택`;}
             if(event.target.name==='target'){await api.setTarget(event.target.value);await refresh();}
             if(event.target.dataset.book){await api.setBooks([...dialog.querySelectorAll('[data-book]:checked')].map(e=>e.dataset.book));await refresh();}
         }));
@@ -181,8 +239,13 @@ export function createLoreUI(api) {
                 case 'index':await api.controller.index();break;
                 case 'stop':api.controller.cancel();break;
                 case 'reindex':if(window.confirm('전체 기억을 다시 임베딩할까? 임베딩 API를 사용해.'))await api.controller.index(true);break;
-                case 'collect-range':await api.controller.collect({start:Number(dialog.querySelector('[name="rangeStart"]').value),end:Number(dialog.querySelector('[name="rangeEnd"]').value)});break;
+                case 'collect-range':await api.controller.collect({start:Number(dialog.querySelector('[name="rangeStart"]').value),end:Number(dialog.querySelector('[name="rangeEnd"]').value),batchSize:Number(dialog.querySelector('[name="rangeBatch"]').value)});break;
                 case 'start-here':await api.setInitialStart(Number(dialog.querySelector('[name="rangeStart"]').value));break;
+                case 'clear-selection':selected.clear();break;
+                case 'merge':case 'compact':case 'regenerate':{
+                    const ids=b.dataset.action==='merge'?[...selected]:[b.closest('[data-record]').dataset.record];
+                    const draft=await api.controller.prepareMaintenance({kind:b.dataset.action,ids});openDraft(draft);break;
+                }
                 case 'preview':await api.controller.recall();break;
                 case 'export-logs':{const mode=dialog.querySelector('[name="logMode"]').value;download(await api.diagnostics.export(api.context().key,mode),`archive-lore-${mode}-${new Date().toISOString().replace(/[:.]/g,'-')}.txt`);break;}
                 case 'prev':page--;break;

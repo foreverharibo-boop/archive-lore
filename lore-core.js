@@ -1,5 +1,6 @@
 // Archive Lore modifications Copyright (C) 2026 foreverharibo-boop
 // SPDX-License-Identifier: AGPL-3.0-only
+import { normalizeSides } from './lore-side-config.js';
 import { fingerprintChatMessage } from './chatSelection.js';
 import { COLLECT_PROMPT, SIDE_PROMPT } from './lore-prompts.js';
 import { LEGACY_COLLECT, LEGACY_SIDE } from './lore-prompts-v1.js';
@@ -30,6 +31,10 @@ export function normalizeSettings(value = {}) {
     }
     return { ...DEFAULTS, ...value, promptRevision: 2,
         enabled: value.enabled !== false,
+        sideTemplates: normalizeSides(value.sideTemplates),
+        autoCollect:value.autoCollect===true,autoMode:value.autoMode==='tokens'?'tokens':'messages',
+        autoMessages:integer(value.autoMessages ?? 20,20,1,1000),autoTokens:integer(value.autoTokens ?? 6000,6000,100,100000),
+        keepMessages:integer(value.keepMessages ?? 10,10,0,1000),
         mode: value.mode === 'questions' ? 'questions' : 'dialogue',
         embeddingProvider: ['openai','vertex'].includes(value.embeddingProvider) ? value.embeddingProvider : 'gemini',
         embeddingKeys: { ...(value.embeddingKey ? { [value.embeddingProvider || 'gemini']: value.embeddingKey } : {}), ...value.embeddingKeys },
@@ -215,14 +220,14 @@ export function sideRecords(entries) {
         ...f, category: e[NS].sideCategory, uid: String(e.uid),
     })));
 }
-export function parseSideChanges(response, facts, messages, source) {
+export function parseSideChanges(response, facts, messages, source, categories = SIDE_CATEGORIES) {
     const parsed = parseJson(response);
     if (!Array.isArray(parsed.sideChanges)) throw new Error('사이드 기록 변경 목록이 빠졌어. 저장하지 않았어.');
     if (parsed.sideChanges.length > 60) throw new Error('사이드 변경 항목이 너무 많아. 범위를 줄여 줘.');
     const seen = new Set();
     if (parsed.sideChanges.filter(c => c?.category === 'relationship').length > 1) throw new Error('관계 변경은 한 번에 하나만 저장할 수 있어.');
     return parsed.sideChanges.map(change => {
-        if (!Object.hasOwn(SIDE_CATEGORIES, change.category) || !['add', 'update'].includes(change.op)
+        if (!Object.hasOwn(categories, change.category) || !['add', 'update'].includes(change.op)
             || typeof change.text !== 'string' || !change.text.trim() || change.text.length > 3000)
             throw new Error('사이드 기록 변경 형식이 올바르지 않아.');
         if (change.op === 'update') {
@@ -268,9 +273,9 @@ export function currentStoryDate(data, messages) {
     return [...(data?.[NS]?.storyDates || [])].reverse()
         .find(clock => (clock.date === null || dateDay(clock.date) !== null) && matchesRange(clock.source, messages))?.date || null;
 }
-export function applySideChanges(existing, changes, source, makeEntry, makeId, storyDate = undefined) {
+export function applySideChanges(existing, changes, source, makeEntry, makeId, storyDate = undefined, categories = SIDE_CATEGORIES) {
     const changed = [];
-    for (const category of Object.keys(SIDE_CATEGORIES)) {
+    for (const category of Object.keys(categories)) {
         const ops = changes.filter(c => c.category === category);
         let entry = existing.find(e => e[NS]?.sideCategory === category);
         if (!ops.length && !(category === 'relationship' && entry && storyDate !== undefined)) continue;
@@ -298,7 +303,7 @@ export function applySideChanges(existing, changes, source, makeEntry, makeId, s
         if (!entry) entry = makeEntry();
         const history = previous?.history || [];
         if (previous) history.push(sideSnapshot({ content: oldContent, [NS]: previous }));
-        entry.comment = SIDE_CATEGORIES[category]; entry.content = content;
+        entry.comment = categories[category]; entry.content = content;
         entry[NS] = { ...previous, sideCategory: category, facts, source, history,
             ...(category === 'relationship' ? { storyDate: date || null } : {}) };
         changed.push(entry);

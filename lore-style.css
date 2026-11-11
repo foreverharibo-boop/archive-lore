@@ -58,3 +58,5 @@
 .al-root [data-log-list] pre { max-height: 350px; overflow: auto; }
 .al-root [data-log-list] summary { overflow-wrap: anywhere; }
 .al-root [name="logMode"] { flex: 1; width: auto; }
+.al-root .al-draft-originals { max-height: 30vh; overflow: auto; flex: 0 1 auto; }
+.al-root [data-side] > summary { overflow-wrap: anywhere; }

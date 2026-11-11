@@ -21,7 +21,7 @@ function preparationHarness(fork=true) {
   loadWorldInfo:async name=>(calls.push(['load',name]),{entries:{},memories}),
   resolveMemoryDefaultLorebook:async()=>{throw Error('must use origin memory book')},
   identifyMemoryEntries:data=>data.memories,
-  fetchPreviousSummaries:async n=>(calls.push(['previous',n]),{summaries:[memories[0]]}),chat_metadata:{},
+  fetchPreviousSummaries:async n=>(calls.push(['previous',n]),{summaries:memories.slice(-n)}),chat_metadata:{},
   resolveSidePromptAdditionalContextEntries:async()=>({entries:[]}),
   resolveSidePromptConnection:()=>({}),PLAIN_SIDE_FORMAT:'plain',
   extension_settings:{STMemoryBooks:{moduleSettings:{},profiles:[{}]}},
@@ -31,14 +31,14 @@ function preparationHarness(fork=true) {
  vm.createContext(scope);vm.runInContext(extract('buildPrompt')+'\n'+extract('prepareSidePromptRun',true),scope);
  return {scope,calls};
 }
-test('ordinary update sends only the prior record and current dialogue, even with a legacy memory count',async()=>{
+test('zero context count sends only the prior record and current dialogue',async()=>{
  const h=preparationHarness();const scene={metadata:{chatId:'origin',sceneStart:10,sceneEnd:19},messages:[{id:19,mes:'new promise was fulfilled'}]};
  h.scope.loadWorldInfo=async()=>{throw Error('must not load stored memories')};
  h.scope.identifyMemoryEntries=()=>{throw Error('must not scan stored memories')};
- const args={tpl:{key:'side',prompt:'Update plans',responseFormat:'plain',settings:{previousMemoriesCount:7}},loreData:{},compiledScene:scene,chatRef:{chatId:'origin'}};
+ const args={tpl:{key:'side',prompt:'Update plans',responseFormat:'plain',settings:{previousMemoriesCount:0}},loreData:{},compiledScene:scene,chatRef:{chatId:'origin'}};
  const result=await h.scope.prepareSidePromptRun(args);
  assert(result.finalPrompt.includes('prior side facts'));assert(result.finalPrompt.includes('new promise was fulfilled'));
- assert(!result.finalPrompt.includes('established fact'));assert(!result.finalPrompt.includes('SAVED STORY MEMORIES'));
+ assert(!/established fact \d/.test(result.finalPrompt));assert(!result.finalPrompt.includes('SAVED STORY MEMORIES'));
  assert(result.finalPrompt.includes('Preserve existing facts and wording'));assert(result.finalPrompt.includes('return the prior record unchanged'));
  assert.deepEqual(h.calls,[['history','origin']]);
  assert.equal(scene.archiveLoreStoryMemories,undefined);
@@ -47,6 +47,27 @@ test('ordinary update sends only the prior record and current dialogue, even wit
  const retry=await h.scope.prepareSidePromptRun(args);
  assert(!retry.finalPrompt.includes('SECRET OLD STORY'));
  assert.equal(retry.finalPrompt,result.finalPrompt);
+});
+test('fork includes exactly the requested previous memories as background, not new events',async()=>{
+ for(const count of [1,3,7]) {
+  const h=preparationHarness();
+  const result=await h.scope.prepareSidePromptRun({tpl:{key:'side',prompt:'Update',settings:{previousMemoriesCount:count}},
+   loreData:{},compiledScene:{metadata:{sceneEnd:19},messages:[{id:19,mes:'new promise was fulfilled'}]}});
+  assert.deepEqual(h.calls.filter(c=>c[0]==='previous'),[['previous',count]]);
+  for(let i=0;i<12;i++) assert.equal(result.finalPrompt.includes(`established fact ${i}\n`),i>=12-count);
+  assert(result.finalPrompt.includes('prior side facts'));
+  assert(result.finalPrompt.includes('new promise was fulfilled'));
+  assert(result.finalPrompt.includes('Do not treat old events as new changes'));
+  assert(result.finalPrompt.includes('DO NOT PROCESS'));
+ }
+});
+test('context count is bounded and invalid values never request the entire history',async()=>{
+ for(const [value,expected] of [[99,7],[2.8,2],[-1,0],['invalid',0],[Infinity,0]]) {
+  const h=preparationHarness();
+  await h.scope.prepareSidePromptRun({tpl:{key:'side',prompt:'Update',settings:{previousMemoriesCount:value}},
+   loreData:{},compiledScene:{metadata:{sceneEnd:19},messages:[]}});
+  assert.deepEqual(h.calls.filter(c=>c[0]==='previous'),expected?[['previous',expected]]:[]);
+ }
 });
 test('no-new-dialogue refresh preserves the prior record without retrieving history',async()=>{
  const h=preparationHarness();

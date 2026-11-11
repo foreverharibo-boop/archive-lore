@@ -34,6 +34,10 @@ Tickets are account-bound, expire after two minutes before use, and retain selec
 
 `tests/archive-lore-relay-browser.mjs` uses a real Chromium browser plus both actual server implementations and closes the browser during selection. It verifies that selection and RP complete once while closed and that a reopened browser receives the response, with presets/core/user input preserved. AI, tokenizer and ST host APIs are fixtures, not paid-model or Samsung/Termux validation. Run with a sibling `Silly-Relay` checkout or `RELAY_SOURCE`, plus the existing Playwright environment variables.
 
+## Side Prompt previous-memory context
+
+Side Prompt **Previous memories for context** is honored in both Archive Lore and original layouts. A value of 0 performs no previous-memory lookup; 1–7 includes up to that many recent native memory entries using Memory Books' existing context selector. These entries are background for interpreting the supplied scene, not new events to reapply. The prior side record and incremental update rules remain in effect. This does not scan the entire chat or automatically enable previous-memory context for other templates.
+
 ## Embedding counts
 
 Opening search tools uses a dedicated, read-only count path instead of the full dashboard. It reads current book entries and checks vector keys; it does not restore jobs, synchronize completed jobs, read collection receipts, copy vectors or call an AI API. The last count for the current chat, selected books and embedding settings appears immediately with a “최근 확인” label while a fresh count runs. The first opening still needs a book/presence lookup. Entry edits, chat edits, settings changes and embedding work invalidate the cached count.

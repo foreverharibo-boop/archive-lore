@@ -684,9 +684,10 @@ async function prepareSidePromptRun({
 
     let prevSummaries = [];
     const pmCountRaw = Number(tpl?.settings?.previousMemoriesCount ?? 0);
-    const pmCount = Math.max(0, Math.min(7, pmCountRaw));
-    // Archive updates use only this run's dialogue and the existing side record.
-    if (!globalThis.archiveLoreFork && pmCount > 0) {
+    const pmCount = Number.isFinite(pmCountRaw) ? Math.max(0, Math.min(7, Math.floor(pmCountRaw))) : 0;
+    // Honor the explicit context count in both layouts; zero keeps incremental
+    // updates limited to the prior side record and this run's scene.
+    if (pmCount > 0) {
         try {
             const res = await fetchPreviousSummaries(pmCount, extension_settings, chat_metadata);
             prevSummaries = res?.summaries || [];

@@ -19,7 +19,7 @@ function fixture(t){
     const user={profile:{handle:'owner'},directories:dirs},replies=[],calls=[];
     const dependencies={sanitize,ask:async(_user,payload,signal)=>{calls.push(payload);const r=replies.shift();return typeof r==='function'?r(payload,signal):r;},embedRequest:async()=>[1,0]};
     const service=createJobService(dependencies);
-    const input=()=>({context:{key:'test-key',name:'Test',messages:jsonLines(file).slice(1)},chat:{id:'chat',avatar:'char.png',group:false},books:['Book'],target:'Book',initialStart:0,settings:{embeddingProvider:'gemini',embeddingKeys:{gemini:'private-embedding-key'},keepMessages:1,cacheNamespace:'server-test'},templates:{collection:{chat_completion_source:'custom',model:'test'},search:{chat_completion_source:'custom',model:'test'}},options:{}});
+    const input=()=>({context:{key:'test-key',name:'Test',messages:jsonLines(file).slice(1)},chat:{id:'chat',avatar:'char.png',group:false},books:['Book'],target:'Book',initialStart:0,settings:{diagnosticsDetailed:true,embeddingProvider:'gemini',embeddingKeys:{gemini:'private-embedding-key'},keepMessages:1,cacheNamespace:'server-test'},templates:{collection:{chat_completion_source:'custom',model:'test'},search:{chat_completion_source:'custom',model:'test'}},options:{}});
     return {root,user,file,book,messages,writeChat,replies,calls,service,input,dependencies};
 }
 const jsonLines=file=>fs.readFileSync(file,'utf8').trim().split('\n').map(l=>JSON.parse(l));

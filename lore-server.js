@@ -4,6 +4,13 @@ import { makeId } from './lore-api.js';
 import { normalizeSettings,matchesRange,sourceRange } from './lore-core.js';
 import { automaticReady } from './lore-automation.js';
 import { withAbort } from './lore-cancellation.js';
+import { waitForServerPoll } from './lore-poll-wait.js';
+export function serverChatSnapshot(context) {
+    // Keep the complete current message text and fingerprint fields, excluding
+    // old swipes, translations, reasoning and unrelated extension payloads.
+    return {...context,messages:context.messages.map(m=>Object.fromEntries(
+        ['name','mes','send_date','is_user','is_system','original_avatar'].filter(k=>k in m).map(k=>[k,m[k]])))};
+}
 export async function profileTemplate(context,profileId,proxies=[]) {
     const id=profileId || context.extensionSettings?.connectionManager?.selectedProfile;
     if(!id)throw Error('수집·검색에 사용할 연결 프로필을 선택해 줘. 임베딩만 할 때는 필요 없어.');
@@ -80,7 +87,7 @@ export function serverVectorStore({local,call,enabled}) {
         async put(key,vector,{signal}={}){signal?.throwIfAborted();if(!enabled())return local.put(key,vector);await call('/vectors/put',{key,vector},{signal});cache.set(key,vector);},
     };
 }
-export function createServerController({local,enabled,settings,context,input,call,sync,changed,countTokens,generating=()=>false,wait=ms=>new Promise(resolve=>setTimeout(resolve,ms))}) {
+export function createServerController({local,enabled,settings,context,input,call,sync,changed,countTokens,generating=()=>false,wait=waitForServerPoll}) {
     let current=null,view=[],status='',lastRecall=null,poll=null,detached=0,lastList=0;
     const applied=new Set(),pendingDrafts=new Map(),applying=new Map();
     let pollingRun=false,restoring=null,activeRun=null,cancelEpoch=0;
@@ -95,7 +102,7 @@ export function createServerController({local,enabled,settings,context,input,cal
             catch(error){
                 if(!['SERVER_TIMEOUT','SERVER_NETWORK'].includes(error.code)||attempt>=2)throw error;
                 status=`서버 상태 확인 재시도 중 · ${attempt+1}/2`;changed?.();
-                await withAbort(()=>wait(1000*(attempt+1)),signal);
+                await withAbort(()=>wait(1000*(attempt+1),signal),signal);
             }
         }
     }
@@ -144,7 +151,9 @@ export function createServerController({local,enabled,settings,context,input,cal
             clearTimeout(poll);pollingRun=true;
             status='서버 작업 접수 중';current={status:'queued',message:status};changed?.();
             if(kind==='index'){await withAbort(()=>local.prepareEmbedding?.(signal),signal);check();}
-            const payload=await measured('inputMs',()=>withAbort(()=>input(kind,options),signal));check();
+            const payload=await measured('inputMs',()=>withAbort(()=>input(kind,options,async(stage,elapsedMs)=>{
+                await externalTrace?.event('server.input-stage',{stage,elapsedMs});
+            }),signal));check();
             runState.submitted=true;
             const job=await measured('submitMs',()=>withAbort(()=>call('/jobs',{kind,input:payload,requestId:runState.requestId},{signal}),signal));check();current=job;
             await externalTrace?.event('server.accepted',{id:job.id,kind});
@@ -175,7 +184,9 @@ export function createServerController({local,enabled,settings,context,input,cal
                     if(epoch!==detached||key!==context().key)throw new DOMException('채팅방 변경 · 서버 작업은 유지됨','AbortError');
                     return result;
                 }
-                await measured('pollSleepMs',()=>withAbort(()=>wait(900),signal));
+                const sleepStarted=Date.now();
+                const woke=await measured('pollSleepMs',()=>withAbort(()=>wait(900,signal),signal));
+                if(Date.now()-sleepStarted>5000||woke?.wakeReason&&woke.wakeReason!=='timer')await externalTrace?.event('server.poll-delay',{elapsedMs:Date.now()-sleepStarted,...woke});
             }
         }catch(error){
             if(epoch===detached&&key===context().key)status=error.message;

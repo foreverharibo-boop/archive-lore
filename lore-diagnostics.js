@@ -1,6 +1,7 @@
 // Archive Lore modifications Copyright (C) 2026 foreverharibo-boop
 // SPDX-License-Identifier: AGPL-3.0-only
 import { makeId } from './lore-api.js';
+import { expiredHistory,DIAGNOSTIC_BYTES,diagnosticSummary } from './lore-retention.js';
 
 export function redact(value, secrets = []) {
     const hidden = secrets.filter(s => typeof s === 'string' && s.length > 3);
@@ -26,6 +27,20 @@ export function createDiagnosticStore(factory = indexedDB) {
         request.onsuccess = () => resolve(request.result);
         request.onerror = () => { opening = null; reject(request.error); };
     });
+    const prune=async protectedId=>{
+        const database=await db();
+        await new Promise((resolve,reject)=>{
+            const tx=database.transaction('runs','readwrite'),store=tx.objectStore('runs'),rows=[];
+            const request=store.openCursor();
+            request.onsuccess=()=>{
+                const cursor=request.result;
+                if(cursor){const r=cursor.value;rows.push({id:r.id,time:Date.parse(r.events?.at(-1)?.at||r.finished||r.started)||0,
+                    bytes:r.diagnosticBytes||JSON.stringify(r).length*2,protected:r.id===protectedId});cursor.continue();}
+                else for(const r of expiredHistory(rows,{maxBytes:DIAGNOSTIC_BYTES}))store.delete(r.id);
+            };
+            tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error);tx.onabort=()=>reject(tx.error);
+        });
+    };
     return {
         async put(run) {
             const database = await db();
@@ -33,8 +48,10 @@ export function createDiagnosticStore(factory = indexedDB) {
                 const tx = database.transaction('runs', 'readwrite');tx.objectStore('runs').put(run);
                 tx.oncomplete = resolve; tx.onerror = () => reject(tx.error); tx.onabort = () => reject(tx.error);
             });
+            await prune(run.id);
         },
         async list(chatKey) {
+            await prune();
             const database = await db();
             return new Promise((resolve, reject) => {
                 const request = database.transaction('runs').objectStore('runs').index('chatKey').getAll(chatKey);
@@ -43,12 +60,13 @@ export function createDiagnosticStore(factory = indexedDB) {
         },
     };
 }
-export function createDiagnostics({ store, secrets = () => [], warning = () => {} }) {
+export function createDiagnostics({ store, secrets = () => [], warning = () => {}, detailed = () => false }) {
     const memory = new Map();let queue = Promise.resolve(), warned = false;
     const persist = run => {
         // redact already builds a detached snapshot. Retain only unsaved data;
         // persisted runs remain available from the store after a reload/export.
         const snapshot = redact(run, secrets());memory.set(run.id, snapshot);
+        for(const old of expiredHistory([...memory.values()].map(r=>({id:r.id,time:Date.parse(r.events.at(-1)?.at||r.started),bytes:r.diagnosticBytes||0,protected:r.id===run.id})),{maxBytes:DIAGNOSTIC_BYTES}))memory.delete(old.id);
         queue = queue.then(() => store.put(snapshot)).then(() => {
             if(memory.get(run.id)===snapshot)memory.delete(run.id);
         }).catch(() => {
@@ -59,17 +77,30 @@ export function createDiagnostics({ store, secrets = () => [], warning = () => {
     };
     return {
         begin(meta) {
-            const run = { schemaVersion:1, extensionVersion:'0.4.1', ...redact(meta, secrets()), id: makeId(), started: new Date().toISOString(), status: 'running', events: [] };
+            const isDetailed=!!detailed();let contentBytes=0;
+            const eventData=data=>{
+                const summary=()=>redact(diagnosticSummary(data),secrets());
+                if(!isDetailed)return summary();
+                const clean=redact(data,secrets()),bytes=JSON.stringify(clean).length*2;
+                if(contentBytes+bytes>2*1024*1024){run.detailTruncated=true;return summary();}
+                contentBytes+=bytes;return clean;
+            };
+            const run = { schemaVersion:1, extensionVersion:'0.4.1', ...redact(meta, secrets()), id: makeId(), started: new Date().toISOString(), status: 'running', detail:isDetailed?'full':'timing', events: [] };
+            const append=(stage,data)=>{
+                if(run.events.length>=500){run.events.splice(100,1);run.eventsOmitted=(run.eventsOmitted||0)+1;}
+                run.events.push({at:new Date().toISOString(),elapsedMs:Date.now()-Date.parse(run.started),stage,data:eventData(data)});
+                run.diagnosticBytes=JSON.stringify(run).length*2;
+            };
             persist(run);
             return {
                 id: run.id,
                 async event(stage, data = {}) {
-                    run.events.push({ at: new Date().toISOString(), elapsedMs: Date.now() - Date.parse(run.started), stage, data: redact(data, secrets()) });
+                    append(stage,data);
                     await persist(run);
                 },
                 async finish(status, data = {}) {
                     run.status = status;run.finished = new Date().toISOString();
-                    run.events.push({ at:run.finished, elapsedMs:Date.now()-Date.parse(run.started), stage:'operation.end', data:redact(data,secrets()) });await persist(run);
+                    append('operation.end',data);await persist(run);
                 },
             };
         },
@@ -83,7 +114,7 @@ export function createDiagnostics({ store, secrets = () => [], warning = () => {
             const runs = (await this.list(chatKey)).filter(r => mode === 'all' || r.mode === mode);
             const counts = Object.fromEntries(['dialogue','questions','embedding'].map(m => [m,runs.filter(r=>r.kind==='generation' && r.mode===m).length]));
             return 'ARCHIVE LORE · TURN DIAGNOSTICS\n' + JSON.stringify({ exported:new Date().toISOString(), chatKey, filter:mode, generationAttempts:counts, runs:runs.length },null,2)
-                + '\n\nIncludes dialogue, API text responses and installed Archive Lore prompts. Installed prompts are not proof of the final host request or model compliance. Preview/collection/index operations are separate from RP generation attempts. No hidden model reasoning is requested.\n\n'
+                + '\n\nTiming/error diagnostics are the default. Dialogue/API/prompt bodies appear only in opt-in full traces; detailTruncated marks the per-run size limit. History keeps up to 20 recent runs for up to 3 days, with a byte limit. Installed prompts are not proof of the final host request or model compliance. Preview/collection/index operations are separate from RP generation attempts. No hidden model reasoning is requested.\n\n'
                 + runs.map((run,i) => `===== ${i+1} · ${run.kind} · ${run.mode} · ${run.status} =====\n${JSON.stringify(redact(run,secrets()),null,2)}`).join('\n\n');
         },
     };

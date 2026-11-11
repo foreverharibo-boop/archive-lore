@@ -18,7 +18,7 @@ import { createLoreController } from './lore-controller.js';
 import { createDiagnostics, createDiagnosticStore } from './lore-diagnostics.js';
 import { linkedTranslation } from './lore-translations.js';
 import { proxies } from '../../../openai.js';
-import { createServerClient,serverVectorStore,createServerController,profileTemplate } from './lore-server.js';
+import { createServerClient,serverVectorStore,createServerController,profileTemplate,serverChatSnapshot } from './lore-server.js';
 import { matchesRange } from './lore-core.js';
 import { createLoreUI } from './lore-ui.js';
 import { syncServerBooks } from './lore-automation.js';
@@ -115,6 +115,7 @@ function error(error) {
     toastr.error(error?.message || '작업을 완료하지 못했어.','Archive Lore');
 }
 const diagnostics = createDiagnostics({store:createDiagnosticStore(),
+    detailed:()=>settings()?.diagnosticsDetailed===true,
     secrets:()=>[settings()?.embeddingKey,...Object.values(settings()?.embeddingKeys || {})],
     warning:message=>toastr.warning(message,'Archive Lore'),
 });
@@ -144,19 +145,21 @@ const localController = createLoreController({
 const controller=createServerController({local:localController,enabled:()=>!!settings()?.serverEnabled,settings,context:chatContext,call:serverCall,
     changed:()=>{notifySearchViews();void ui?.refresh().catch(error);if(autoPending&&!controller.state().busy&&!generationInFlight&&!writing)scheduleAutomatic();},
     generating:()=>generationInFlight||writing,countTokens:text=>getContext().getTokenCountAsync(text,0),
-    input:async(kind,options)=>{
+    input:async(kind,options,report=async()=>{})=>{
+        const step=async(name,work)=>{const start=Date.now();try{return await work();}finally{await report(name,Date.now()-start);}};
         const key=chatContext().key;if(!key)throw Error('채팅방에서 실행해 줘.');
         if(kind==='collect')await ensureBook();
-        const c=getContext();if(typeof c.saveChat!=='function')throw Error('실리태번 대화 저장 기능을 찾을 수 없어.');await c.saveChat();
+        const c=getContext();if(typeof c.saveChat!=='function')throw Error('실리태번 대화 저장 기능을 찾을 수 없어.');await step('save-chat',()=>c.saveChat());
         if(chatContext().key!==key)throw Error('채팅방이 바뀌어서 접수하지 않았어.');
         const config=normalizeSettings(settings()),templates={};
         if(kind!=='index' && !(kind==='recall' && config.mode==='embedding')){
-            templates.collection=await profileTemplate(c,config.profile,proxies);
-            templates.search=config.searchProfile?await profileTemplate(c,config.searchProfile,proxies):templates.collection;
+            templates.collection=await step('collection-profile',()=>profileTemplate(c,config.profile,proxies));
+            templates.search=config.searchProfile?await step('search-profile',()=>profileTemplate(c,config.searchProfile,proxies)):templates.collection;
         }
         if(chatContext().key!==key)throw Error('채팅방이 바뀌어서 접수하지 않았어.');
         const data={entries:{}},entryTemplate=createWorldInfoEntry('',data);
-        return {context:structuredClone(chatContext()),chat:{group:!!c.groupId,id:c.getCurrentChatId?.()||c.chatId,avatar:c.characters?.[c.characterId]?.avatar},settings:config,templates,books:books(),target:target(),initialStart:chatSettings().initialStart||0,options,entryTemplate};
+        const context=await step('snapshot',()=>serverChatSnapshot(chatContext()));
+        return {context,chat:{group:!!c.groupId,id:c.getCurrentChatId?.()||c.chatId,avatar:c.characters?.[c.characterId]?.avatar},settings:config,templates,books:books(),target:target(),initialStart:chatSettings().initialStart||0,options,entryTemplate};
     },
     sync:async job=>{
         vectorStore.clear();

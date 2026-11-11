@@ -77,6 +77,13 @@
 .al-home-notice {margin:0;}
 .al-next-collection {border-top:1px solid var(--SmartThemeBorderColor);padding-top:10px;display:grid;gap:4px;}
 .al-next-collection strong {font-size:1em;}
+.al-collection-status {display:flex;flex-wrap:wrap;gap:4px 14px;font-size:.85em;opacity:.8;margin-top:5px;}
+.al-collection-result {border:1px solid var(--SmartThemeBorderColor);border-radius:9px;padding:12px;margin:4px 0 14px;text-align:left;overflow-wrap:anywhere;}
+.al-collection-result[hidden] {display:none!important;}
+.al-collection-result strong {font-size:.95em;}
+.al-collection-result p {margin:5px 0;font-size:.88em;}
+.al-collection-result .al-range-actions {flex-wrap:wrap;margin-top:9px;}
+.al-collection-result [role=status]:empty {display:none;}
 .al-feature-home #al-native-collect {justify-content:center;background:var(--SmartThemeQuoteColor, #53677e)!important;color:var(--SmartThemeBlurTintColor,#fff)!important;border-radius:9px;padding:12px!important;font-weight:600!important;}
 .al-home-pane .al-feature-card {padding:8px 0;}
 .al-fork-surface:has(#stmb-sp-list) {font-size:calc(var(--mainFontSize,16px) * .88);text-align:left;}

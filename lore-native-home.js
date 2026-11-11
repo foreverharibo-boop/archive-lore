@@ -1,6 +1,6 @@
 // Archive Lore — AGPL-3.0-only.
 import {nextCollectionRange} from './lore-native-progress.js';
-export function createHomeContext({settings,markers,length,book,books=[],changeBook,changeProfile,editProfile,newProfile,connection}) {
+export function createHomeContext({settings,markers,length,book,books=[],changeBook,changeProfile,editProfile,newProfile,connection,collectionStatus}) {
     const box=document.createElement('section');box.className='al-home-context';
     const status=document.createElement('p');status.className='al-home-notice';status.setAttribute('role','status');
     const run=async(action,control)=>{control.disabled=true;try{await action();}catch(e){status.textContent=e.message;}finally{control.disabled=false;}};
@@ -22,6 +22,6 @@ export function createHomeContext({settings,markers,length,book,books=[],changeB
     if(connection)box.append(connection);
     const range=nextCollectionRange(markers,length),progress=document.createElement('div');progress.className='al-next-collection';
     const last=document.createElement('small');last.textContent=range.highest>=0?`저장 완료 #${range.highest}까지`:'아직 수집한 대화가 없습니다';
-    const next=document.createElement('strong');next.textContent=range.count?`다음 수집 #${range.start}–#${range.end} · ${range.count}개`:'새로 수집할 메시지가 없습니다';progress.append(last,next);box.append(progress,status);
+    const next=document.createElement('strong');next.textContent=range.count?`다음 수집 #${range.start}–#${range.end} · ${range.count}개`:'새로 수집할 메시지가 없습니다';progress.append(last,next);if(collectionStatus)progress.append(collectionStatus);box.append(progress,status);
     return box;
 }

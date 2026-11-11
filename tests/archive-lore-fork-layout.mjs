@@ -14,6 +14,15 @@ import {FEATURE_GROUPS,organizeMemoryBooks,restoreFeatureButtons} from '/lore-fo
 import {createConnectionPicker} from '/lore-native-connection.js';
 import {createHomeContext} from '/lore-native-home.js';
 import {createSearchToolsPanel} from '/lore-native-tools.js';
+import {createCollectionStatusPanel} from '/lore-collection-status.js';
+window.mountCollectionStatus=()=>{
+ const listeners=new Set();window.statusKey='chat';window.statusReads=0;window.statusRecord=null;window.statusCounts={embedded:20,pending:3};window.statusBusy=false;
+ window.statusSearch={context:()=>({key:statusKey}),settings:()=>({enabled:true,autoEmbed:true}),subscribe:fn=>{listeners.add(fn);return()=>listeners.delete(fn);},controller:{state:()=>({busy:statusBusy,status:statusBusy?'임베딩 진행 중':''}),embeddingCounts:async()=>{statusReads++;return statusCounts;}}};
+ window.statusEmit=()=>listeners.forEach(fn=>fn());
+ window.statusPanel=createCollectionStatusPanel({search:statusSearch,readResult:()=>statusRecord,busy:()=>false,openRecords:async()=>window.statusViewed=true,undo:async()=>{statusRecord=null;},document});
+ document.querySelector('.al-next-collection').append(statusPanel.status);document.querySelector('#al-native-collect').parentElement.after(statusPanel.card);
+ document.querySelector('#al-native-collect').addEventListener('click',()=>{statusRecord={complete:true,range:{sceneStart:2106,sceneEnd:2119},memoryCount:1,side:{updated:2,failed:0},hide:{status:'done',changed:6,keep:8}};statusPanel.paint();});
+};
 import {mountSideAutoToggle} from '/lore-native-side-toggle.js';
 import {nativePreferences,createNativePreferences,appendOriginalTools,applyNativeTheme} from '/lore-native-preferences.js';
 import {mountLazyDetails} from '/lore-native-lazy.js';
@@ -70,7 +79,7 @@ try{
         assert(actionsBox.y<profileSelect.y,'profile actions must stay next to heading, above select/help');
         assert(profileHeading.y<actionsBox.y+actionsBox.height && profileHeading.y+profileHeading.height>actionsBox.y);
 
-        assert.equal(await page.locator('.al-home-pane:not([hidden]) .al-feature-card').count(),3);
+        assert.equal(await page.locator('.al-home-pane:not([hidden]) .al-feature-card').count(),4);
         assert(await page.getByRole('button',{name:'지금 수집',exact:true}).isVisible());
         assert(await page.getByText('다음 수집 #2106–#2119 · 14개').isVisible());
         assert(await page.getByText('현재 연결된 테스트 로어북 이름',{exact:true}).isVisible());
@@ -78,7 +87,7 @@ try{
         assert.equal(await page.evaluate(()=>collectionSettings.defaultProfile),1);
         await page.locator('#al-quick-profile').selectOption('0');
         await page.getByRole('button',{name:'저장된 기억',exact:true}).click();
-        assert.equal(await page.locator('.al-feature-card').count(),18);
+        assert.equal(await page.locator('.al-feature-card').count(),19);
         assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
         await page.getByRole('button',{name:'기억 압축',exact:true}).click();
         assert.equal(await page.evaluate(()=>clicks.at(-1)),'stmb-compact-review');
@@ -261,5 +270,19 @@ try{
     await page.evaluate(()=>{failure=true;return toolsPanel.refresh();});await page.getByText('임베딩 개수를 확인하지 못했습니다.',{exact:true}).waitFor();
     assert(await page.getByText('조회 실패',{exact:true}).isVisible());
     await page.evaluate(()=>{toolsPanel.dispose();emit();});assert.equal(await page.evaluate(()=>listenerCount()),0);
-    assert.deepEqual(errors,[]);console.log('Fork home: three tabs, retired importer absent, host without popup-content class, actions, refresh and mobile/desktop passed.');
+    for(const width of [320,1000]){
+        await page.setViewportSize({width,height:900});await page.goto('http://127.0.0.1:'+server.address().port);await page.waitForFunction(()=>window.ready);
+        await page.evaluate(()=>mountCollectionStatus());await page.getByText('임베딩 대기 3개',{exact:true}).waitFor();
+        assert(await page.locator('#al-quick-profile').isVisible());assert(await page.locator('#al-home-connection').isVisible());
+        assert.equal(await page.locator('.al-collection-result').isVisible(),false);
+        await page.getByRole('button',{name:'지금 수집',exact:true}).click();await page.getByText('기억 1개 저장 · 사이드 2개 갱신',{exact:true}).waitFor();
+        await page.getByRole('button',{name:'저장된 기억 보기',exact:true}).click();assert.equal(await page.evaluate(()=>statusViewed),true);
+        await page.evaluate(()=>{statusBusy=true;statusEmit();});assert(await page.getByRole('button',{name:'되돌리기',exact:true}).isDisabled());
+        await page.evaluate(()=>{statusBusy=false;statusCounts={embedded:23,pending:0};statusEmit();});await page.getByText('연결된 로어북 임베딩 완료',{exact:true}).waitFor();
+        assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+        await page.screenshot({path:'/tmp/collection-status-'+width+'.png',fullPage:true});
+        await page.getByRole('button',{name:'되돌리기',exact:true}).click();assert.equal(await page.locator('.al-collection-result').isVisible(),false);
+        await page.evaluate(()=>statusPanel.dispose());
+    }
+    assert.deepEqual(errors,[]);console.log('Fork home: profiles preserved, inline receipts, embedding updates, undo and mobile/desktop passed.');
 }finally{await browser.close();server.close();}

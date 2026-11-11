@@ -3445,3 +3445,27 @@ Each side template selects `settings.sideWriteMode`: `continue` (the existing in
 Unset settings and the previous `append`/`update` values map to `continue`; pruning requires an explicit `refresh` selection. Already queued requests from the earlier version finish using their snapshotted instructions, so stop and re-run such a request to apply a changed mode. Version-history settings remain separate. Explicit preview edits are supported. Concurrent changes to a side target block a stale save and preserve the newer record.
 
 Auto-hide runs after a memory is saved, not merely when its settings are changed. The keep count is reserved at the end of the collected scene. The settings action “저장된 수집 구간에 숨기기 지금 적용” can apply the current mode and count to an already collected range without requesting another AI summary. Hiding uses the host visibility/save function and verifies message flags. Failures are reported separately from successful memory storage. A failed hide/save is retried once immediately while the same chat remains active. If both attempts fail, a warning is shown and the pending save remains retryable even when the in-memory flags already look hidden. Successfully saved, already-hidden ranges are skipped, and a changed chat prevents hiding in a different chat.
+
+### Home status and collection result cards
+
+The home screen keeps its existing destination, profile selection/edit/add and AI
+connection controls. Two read-only status labels below the next collection range
+show retrieval activation and the number of pending lorebook embedding entries.
+Opening this screen only reads existing embedding presence; it never requests new
+embeddings. Progress notifications do not repeatedly scan the books.
+
+A small inline card below the collection action shows the most recent saved
+collection for the current chat during this browser session. Closing and reopening
+the home preserves it; reloading the browser clears these session receipts. This
+is not an automatic modal, a persistent audit log or a summary of an entire batch.
+It reports successful memory writes (including group copies), saved after-memory
+side outputs, side failures/pending work and the actual automatic hide outcome.
+Hidden counts mean newly hidden messages; the retained-message number is the
+configured setting, not a claim that only that many visible messages remain.
+
+Embedding status is reported for the connected lorebooks, not just the latest
+collection. Disabled retrieval/automatic embedding, queued/running work and
+failures remain distinct. Deferred hides update after successful completion.
+The existing records view and confirmed last-collection undo are reused. Undo
+removes the card only on successful completion; changing chats never redirects an
+in-flight card action. Original-layout controls and collection prompts are unchanged.

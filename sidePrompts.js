@@ -1500,6 +1500,8 @@ export async function runAfterMemory(compiledScene, profile = null, options = {}
     if (!afterEnabled && !globalThis.archiveLoreFork) return 0;
     const parentTask = createStmbInFlightTask('SidePrompts:onAfterMemory');
     const runEpoch = parentTask.epoch;
+    const results = [];
+    let summaryPending = false, summaryInterrupted = false, summaryFailed = 0;
     try {
         throwIfStmbStopped(runEpoch);
         const retryJobSnapshots = afterEnabled && Array.isArray(options.retryJobSnapshots)
@@ -1525,6 +1527,7 @@ export async function runAfterMemory(compiledScene, profile = null, options = {}
             if (queued > 0 && extension_settings?.STMemoryBooks?.moduleSettings?.showNotifications !== false) {
                 toastr.info(__st_t_tag`Side Prompts after memory queued: ${queued}.`, 'STMemoryBooks');
             }
+            summaryPending = queued > 0;
             return queued;
         }
 
@@ -1544,11 +1547,13 @@ export async function runAfterMemory(compiledScene, profile = null, options = {}
             const skipped = getAutomaticSetSkippedItems(resolvedSet.skipped, 'onAfterMemory');
             logSkippedSetItems(skipped, 'onAfterMemory');
             if (!resolvedSet.set) {
+                summaryFailed++;
                 toastr.warning(translate('Selected side prompt set was not found. No after-memory side prompts were run.', 'STMemoryBooks_SidePromptSetMissingNoFallback'), 'STMemoryBooks');
                 return;
             }
             const missingMacros = summarizeMissingSetMacros(skipped);
             if (missingMacros.length > 0) {
+                summaryFailed += skipped.length;
                 toastr.warning(
                     tr(
                         'STMemoryBooks_SidePromptSetSkippedUnresolvedMacros',
@@ -1588,7 +1593,6 @@ export async function runAfterMemory(compiledScene, profile = null, options = {}
         const settings = extension_settings?.STMemoryBooks;
         const refreshEditor = settings?.moduleSettings?.refreshEditor !== false;
         const showNotifications = settings?.moduleSettings?.showNotifications !== false;
-        const results = [];
 
         const maxConcurrent = clampInt(Number(settings?.moduleSettings?.sidePromptsMaxConcurrent ?? 2),1,10);
         const lorebookResolveContext = {};
@@ -1609,6 +1613,7 @@ export async function runAfterMemory(compiledScene, profile = null, options = {}
                     if (!reportSidePromptHistoryConflict(error, item.name || item.tpl.name)) {
                         console.warn(`${MODULE_NAME}: Deferred interval preparation failed`, error);
                     }
+                    summaryFailed++;
                 }
             }
             runItems = ready;
@@ -1637,6 +1642,7 @@ export async function runAfterMemory(compiledScene, profile = null, options = {}
                     });
                 } catch (err) {
                     if (!reportSidePromptHistoryConflict(err, runItem.name || tpl.name)) throw err;
+                    summaryFailed++;
                     continue;
                 }
                 const lbs = getEffectiveLorebookSettingsForTemplate(tpl);
@@ -1674,6 +1680,7 @@ export async function runAfterMemory(compiledScene, profile = null, options = {}
             if (queued > 0 && showNotifications) {
                 toastr.info(__st_t_tag`Side Prompts after memory queued: ${queued}.`, 'STMemoryBooks');
             }
+            summaryPending = queued > 0;
             return queued;
         }
 
@@ -1746,7 +1753,7 @@ export async function runAfterMemory(compiledScene, profile = null, options = {}
             const itemsByLorebook = new Map();
             for (const r of llmResults) {
                 if (!r.ok) {
-                    if (r.cancelled) continue;
+                    if (r.cancelled) {summaryInterrupted=true;continue;}
                     results.push({ name: r.runItem?.name || r.tpl?.name || 'unknown', ok: false, error: r.error });
                     continue;
                 }
@@ -1775,7 +1782,7 @@ export async function runAfterMemory(compiledScene, profile = null, options = {}
                     approved = previewResult.approved;
                     textToSave = previewResult.text;
                 } catch (previewErr) {
-                    if (isStmbStopError(previewErr)) return;
+                    if (isStmbStopError(previewErr)) {summaryInterrupted=true;return;}
                     console.warn(`${MODULE_NAME}: Preview step failed; proceeding without preview`, previewErr);
                 }
 
@@ -1840,7 +1847,7 @@ export async function runAfterMemory(compiledScene, profile = null, options = {}
                         });
                     }
                 } catch (saveErr) {
-                    if (isStmbStopError(saveErr)) return;
+                    if (isStmbStopError(saveErr)) {summaryInterrupted=true;return;}
                     console.error(`${MODULE_NAME}: Wave save failed:`, saveErr);
                     toastr.error(translate('Failed to save SidePrompt updates for this wave', 'STMemoryBooks_Toast_FailedToSaveWave'), 'STMemoryBooks');
                     // Mark these as failed since they were not persisted
@@ -1870,9 +1877,13 @@ export async function runAfterMemory(compiledScene, profile = null, options = {}
             }
         }
     } catch (outer) {
+        summaryInterrupted = isStmbStopError(outer);
+        if (!summaryInterrupted) summaryFailed++;
         if (isStmbStopError(outer)) return;
         // No lorebook => do nothing
     } finally {
+        try { options.onSummary?.({updated:results.filter(r=>r.ok).length,failed:results.filter(r=>!r.ok).length+summaryFailed,pending:summaryPending,interrupted:summaryInterrupted}); }
+        catch (error) { console.warn(`${MODULE_NAME}: collection status display failed`,error); }
         parentTask.finish();
     }
 }

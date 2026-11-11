@@ -782,7 +782,7 @@ function formatMessageRange(job = {}) {
     );
 }
 
-function getCurrentStoreRows() {
+export function getCurrentStoreRows() {
     const chatKey = getStmbChatKey();
     const store = jobStores.get(chatKey);
     if (!store) return [];

@@ -6,6 +6,7 @@ import { getArchiveLoreBookRoute } from './utils.js';
 import { captureSettingsForm, acknowledgeSettingsControl, changedSettingsForm } from './lore-native-settings.js';
 import { titleFormatLabel, migrateArchiveLoreTitleFormat } from './lore-native-title.js';
 import { createHomeContext } from './lore-native-home.js';
+import { recordCollectionResult, dismissCollectionResult, markDeferredCollectionHideDone, collectionResult, createCollectionStatusPanel } from './lore-collection-status.js';
 import { advanceCollectionCheckpoint, nextCollectionRange } from './lore-native-progress.js';
 import {COLLECTION_UNDO_PENDING,planCollectionUndo,saveCollectionUndo} from './lore-collection-undo.js';
 import {matchesRange as matchesUndoSource} from './lore-core.js';
@@ -273,6 +274,7 @@ import {
   cancelStmbJobsForChat,
   enqueueStmbJob,
   getCurrentStmbChatRef,
+  getCurrentStoreRows,
   getStmbChatKey,
   hasActiveStmbJobs,
   initStmbJobsIfTopInfoBarEnabled,
@@ -751,6 +753,7 @@ function getBranchLorebookController() {
 
 // Current state variables
 let currentPopupInstance = null;
+let collectionStatusPanel = null;
 let isProcessingMemory = false;
 let isProcessingArc = false;
 let currentProfile = null;
@@ -5465,6 +5468,7 @@ async function executeMemoryGeneration(
       manualGroupLorebookValidation?.memoryBooksContext,
     );
   generationRetryState.memoryOriginSnapshot = memoryOriginSnapshot;
+  let collectionReceipt = null;
   currentProfile = profileSettings;
   let compiledScene = null;
   let memoryFetchResult = null;
@@ -5828,6 +5832,10 @@ async function executeMemoryGeneration(
     }
 
     // Run side prompts that are enabled to run with memories
+    if (globalThis.archiveLoreFork) collectionReceipt = recordCollectionResult(memoryOriginSnapshot.chatKey, {
+      range: {sceneStart:sceneData.sceneStart,sceneEnd:sceneData.sceneEnd}, memoryCount:1+(addResult.copiedCount||0),
+      hide:addResult.autoHideResult, side:{updated:0,failed:0}, complete:false,
+    });
     try {
       const connDbg =
         profileSettings?.effectiveConnection ||
@@ -5839,6 +5847,8 @@ async function executeMemoryGeneration(
         temperature: connDbg.temperature,
       });
       await runAfterMemory(compiledScene, profileSettings, {
+        parentJobId:collectionReceipt?.id || '',
+        onSummary:summary=>{if(collectionReceipt)collectionReceipt.side=summary;},
         chatRef: memoryOriginSnapshot.chatRef,
         chatKey: memoryOriginSnapshot.chatKey,
         lorebookName: lorebookValidation.name,
@@ -5847,6 +5857,7 @@ async function executeMemoryGeneration(
         settings,
       });
     } catch (e) {
+      if(collectionReceipt)collectionReceipt.side={updated:0,failed:1};
       console.warn("STMemoryBooks: runAfterMemory failed:", e);
     }
     try {
@@ -5857,7 +5868,10 @@ async function executeMemoryGeneration(
       console.warn("STMemoryBooks: Memory Assistance after memory failed:", e);
     }
     if (getStmbChatKeySafe(memoryOriginSnapshot.chatRef) === getStmbChatKeySafe()) {
-      await applySavedMemoryAutoHide(finalMemoryResult, settings.moduleSettings, savedMemoryChat);
+      await applySavedMemoryAutoHide(finalMemoryResult, settings.moduleSettings, savedMemoryChat, result=>{
+        if(collectionReceipt)collectionReceipt.hide=result.status==='done' && collectionReceipt.hide?.status==='done'
+          ? {...result,changed:collectionReceipt.hide.changed+result.changed} : result;
+      });
     }
     throwIfStmbStopped(runEpoch);
 
@@ -5900,6 +5914,7 @@ async function executeMemoryGeneration(
       minTargetTier: 1,
       lorebookValidation,
     });
+    if(collectionReceipt){collectionReceipt.complete=true;collectionStatusPanel?.refresh();}
     return true;
   } catch (error) {
     if (isStmbStopError(error)) {
@@ -6027,6 +6042,10 @@ async function executeMemoryGeneration(
   } finally {
     if (ownsTask) {
       stmbTask.finish();
+    }
+    if(collectionReceipt){
+      if(!collectionReceipt.complete){collectionReceipt.complete=true;collectionReceipt.interrupted=true;}
+      collectionStatusPanel?.refresh();
     }
   }
 }
@@ -6276,24 +6295,26 @@ function queueDeferredQueuedAutoHideRanges(chatRef, ranges) {
 }
 
 async function runAutoHideRangesForCurrentChat(ranges) {
-  await applyAutoHideRanges(normalizeAutoHideRanges(ranges));
+  return await applyAutoHideRanges(normalizeAutoHideRanges(ranges));
 }
 
 async function applyQueuedAutoHideRanges(chatRef, ranges) {
   const safeRanges = normalizeAutoHideRanges(ranges);
-  if (safeRanges.length === 0) return;
+  if (safeRanges.length === 0) return {status:'done',changed:0};
 
   if (!isStmbJobChatCurrent(chatRef)) {
     queueDeferredQueuedAutoHideRanges(chatRef, safeRanges);
-    return;
+    return {status:'deferred'};
   }
 
   try {
-    await runAutoHideRangesForCurrentChat(safeRanges);
+    const changed=await runAutoHideRangesForCurrentChat(safeRanges);
+    return {status:'done',changed};
   } catch (error) {
     queueDeferredQueuedAutoHideRanges(chatRef, safeRanges);
     console.warn("STMemoryBooks: queued auto-hide failed:", error);
     toastr.warning(`기억은 저장됐지만 자동 숨기기에 실패했습니다. ${error.message}`, 'Archive Lore');
+    return {status:'failed'};
   }
 }
 
@@ -6305,6 +6326,7 @@ async function flushDeferredQueuedAutoHideRanges() {
   try {
     await runAutoHideRangesForCurrentChat(ranges);
     deferredQueuedAutoHideRanges.delete(chatKey);
+    if(globalThis.archiveLoreFork){markDeferredCollectionHideDone(chatKey);collectionStatusPanel?.refresh();}
   } catch (error) {
     console.warn("STMemoryBooks: deferred queued auto-hide failed:", error);
     toastr.warning(`보류한 메시지 숨기기에 실패했습니다. ${error.message}`, 'Archive Lore');
@@ -6313,7 +6335,8 @@ async function flushDeferredQueuedAutoHideRanges() {
 
 async function applyQueuedMemoryAutoHide(job, memoryResult, settings) {
   const autoHidePlan = getAutoHideRanges(memoryResult, settings?.moduleSettings || {});
-  if (autoHidePlan.mode === "none") return;
+  const report=result=>{job.result={...job.result,autoHide:{...result,recordedAt:Date.now(),keep:settings?.moduleSettings?.unhiddenEntriesCount??2}};};
+  if (autoHidePlan.mode === "none") {report({status:'off'});return;}
 
   if (autoHidePlan.invalidRange) {
     console.warn(
@@ -6327,10 +6350,10 @@ async function applyQueuedMemoryAutoHide(job, memoryResult, settings) {
       ),
       translate("STMemoryBooks", "addlore.toast.title"),
     );
-    return;
+    report({status:'failed'});return;
   }
 
-  await applyQueuedAutoHideRanges(job.chatRef, autoHidePlan.ranges);
+  report(await applyQueuedAutoHideRanges(job.chatRef, autoHidePlan.ranges));
 }
 
 async function completeQueuedMemoryPostSave({
@@ -6374,6 +6397,7 @@ async function completeQueuedMemoryPostSave({
       jobContext.setState("post_save", { detail: translate("Running after-memory side prompts", "STMemoryBooks_Jobs_PostSaveRunningSidePrompts") });
       await runAfterMemory(compiledScene, profileSettings, {
         chatRef: job.chatRef,
+        onSummary:summary=>{job.result={...job.result,sideSummary:summary};},
         chatKey: job.chatKey,
         lorebookName,
         sceneContext: queuedContext,
@@ -6384,6 +6408,7 @@ async function completeQueuedMemoryPostSave({
         retryJobSnapshots,
       });
     } catch (error) {
+      job.result={...job.result,sideSummary:{updated:0,failed:1}};
       console.warn("STMemoryBooks: queued after-memory side prompts failed:", error);
     }
   }
@@ -6570,6 +6595,7 @@ async function executeQueuedMemoryJob(job, jobContext) {
     lorebookNames: lorebookWriteLaneNames,
     entryTitle: addResult?.entryTitle || "",
     memorySaved: true,
+    memoryCount: 1+(addResult?.copiedCount||0),
   };
   payload.resumeSavedMemory = true;
   payload.retryMemoryResult = deepClone(job.result);
@@ -7271,6 +7297,7 @@ async function initiateMemoryCreation(selectedProfileIndex = null) {
   } finally {
     // ALWAYS reset the flag, no matter how we exit
     isProcessingMemory = false;
+    collectionStatusPanel?.refresh();
     if (getStmbChatKey() === reminderChatKey) getMemoryReminderController().check({ notify: true });
   }
 }
@@ -7691,6 +7718,7 @@ function renderManualGroupLorebookBindings(container, stmbData) {
  * Populate inline button containers with dynamic buttons (profile and manual lorebook buttons)
  */
 function populateInlineButtons() {
+  collectionStatusPanel?.dispose();collectionStatusPanel=null;
   if(globalThis.archiveLoreFork) restoreFeatureButtons(currentPopupInstance?.dlg);
   if (!currentPopupInstance?.dlg) return;
 
@@ -8180,9 +8208,19 @@ function populateInlineButtons() {
     promptButtonsContainer.appendChild(button);
   });
   if (globalThis.archiveLoreFork) {
+  if(nativePreferences(settings).layout!=='original' && globalThis.archiveLoreSearch){
+    collectionStatusPanel=createCollectionStatusPanel({
+      search:globalThis.archiveLoreSearch,
+      readResult:()=>collectionResult(getStmbChatKey(),getCurrentStoreRows()),
+      busy:()=>isMemoryProcessing()||getStmbInFlightCount()>0,
+      subscribeJobs:subscribeToStmbJobs,
+      openRecords:()=>globalThis.archiveLoreSearch.openRecords(),undo:undoLastArchiveCollection,
+    });
+  }
   const actions = {
     'al-context-panel': () => createHomeContext({
       settings, markers:getSceneMarkers(), length:chat.length,
+      collectionStatus:collectionStatusPanel?.status,
       book:getCurrentCanonicalLorebookName(),
       books:[...getCurrentChatLorebookNames(settings)],
       changeBook:async()=>{
@@ -8208,6 +8246,7 @@ function populateInlineButtons() {
       connection:createConnectionPicker({settings,profiles:extension_settings.connectionManager?.profiles || [],service:getContext().ConnectionManagerRequestService,save:saveSettingsDebounced,compact:true}),
     }),
     'al-native-collect': async () => {try {return await collectNextArchiveLore();} finally {await refreshPopupContent();}},
+    'al-collection-result':()=>collectionStatusPanel?.card || document.createElement('span'),
     'al-native-undo': undoLastArchiveCollection,
     'al-native-range': () => globalThis.archiveLoreSearch.openRange(),
     'al-native-consolidate': () => showSummaryConsolidationPopup({ showGoBack: true }),
@@ -12608,7 +12647,7 @@ function handleSettingsFormPopupClose(popup) {
  */
 function handleSettingsPopupClose(popup) {
   handleSettingsFormPopupClose(popup);
-  if(currentPopupInstance===popup)currentPopupInstance = null;
+  if(currentPopupInstance===popup){collectionStatusPanel?.dispose();collectionStatusPanel=null;currentPopupInstance = null;}
 }
 
 /**
@@ -12628,6 +12667,7 @@ async function refreshPopupContent() {
     const newHtml = DOMPurify.sanitize(settingsTemplate(templateData));
 
     // Update the popup content directly
+    collectionStatusPanel?.dispose();collectionStatusPanel=null;
     currentPopupInstance.content.innerHTML = newHtml;
 
     captureSettingsForm(currentPopupInstance.dlg);
@@ -13037,6 +13077,7 @@ async function undoLastArchiveCollection() {
     clearAutoSummaryState();refreshMemoryBoundaryUi();
     for(const name of receipt.books)try{await reloadEditor(name);}catch(e){console.warn('Archive Lore: undo editor refresh failed',e);}
     toastr.success('직전 수집을 되돌렸어. 로어북과 수집 위치에 반영했어.','Archive Lore');
+    if(globalThis.archiveLoreFork)dismissCollectionResult(chatKey);
   } finally {globalThis.archiveLoreUndoing=false;await refreshPopupContent();}
 }
 
@@ -13879,6 +13920,7 @@ function setupEventListeners() {
  */
 async function applyManualFixedJson(correctedRaw) {
   const reminderChatKey = getStmbChatKey();
+  let collectionReceipt=null;
   if (isProcessingMemory) {
     toastr.warning(
       translate(
@@ -14097,12 +14139,18 @@ async function applyManualFixedJson(correctedRaw) {
 
     try {
       const connDbg = profile.effectiveConnection || profile.connection || {};
+      if(globalThis.archiveLoreFork)collectionReceipt=recordCollectionResult(context.chatKey || reminderChatKey,{
+        range:{sceneStart:context.sceneData.sceneStart,sceneEnd:context.sceneData.sceneEnd},memoryCount:1+(addResult.copiedCount||0),
+        hide:addResult.autoHideResult,side:{updated:0,failed:0},complete:false,
+      });
       console.debug("STMemoryBooks: Passing profile to runAfterMemory", {
         api: connDbg.api,
         model: connDbg.model,
         temperature: connDbg.temperature,
       });
       await runAfterMemory(compiledScene, profile, {
+        parentJobId:collectionReceipt?.id || '',
+        onSummary:summary=>{if(collectionReceipt)collectionReceipt.side=summary;},
         chatRef: context.chatRef || null,
         chatKey: context.chatKey || null,
         lorebookName: context.lorebookValidation.name,
@@ -14111,6 +14159,7 @@ async function applyManualFixedJson(correctedRaw) {
         settings,
       });
     } catch (e) {
+      if(collectionReceipt)collectionReceipt.side={updated:0,failed:1};
       console.warn("STMemoryBooks: runAfterMemory failed:", e);
     }
     try {
@@ -14166,6 +14215,7 @@ async function applyManualFixedJson(correctedRaw) {
     // ALWAYS reset the flag, no matter how we exit.
     // This clears the `isProcessingMemory` flag set inside the try block above.
     isProcessingMemory = false;
+    if(collectionReceipt){collectionReceipt.complete=true;collectionStatusPanel?.refresh();}
     if (getStmbChatKey() === reminderChatKey) getMemoryReminderController().check({ notify: true });
   }
 }
@@ -15084,4 +15134,5 @@ if (globalThis.archiveLoreFork) globalThis.archiveLoreMemoryBooks = {
   route: getArchiveLoreBookRoute,
   books: () => [...getCurrentChatLorebookNames(initializeSettings())],
   refresh: refreshPopupContent,
+  refreshHomeStatus:()=>collectionStatusPanel?.refresh(),
 };

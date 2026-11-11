@@ -74,7 +74,11 @@ function queueIndex(){
         if(!search()?.settings().enabled || search().settings().autoEmbed===false){indexPending=false;return;}
         if(generating||native.busy()||search().controller.state().busy){queueIndex();return;}
         indexPending=false;
-        try{await search().controller.index();}catch(e){if(e.name!=='AbortError')fail(e);}finally{if(indexPending)queueIndex();}
+        const key=search().context?.().key;
+        search().autoEmbeddingState={key,status:'running'};
+        try{await search().controller.index();search().autoEmbeddingState={key,status:'done'};}
+        catch(e){search().autoEmbeddingState={key,status:e.name==='AbortError'?'cancelled':'failed'};if(e.name!=='AbortError')fail(e);}
+        finally{native.refreshHomeStatus?.();if(indexPending)queueIndex();}
     },800);
 }
 
@@ -88,7 +92,7 @@ function setup(){
     const drawer=container.querySelector('.inline-drawer-content'),actions=document.createElement('div');actions.className='al-extension-actions';
     for(const button of [...drawer.querySelectorAll('button')])actions.append(button);drawer.append(actions);
     container.querySelector('[data-home]').onclick=()=>native.open().catch(fail);container.querySelector('[data-search]').onclick=()=>search().openSettings();document.querySelector('#extensions_settings2')?.append(container);
-    eventSource.on(event_types.WORLDINFO_UPDATED,(name,_data,metadata)=>{if(shouldIndexBookUpdate(name,search().books(),metadata)){indexPending=true;queueIndex();}});
+    eventSource.on(event_types.WORLDINFO_UPDATED,(name,_data,metadata)=>{if(shouldIndexBookUpdate(name,search().books(),metadata)){indexPending=true;queueIndex();native.refreshHomeStatus?.();}});
     eventSource.on(event_types.GENERATION_STARTED,(_type,_options,dryRun)=>{if(!dryRun)generating=true;});
     eventSource.on(event_types.GENERATION_ENDED,()=>{generating=false;queueIndex();});
     eventSource.on(event_types.GENERATION_STOPPED,()=>{generating=false;indexPending=false;clearTimeout(indexTimer);native.stop();});

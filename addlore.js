@@ -124,16 +124,19 @@ function parseSceneRange(sceneRange) {
 }
 
 /** Memory saves remain successful even if hiding fails; report the failure separately. */
-export async function applySavedMemoryAutoHide(memoryResult, moduleSettings, expectedChat = getContext().chat) {
+export async function applySavedMemoryAutoHide(memoryResult, moduleSettings, expectedChat = getContext().chat, report = () => {}) {
     const plan = getAutoHideRanges(memoryResult, moduleSettings);
-    if (plan.mode === 'none') return true;
+    const keep = moduleSettings?.unhiddenEntriesCount ?? 2;
+    if (plan.mode === 'none') { report({status:'off',keep}); return true; }
     try {
         if (plan.invalidRange) throw new Error('기억의 수집 범위를 확인할 수 없습니다.');
-        await applyAutoHideRanges(plan.ranges, expectedChat);
+        const changed = await applyAutoHideRanges(plan.ranges, expectedChat);
+        report({status:'done',changed,keep});
         return true;
     } catch (error) {
         console.warn(`${MODULE_NAME}: Auto-hide failed:`, error);
         toastr.warning(`기억은 저장됐지만 메시지 자동 숨기기에 실패했습니다. ${error.message}`, 'Archive Lore');
+        report({status:'failed',keep});
         return false;
     }
 }
@@ -657,13 +660,15 @@ export async function addMemoryToLorebook(memoryResult, lorebookValidation, opti
             }
         }
         
+        let autoHideResult = null;
         if (options.autoHide !== false) {
-            await applySavedMemoryAutoHide(effectiveMemoryResult, settings.moduleSettings, originChat);
+            await applySavedMemoryAutoHide(effectiveMemoryResult, settings.moduleSettings, originChat, result => { autoHideResult = result; });
         }
 
         return {
             success: true,
             entryId: newEntry.uid,
+            autoHideResult,
             entryTitle: entryTitle,
             lorebookName: lorebookValidation.name,
             keywordCount: memoryResult.suggestedKeys?.length || 0,

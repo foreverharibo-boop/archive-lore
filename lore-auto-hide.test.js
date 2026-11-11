@@ -36,6 +36,17 @@ test('save through message 19 with keep 8 hides 0-11 and leaves newer uncollecte
     await scope.applySavedMemoryAutoHide({metadata:{sceneRange:'10-19'}},{autoHideMode:'all',unhiddenEntriesCount:8});
     assert.equal(state.calls.length,1);
 });
+test('result cards receive actual newly hidden counts and separate failure/off outcomes',async()=>{
+    const {scope,state,messages}=harness();let receipt;
+    const memory={metadata:{sceneRange:'10-19'}},settings={autoHideMode:'all',unhiddenEntriesCount:8};
+    const report=value=>receipt=value;
+    await scope.applySavedMemoryAutoHide(memory,settings,messages,report);
+    assert.equal(receipt.status,'done');assert.equal(receipt.changed,12);assert.equal(receipt.keep,8);
+    await scope.applySavedMemoryAutoHide(memory,settings,messages,report);assert.equal(receipt.changed,0);
+    messages[0].is_system=false;state.fail=true;
+    assert.equal(await scope.applySavedMemoryAutoHide(memory,settings,messages,report),false);assert.equal(receipt.status,'failed');
+    await scope.applySavedMemoryAutoHide(memory,{autoHideMode:'none'},messages,report);assert.equal(receipt.status,'off');
+});
 
 test('last-only mode, none, zero keep and a scene shorter than keep respect their boundaries',async()=>{
     for(const [mode,keep,start,end] of [['last',8,10,11],['all',0,0,19],['none',0,null,null],['last',20,null,null]]){

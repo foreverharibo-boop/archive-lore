@@ -41,6 +41,9 @@ await page.addInitScript(() => { Object.defineProperty(crypto, 'subtle', { value
 await page.route('https://generativelanguage.googleapis.com/**',r=>r.fulfill({json:{embedding:{values:[1,0]}}}));
 await page.route('https://aiplatform.googleapis.com/**',r=>{assert.equal(r.request().headers()['x-goog-api-key'],'vertex-fixture-key');assert(r.request().url().includes('/projects/fixture-project/locations/global/'));return r.fulfill({json:{predictions:[{embeddings:{values:[1,0]}}]}});});
 await page.goto('http://127.0.0.1:'+server.address().port);
+await page.locator('[name="relayEnabled"]').waitFor({state:'attached'});
+assert.equal(await page.locator('[name="relayEnabled"]').isChecked(),false);
+assert.equal(await page.locator('[name="selectionConcurrency"]').inputValue(),'1');
 // Both credential slots survive provider switching; full-screen editing saves and cancels independently.
 await page.locator('[name="embeddingProvider"]').selectOption('vertex');
 await page.locator('[name="embeddingVertexProjectId"]').fill('fixture-project');await page.locator('[name="embeddingVertexProjectId"]').dispatchEvent('change');
@@ -66,9 +69,12 @@ await page.locator('.al-dialog [data-action="settings"]').click();
 await page.locator('.al-settings-dialog [data-settings-tab="collection"]').click();
 await page.locator('.al-settings-dialog [name="recentCount"]').fill('12');
 await page.locator('.al-settings-dialog [name="recentCount"]').dispatchEvent('change');
+await page.locator('.al-settings-dialog [name="selectionConcurrency"]').fill('2');
+await page.locator('.al-settings-dialog [name="selectionConcurrency"]').dispatchEvent('change');
 await page.getByRole('button',{name:'설정 닫기',exact:true}).click();
 await page.locator('.al-settings-dialog').waitFor({state:'detached'});
 assert.equal(await page.locator('#archive-lore-settings [name="recentCount"]').inputValue(),'12');
+assert.equal(await page.locator('#archive-lore-settings [name="selectionConcurrency"]').inputValue(),'2');
 assert.equal(await page.locator('.al-dialog > header .al-icon').count(),4);
 const compactLayout=await page.locator('.al-dialog').evaluate(root=>({
     name:getComputedStyle(root.querySelector('[data-chat]')).fontSize,
@@ -132,8 +138,9 @@ await page.locator('[data-action="tools"]').click();
 await page.locator('summary').filter({hasText:'턴별 진단 기록'}).click();
 const downloadEvent=page.waitForEvent('download');await page.getByRole('button',{name:'진단 TXT 다운로드'}).click();
 const downloaded=await downloadEvent;const diagnosticText=await fs.readFile(await downloaded.path(),'utf8');
-assert.equal((diagnosticText.match(/"stage": "rp.response"/g)||[]).length,20);
-assert.equal((diagnosticText.match(/"stage": "injection.installed"/g)||[]).length,21);
+// Retention keeps the latest 20 runs: 19 successful turns plus the failed planner.
+assert.equal((diagnosticText.match(/"stage": "rp.response"/g)||[]).length,19);
+assert.equal((diagnosticText.match(/"stage": "injection.installed"/g)||[]).length,19);
 assert(diagnosticText.includes('search.ranking'));assert(diagnosticText.includes('ai.request'));assert(diagnosticText.includes('injection.budget'));
 assert(!diagnosticText.includes('fixture-only'));assert(!diagnosticText.includes('vertex-fixture-key'));
 await page.locator('summary').filter({hasText:'턴별 진단 기록'}).click();

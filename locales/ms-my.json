@@ -1,4 +1,7 @@
 {
+  "ArchiveLore_BackgroundReply": "Teruskan balasan pada pelayan melalui Relay",
+  "ArchiveLore_BackgroundReplyHelp": "Pilihan: memerlukan kedua-dua pemalam pelayan dan Relay aktif. Untuk sembang satu dengan satu; matikan pencetus kata kunci. Had memori diperuntukkan dahulu. Semakan dan penyimpanan sembang diteruskan selepas kembali.",
+  "ArchiveLore_SelectionConcurrency": "Kumpulan semakan AI serentak (1–2)",
   "STMemoryBooks_TopicalClip_IncludeHiddenMessages": "Gunakan juga mesej tersembunyi",
   "STMemoryBooks_Clip_FormatRequired": "Format mesti mengandungi {{CONTENT}} tepat sekali.",
   "STMemoryBooks_CombineClips_PromptRequired": "Prompt Gabung Klip mesti mengandungi {{SOURCE_CLIPS}} tepat sekali.",

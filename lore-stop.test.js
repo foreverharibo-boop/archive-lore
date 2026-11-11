@@ -9,7 +9,7 @@ test('real RP stop listener cancels before recall finishes, blocks stale injecti
     const gate=new Promise(r=>resolve=r),started=new Promise(r=>entered=r);
     const trace={finish:async()=>{},event:async()=>{}};
     const result={books:['book'],selected:new Set(['e']),text:'Fact',core:''};
-    const scope={Date,DOMException,Set,pendingGeneration:null,generationEpoch:0,generationStopped:false,
+    const scope={backgroundRecall:{prepare:async()=>null,cancel(){},completed:async()=>{}},Date,DOMException,Set,pendingGeneration:null,generationEpoch:0,generationStopped:false,
         generationInFlight:false,autoTimer:null,autoPending:true,writing:false,
         settings:()=>({enabled:true,mode:'questions'}),books:()=>['book'],chatContext:()=>({key:'chat',messages:[]}),
         diagnostics:{begin:()=>trace},getContext:()=>({setExtensionPrompt:(_key,text)=>injections.push(text)}),
@@ -35,7 +35,7 @@ test('real RP stop listener cancels before recall finishes, blocks stale injecti
 
 test('real prompt hook separates guidance, clears it on the next empty recall and blocks midflight setting changes',async()=>{
     const slots=new Map(),events=[],errors=[];let current={enabled:true,mode:'questions',selectionFocus:['affection']},result={books:['book'],selected:new Set(['e']),text:'Past fact',core:'Core',guidance:'Response direction'};
-    const scope={Date,DOMException,Set,Error,pendingGeneration:null,generationEpoch:0,generationStopped:false,writing:false,
+    const scope={backgroundRecall:{prepare:async()=>null,cancel(){},completed:async()=>{}},Date,DOMException,Set,Error,pendingGeneration:null,generationEpoch:0,generationStopped:false,writing:false,
         settings:()=>current,books:()=>['book'],chatContext:()=>({key:'chat',messages:[]}),
         diagnostics:{begin:()=>({finish:async()=>{},event:async(stage,data)=>events.push({stage,data})})},
         getContext:()=>({setExtensionPrompt:(key,text)=>slots.set(key,text)}),extension_prompt_types:{IN_CHAT:1},

@@ -12,6 +12,7 @@ import { retrievalFocus, rankFocusedChunks, chooseCandidates, recallMessages, re
 import { selectionFocusPrompt, focusQuestionPrompt, focusSearchQuery, orderFocusedUnits } from './lore-selection-focus.js';
 import { fitFocusedInjection } from './lore-focus-injection.js';
 import { withAbort } from './lore-cancellation.js';
+import { mapOrdered } from './lore-parallel.js';
 
 const COLLECTION_SCHEMA = `Return ONLY JSON:
 {"entries":[{"title":"short English title","date":"story date/range or empty","time":"story time or empty","location":"place or empty","content":"English narrative paragraphs only, no title/metadata headings","keywords":["English keyword"],"supersedes":null}],
@@ -31,10 +32,11 @@ export function createLoreController(host) {
     const log = (stage, data) => trace?.event(stage, data);
     const askTracked = async (profile, system, data, signal, tokens, phase = 'selectionMs') => {
         const started = Date.now();
-        await log('ai.request', { profile, system, data, maxOutputTokens:tokens });
+        const batch=Number.isInteger(data?.batch)?{batch:data.batch,batchCount:data.batchCount}:{};
+        await log('ai.request', { profile, system, data, maxOutputTokens:tokens,...batch });
         try { const response = await withAbort(() => host.ask(profile, system, data, signal, tokens), signal);
-            await log('ai.response', { response, elapsedMs:Date.now()-started });signal.throwIfAborted();return response;
-        } catch (error) { await log('ai.error', { message:error.message,details:error.details, elapsedMs:Date.now()-started });throw error; }
+            await log('ai.response', { response, elapsedMs:Date.now()-started,...batch });signal.throwIfAborted();return response;
+        } catch (error) { await log('ai.error', { message:error.message,details:error.details, elapsedMs:Date.now()-started,...batch });throw error; }
         finally { if(timings)timings[phase] += Date.now()-started; }
     };
     const embedTracked = async (config, text, query, signal) => {
@@ -305,9 +307,10 @@ export function createLoreController(host) {
                 } else {
                     const offered = reviewUnits(reviewCandidates(candidates,chunks)), selected = [];
                     const batches = reviewBatches(offered);
-                    await log('selection.plan',{policy:'compact-source-units-v1',selectionFocus:config.selectionFocus,units:offered.length,batches:batches.length,
+                    await log('selection.plan',{policy:'compact-source-units-v1',selectionFocus:config.selectionFocus,units:offered.length,batches:batches.length,concurrency:config.selectionConcurrency,
                         originalTokens:estimateTokens(JSON.stringify(offered)),selectorTokens:estimateTokens(JSON.stringify(selectorMemories(offered)))});
-                    for (const [index,batch] of batches.entries()) {
+                    const selectionStarted=Date.now();
+                    const batchSelections=await mapOrdered(batches,config.selectionConcurrency,async(batch,index,signal)=>{
                         notify('검색된 기억에서 필요한 원문 고르는 중');
                         let response, accepted;
                         for (let attempt=0;attempt<2;attempt++) {
@@ -325,8 +328,12 @@ export function createLoreController(host) {
                             }
                         }
                         await log('selection.validated',{batch:index+1,batchCount:batches.length,maxSelections:24,offered:batch,rawResponse:response,accepted,rejectedOrUnselected:batch.filter(u=>!accepted.some(a=>a.id===u.id))});
-                        selected.push(...accepted);
-                    }
+                        return accepted;
+                    },signal);
+                    // API durations overlap in parallel mode. Report wall time separately.
+                    timings.selectionRequestMs=timings.selectionMs;
+                    timings.selectionMs=Date.now()-selectionStarted;
+                    selected.push(...batchSelections.flat());
                     // Direct facts precede support; checked aspects group matching events within each priority.
                     const beforeBudget=orderFocusedUnits(selected.sort((a,b)=>b.priority-a.priority),config.selectionFocus);
                     fitted = await fitFocusedInjection(beforeBudget, config, host.countTokens);

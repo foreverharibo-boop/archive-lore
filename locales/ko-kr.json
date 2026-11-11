@@ -1,4 +1,7 @@
 {
+  "ArchiveLore_BackgroundReply": "릴레이로 답변까지 서버에서 이어가기",
+  "ArchiveLore_BackgroundReplyHelp": "선택 기능 · 양쪽 서버 플러그인과 릴레이 연결 유지 필요. 일반 1:1 답변에서 사용하며 기존 키워드 발동은 꺼 주세요. 주입 상한만큼 자리를 미리 확보합니다. 검수·채팅 저장은 복귀 후 이어집니다.",
+  "ArchiveLore_SelectionConcurrency": "동시에 검토할 AI 묶음 (1~2)",
   "STMemoryBooks_TopicalClip_IncludeHiddenMessages": "숨겨진 메시지도 사용",
   "STMemoryBooks_Clip_FormatRequired": "형식에 {{CONTENT}}를 정확히 한 번 포함해야 합니다.",
   "STMemoryBooks_CombineClips_PromptRequired": "클립 합치기 프롬프트에 {{SOURCE_CLIPS}}를 정확히 한 번 포함해야 합니다.",

@@ -7,18 +7,20 @@ import {pruneDiagnostics,pruneJobs,resetLegacyHistory} from './retention.js';
 import { createLoreController } from '../lore-controller.js';
 import { createDiagnostics } from '../lore-diagnostics.js';
 import { diagnosticFiles,diagnosticStream } from './diagnostics.js';
-import { normalizeSettings,NS,sourceRange,matchesRange,estimateTokens } from '../lore-core.js';
+import { normalizeSettings,NS,sourceRange,matchesRange,estimateTokens,materializeEntry,entryAvailable,isCore } from '../lore-core.js';
 import { embed,completionText } from '../lore-api.js';
+import { consolidationView } from '../lore-maintenance.js';
 import { normalizeCompletionRequest } from '../completionCompatibility.js';
 globalThis.crypto ||= webcrypto;
-export function createJobService({sanitize,ask,embedRequest=embed}) {
+export function createJobService({sanitize,ask,embedRequest=embed,countTokens}) {
     const users=new Map(),vectorStores=new Map(),exports=new Map();
     const cleanDiagnostics=(root,file)=>{if(!exports.get(root))pruneDiagnostics(root,file);};
     // Keep completed history on disk, not one full chat/template/result per turn
     // in the process heap. Drafts and results are loaded only when requested.
     const archived=job=>({id:job.id,requestId:job.requestId,kind:job.kind,status:job.status,message:job.message,
         started:job.started,finished:job.finished,created:job.created,
-        input:{context:{key:job.input.context.key},books:job.input.books},
+        input:{context:{key:job.input.context.key},books:job.input.books,
+            options:job.input.options?.replyTokenizer?{replyTokenizer:job.input.options.replyTokenizer}:undefined},
         archived:true,draftAvailable:!!job.draftState});
     const fullJob=(s,id)=>{const job=s.jobs.get(id);return job?.archived?json(inside(s.jobsDir,id+'.json')):job;};
     function vectorStore(user) {
@@ -55,7 +57,7 @@ export function createJobService({sanitize,ask,embedRequest=embed}) {
         atomic(inside(s.jobsDir,job.id+'.json'),stored);
         if(!['queued','running'].includes(job.status))s.jobs.set(job.id,archived(job));
     };
-    const publicJob=job=>({id:job.id,kind:job.kind,status:job.status,message:job.message,chatKey:job.input.context.key,started:job.started,finished:job.finished,hidden:job.hidden||[],books:job.input.books,result:job.result,draftAvailable:job.archived?job.draftAvailable:!!job.draftState});
+    const publicJob=job=>({id:job.id,kind:job.kind,status:job.status,message:job.message,chatKey:job.input.context.key,backgroundReply:!!job.input.options?.replyTokenizer,started:job.started,finished:job.finished,hidden:job.hidden||[],books:job.input.books,result:job.result,draftAvailable:job.archived?job.draftAvailable:!!job.draftState});
     function chatFile(s,input) {
         const d=input.chat;if(!d||typeof d.id!=='string'||!d.id)throw Error('채팅 파일 정보가 없어.');
         if(d.group)return inside(s.user.directories.groupChats,sanitize(d.id+'.jsonl'));
@@ -93,7 +95,7 @@ export function createJobService({sanitize,ask,embedRequest=embed}) {
             store:s.vectors,embed:embedRequest,
             ask:async(profile,system,data,signal,tokens)=>{const template=profile===config.searchProfile&&config.searchProfile?input.templates.search:input.templates.collection;
                 return completionText(await ask(s.user,normalizeCompletionRequest({...template,stream:false,temperature:.2,max_tokens:tokens,max_completion_tokens:undefined,max_output_tokens:undefined,max_new_tokens:undefined,json_schema:undefined,messages:[{role:'system',content:system},{role:'user',content:JSON.stringify(data)}]}),signal));},
-            countTokens:async text=>estimateTokens(text),diagnostics,profileInfo:()=>Object.entries(input.templates||{}).map(([role,p])=>({role,model:p.model,source:p.chat_completion_source})),
+            countTokens:async text=>{if(input.options?.replyTokenizer){if(!countTokens)throw Error('서버 토크나이저 연결이 없어.');return countTokens(s.user,input.options.replyTokenizer,text);}return estimateTokens(text);},diagnostics,profileInfo:()=>Object.entries(input.templates||{}).map(([role,p])=>({role,model:p.model,source:p.chat_completion_source})),
             hideRange:async(range)=>{const chat=readChat(s,input),source=sourceRange(chat.messages,range.start,range.end);for(let i=range.start;i<=range.end;i++)chat.lines[chat.offset+i].is_system=true;
                 if(fs.readFileSync(chat.file,'utf8')!==chat.raw)throw Error('채팅 파일이 바뀌어서 숨기기를 멈췄어.');backup(s,job,chat.file,chat.raw);atomic(chat.file,chat.lines.map(l=>JSON.stringify(l)).join('\n')+'\n');job.hidden.push(source);save(s,job);},
             changed:()=>{
@@ -108,13 +110,25 @@ export function createJobService({sanitize,ask,embedRequest=embed}) {
             validate(s,input,job.kind);
             if(job.kind==='applyMaintenance'){const prior=fullJob(s,input.options?.draftJobId);if(!prior?.draftState||prior.input.context.key!==input.context.key)throw Error('서버 초안이 만료됐거나 다른 채팅방의 초안이야.');controller.restoreDraft(prior.draftState);restoredDraft=true;}
             let result=job.kind==='index'?await controller.index(!!input.options?.force):await controller[job.kind](input.options||{});
-            if(job.kind==='recall')result={...result,selected:[...result.selected],lastRecall:controller.state().lastRecall,estimatedTokens:true};
+            if(job.kind==='recall')result={...result,selected:[...result.selected],lastRecall:controller.state().lastRecall,estimatedTokens:!input.options?.replyTokenizer};
             if(job.kind==='prepareMaintenance'){job.draftState=controller.exportDraft();result.serverJobId=job.id;}
             job.result=result;job.status='completed';job.message=controller.state().status;
         }catch(error){job.status=job.cancelRequested?'canceled':'error';job.message=clean(error.message);}finally{if(restoredDraft&&!controller.exportDraft()){const prior=fullJob(s,input.options?.draftJobId);if(prior){delete prior.draftState;save(s,prior);}}s.controllers.delete(job.id);job.finished=new Date().toISOString();save(s,job);pruneJobs(s,job.id);}
     }
     async function drain(s){if(s.running)return;s.running=true;try{let job;while((job=[...s.jobs.values()].find(j=>j.status==='queued'))){try{await run(s,job);}catch{job.status='error';job.message='서버 작업 파일을 저장하지 못했어. 서버 저장 공간과 권한을 확인해 줘.';job.finished=new Date().toISOString();s.controllers.delete(job.id);try{save(s,job);}catch{console.error('[Archive Lore] Could not persist job status:',job.id);}}}}finally{s.running=false;}}
     return {
+        replySnapshot(user,input){
+            const s=state(user);validate(s,input,'recall');
+            if(input.chat.group || !input.settings.serverEnabled || !input.settings.relayEnabled || input.settings.keywordActivation)
+                throw Error('서버 답변 연동 설정을 확인해 줘.');
+            const live=readChat(s,input).messages;
+            if(live.length!==input.context.messages.length)throw Error('대화가 바뀌어서 서버 답변을 중단했어.');
+            const raw=input.books.map(book=>fs.readFileSync(bookFile(s,book),'utf8'));
+            const entries=raw.flatMap(text=>consolidationView(Object.values(JSON.parse(text).entries||{}),live))
+                .map(entry=>materializeEntry(entry,live)).filter(entry=>entryAvailable(entry,live));
+            return {core:entries.filter(isCore).map(entry=>entry.content).join('\n\n'),
+                fingerprint:hash(JSON.stringify([sourceRange(live,0,live.length-1),raw]))};
+        },
         async submit(user,kind,input,requestId){const s=state(user);if(typeof requestId!=='string'||!/^[a-f0-9-]{16,80}$/.test(requestId))throw Error('작업 요청 ID가 잘못됐어.');
             for(const [id,time] of s.canceledRequests)if(Date.now()-time>300000)s.canceledRequests.delete(id);
             if(s.canceledRequests.has(requestId))return {requestId,status:'canceled',message:'취소됨'};

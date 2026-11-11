@@ -1,4 +1,7 @@
 {
+  "ArchiveLore_BackgroundReply": "Antworten über Relay auf dem Server fortsetzen",
+  "ArchiveLore_BackgroundReplyHelp": "Optional: Beide Server-Plugins und Relay müssen aktiv sein. Für normale Einzelchats; Schlüsselwortaktivierung ausschalten. Das Speicherlimit wird vorab reserviert. Prüfung und Chat-Speicherung erfolgen nach der Rückkehr.",
+  "ArchiveLore_SelectionConcurrency": "Gleichzeitige KI-Prüfgruppen (1–2)",
   "STMemoryBooks_TopicalClip_IncludeHiddenMessages": "Auch versteckte Nachrichten verwenden",
   "STMemoryBooks_Clip_FormatRequired": "Das Format muss {{CONTENT}} genau einmal enthalten.",
   "STMemoryBooks_CombineClips_PromptRequired": "Der Prompt zum Zusammenführen muss {{SOURCE_CLIPS}} genau einmal enthalten.",

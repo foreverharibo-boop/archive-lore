@@ -42,6 +42,8 @@ export function normalizeSettings(value = {}) {
         enabled: value.enabled !== false,
         autoEmbed: value.autoEmbed !== false,
         serverEnabled: value.serverEnabled === true,
+        relayEnabled: value.relayEnabled === true,
+        selectionConcurrency: integer(value.selectionConcurrency ?? 1,1,1,2),
         diagnosticsDetailed: value.diagnosticsDetailed === true,
         sideTemplates: normalizeSides(value.sideTemplates),
         autoCollect:value.autoCollect===true,autoMode:value.autoMode==='tokens'?'tokens':'messages',

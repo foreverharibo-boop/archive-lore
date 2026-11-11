@@ -424,3 +424,22 @@ test('changing categories during a noncooperative local selector rejects its sta
     f.host.ask=async()=>{f.config={selectionFocus:['details']};return '{"selections":[{"id":"u0","priority":3,"reason":"gratitude"}]}';};
     await assert.rejects(f.controller.recall(),/설정이 바뀌/);assert.equal(f.controller.state().lastRecall,null);
 });
+
+test('parallel selector preserves every batch prompt and the final memory order',async()=>{
+    async function run(concurrency){
+        const f=fixture();f.config={selectionConcurrency:concurrency,candidateCount:40,injectionTokens:3000};
+        f.book={entries:Object.fromEntries(Array.from({length:16},(_,i)=>[i,{uid:i,content:(`Hospital visit ${i}: they promised to return together and remembered the agreement. `).repeat(90)}]))};
+        let active=0,peak=0;const prompts=[];
+        f.host.ask=async(_profile,system,data)=>{
+            peak=Math.max(peak,++active);prompts.push({system,data});
+            await new Promise(r=>setTimeout(r,data.batch===1?15:1));active--;
+            return JSON.stringify({selections:[{id:data.memories[0].id,priority:3,reason:'The relevant hospital agreement.'}]});
+        };
+        await f.controller.index();const result=await f.controller.recall();
+        return {result,prompts:prompts.sort((a,b)=>a.data.batch-b.data.batch),peak};
+    }
+    const serial=await run(1),parallel=await run(2);
+    assert(serial.prompts.length>1);assert.equal(serial.peak,1);assert.equal(parallel.peak,2);
+    assert.deepEqual(parallel.prompts,serial.prompts);assert.equal(parallel.result.text,serial.result.text);
+    assert.deepEqual([...parallel.result.selected],[...serial.result.selected]);assert.equal(parallel.result.tokens,serial.result.tokens);
+});

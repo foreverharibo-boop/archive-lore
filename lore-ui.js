@@ -31,6 +31,7 @@ export function coalesceRefresh(render) {
 }
 
 export function createLoreUI(api) {
+    const translate=api.translate || (text=>text);
     let dialog = null, page = 0, redraw = 0, filter = '', selected=new Set(), viewTab='memory';
     const settingsContainers=new Set();
     const safe = callback => async event => { try { await callback(event); } catch(error) { api.error(error); } };
@@ -41,7 +42,7 @@ export function createLoreUI(api) {
             <div class="al-settings-top">${check('enabled','아카이브 로어 활성화',s.enabled)}${button('open',loreIcon('book')+'열기')}</div>
             <nav class="al-tabs al-settings-tabs" aria-label="설정 분류">${[['connection','연결'],['collection','수집·검색'],['prompts','프롬프트'],['server','서버']].map(([id,label])=>button('settings-tab',label,`data-settings-tab="${id}" aria-pressed="${id==='connection'}"`)).join('')}</nav>
             <section data-settings-pane="server" hidden>
-            <details><summary>서버 실행</summary>${check('serverEnabled','서버에서 실행 · 플러그인 필요',s.serverEnabled)}${button('server-check','서버 연결 확인')}<span data-server-status role="status"></span></details>
+            <details><summary>서버 실행</summary>${check('serverEnabled','서버에서 실행 · 플러그인 필요',s.serverEnabled)}${check('relayEnabled',translate('릴레이로 답변까지 서버에서 이어가기','ArchiveLore_BackgroundReply'),s.relayEnabled)}<p class="al-muted">${translate('선택 기능 · 양쪽 서버 플러그인과 릴레이 연결 유지 필요. 일반 1:1 답변에서 사용하며 기존 키워드 발동은 꺼 주세요. 주입 상한만큼 자리를 미리 확보합니다. 검수·채팅 저장은 복귀 후 이어집니다.','ArchiveLore_BackgroundReplyHelp')}</p>${button('server-check','서버 연결 확인')}<span data-server-status role="status"></span></details>
             <details><summary>진단 기록</summary>${check('diagnosticsDetailed','상세 진단 · 대화·AI 요청 내용 포함',s.diagnosticsDetailed)}<p class="al-muted">기본은 시간·오류만 기록해요. 브라우저 진단·서버 진단·완료 작업은 각각 최근 20개·최대 3일 보관하며, 용량이 크면 더 일찍 정리해요. 오래된 작업의 미적용 초안·복구 사본도 함께 정리해요. 원본 채팅·로어북·임베딩은 삭제하지 않아요.</p></details>
             </section><section data-settings-pane="connection"><details open><summary>기억 작성·검색 AI</summary><div class="al-fields">
             ${field('기억 작성 AI 프로필',select('profile', profiles, s.profile))}
@@ -59,6 +60,7 @@ export function createLoreUI(api) {
             ${field('최근 대화 참고 개수',input('recentCount',s.recentCount,'number','min="1" max="200"'))}
             ${field('최종 주입 토큰 상한',input('injectionTokens',s.injectionTokens,'number','min="256" max="32000"'))}
             ${field('한 번에 수집할 메시지',input('batchSize',s.batchSize,'number','min="1" max="100"'))}
+            ${field(translate('동시에 검토할 AI 묶음 (1~2)','ArchiveLore_SelectionConcurrency'),input('selectionConcurrency',s.selectionConcurrency,'number','min="1" max="2"'))}
             ${field('검색 후보 구간',input('candidateCount',s.candidateCount,'number','min="1" max="40"'))}
             </div>${check('keywordActivation','기존 키워드 발동도 허용',s.keywordActivation)}
             ${check('sideEnabled','사이드 기록 변화 자동 반영',s.sideEnabled !== false)}</details>

@@ -1,4 +1,7 @@
 {
+  "ArchiveLore_BackgroundReply": "Continuar respostas no servidor pelo Relay",
+  "ArchiveLore_BackgroundReplyHelp": "Opcional: requer os dois plugins de servidor e Relay ativo. Para conversas individuais; desative a ativação por palavras-chave. O limite de memória é reservado. Revisão e salvamento continuam ao retornar.",
+  "ArchiveLore_SelectionConcurrency": "Lotes de revisão de IA simultâneos (1–2)",
   "STMemoryBooks_TopicalClip_IncludeHiddenMessages": "Usar também mensagens ocultas",
   "STMemoryBooks_Clip_FormatRequired": "O formato deve conter {{CONTENT}} exatamente uma vez.",
   "STMemoryBooks_CombineClips_PromptRequired": "O prompt de combinação deve conter {{SOURCE_CLIPS}} exatamente uma vez.",

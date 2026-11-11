@@ -3413,3 +3413,10 @@ plugin protocol update. Automated coverage includes actual native write paths,
 undo confirmation/cancellation, partial failures, retry completion, chat/source
 changes, legacy receipts and unrelated-entry preservation. Browser engine and
 live provider behavior are not claimed by these host-mocked tests.
+
+
+### Archive Lore: memory-first automatic side prompts
+
+Archive Lore dispatches all automatic side prompts only after a memory has been successfully saved. Message-interval templates no longer run independently on message arrival. Their visible-message threshold is checked after the next successful memory save; templates also enabled for after-memory execution run once through the existing after-memory path. Manual side-prompt commands remain explicit independent actions. Disabling the chat's after-memory side switch disables both automatic paths.
+
+Interval checks use a pre-hide snapshot captured with the originating memory. They exclude messages received after that memory started, retain the interval runner's 200-message input cap, and use the last successfully saved side checkpoint. Background jobs retain the originating chat and parent memory job. Older queued memory snapshots without the extra interval history use only their captured scene. Failed or canceled memory generation does not dispatch new automatic side prompts; side jobs already running before cancellation or an update retain their existing lifecycle. Thresholds that are not yet met wait for a later successful memory save.

@@ -1,3 +1,4 @@
+import { intervalSceneAfterMemory, mergeAfterMemoryItems } from './lore-side-after-memory.js';
 import { PLAIN_SIDE_FORMAT, validatePlainSideRecord } from './lore-native-side.js';
 import { sideAutoEnabled } from './lore-native-side-toggle.js';
 // Copyright (C) 2024–2026 Aiko Hanasaki
@@ -1247,6 +1248,8 @@ function parseManualRange(range) {
  * Evaluate tracker prompts and fire if thresholds are met
  */
 export async function evaluateTrackers() {
+    // Archive intervals are dispatched only from the successful memory save path.
+    if (globalThis.archiveLoreFork) return 0;
     const parentTask = createStmbInFlightTask('SidePrompts:onInterval');
     const evalEpoch = parentTask.epoch;
     try {
@@ -1479,6 +1482,7 @@ export async function runAfterMemory(compiledScene, profile = null, options = {}
     const parentTask = createStmbInFlightTask('SidePrompts:onAfterMemory');
     const runEpoch = parentTask.epoch;
     try {
+        throwIfStmbStopped(runEpoch);
         const retryJobSnapshots = Array.isArray(options.retryJobSnapshots)
             ? options.retryJobSnapshots
             : [];
@@ -1536,6 +1540,8 @@ export async function runAfterMemory(compiledScene, profile = null, options = {}
                 );
             }
             runItems = filterAutomaticSidePromptSetItems(resolvedSet.runnable, 'onAfterMemory');
+            if (globalThis.archiveLoreFork) runItems = mergeAfterMemoryItems(runItems,
+                filterAutomaticSidePromptSetItems(resolvedSet.runnable, 'onInterval'));
         } else {
             const enabledAfter = await listByTrigger('onAfterMemory');
             runItems = (enabledAfter || []).map(tpl => ({
@@ -1546,6 +1552,12 @@ export async function runAfterMemory(compiledScene, profile = null, options = {}
                 set: null,
                 item: null,
             }));
+            if (globalThis.archiveLoreFork) {
+                const intervals = await listByTrigger('onInterval');
+                runItems = mergeAfterMemoryItems(runItems, (intervals || []).map(tpl => ({
+                    tpl, baseTpl: tpl, runtimeMacros: {}, name: tpl.name, set: null, item: null,
+                })));
+            }
         }
 
         if (!runItems || runItems.length === 0) return;
@@ -1562,21 +1574,45 @@ export async function runAfterMemory(compiledScene, profile = null, options = {}
         const maxConcurrent = clampInt(Number(settings?.moduleSettings?.sidePromptsMaxConcurrent ?? 2),1,10);
         const lorebookResolveContext = {};
 
+        if (globalThis.archiveLoreFork) {
+            const ready = [];
+            for (const item of runItems) {
+                throwIfStmbStopped(runEpoch);
+                if (!item.archiveInterval) { ready.push(item); continue; }
+                try {
+                    const lore = await resolveSidePromptLorebook(item.tpl, lorebookResolveContext);
+                    const existing = resolveSidePromptHistory(lore.data,
+                        getSidePromptHistory(item.tpl, item.runtimeMacros || {}, ['tracker'])).latest;
+                    const intervalScene = intervalSceneAfterMemory(compiledScene, item.tpl, existing);
+                    if (intervalScene) ready.push({ ...item, compiledScene: intervalScene });
+                } catch (error) {
+                    if (isStmbStopError(error)) throw error;
+                    if (!reportSidePromptHistoryConflict(error, item.name || item.tpl.name)) {
+                        console.warn(`${MODULE_NAME}: Deferred interval preparation failed`, error);
+                    }
+                }
+            }
+            runItems = ready;
+            if (!runItems.length) return 0;
+        }
+
         if (areStmbJobsEnabled()) {
             ensureSidePromptJobExecutorRegistered();
             let queued = 0;
             const preparedItems = [];
             for (const runItem of runItems) {
+                throwIfStmbStopped(runEpoch);
                 const tpl = runItem.tpl;
+                const itemScene = runItem.compiledScene || compiledScene;
                 let lore, prepared;
                 try {
                     lore = await resolveSidePromptLorebook(tpl, lorebookResolveContext);
                     prepared = await prepareSidePromptRun({
                         tpl,
                         loreData: lore.data,
-                        compiledScene,
+                        compiledScene: itemScene,
                         defaultOverrides,
-                        fallbackKinds: ['plotpoints', 'scoreboard'],
+                        fallbackKinds: runItem.archiveInterval ? ['tracker'] : ['plotpoints', 'scoreboard'],
                         runtimeMacros: runItem.runtimeMacros,
                     });
                 } catch (err) {
@@ -1588,7 +1624,7 @@ export async function runAfterMemory(compiledScene, profile = null, options = {}
                 preparedItems.push({
                     tpl,
                     lore,
-                    compiledScene,
+                    compiledScene: itemScene,
                     prepared,
                     runtimeMacros: runItem.runtimeMacros,
                     defaults,
@@ -1599,10 +1635,11 @@ export async function runAfterMemory(compiledScene, profile = null, options = {}
             }
             for (let index = 0; index < preparedItems.length; index++) {
                 const item = preparedItems[index];
+                throwIfStmbStopped(runEpoch);
                 enqueueStmbJob(buildSidePromptJob({
                     tpl: item.tpl,
                     lore: item.lore,
-                    compiledScene,
+                    compiledScene: item.compiledScene,
                     prepared: item.prepared,
                     runtimeMacros: item.runtimeMacros,
                     trigger: 'onAfterMemory',
@@ -1631,14 +1668,15 @@ export async function runAfterMemory(compiledScene, profile = null, options = {}
             // Run LLMs concurrently for this wave (scene-only prompts)
             const llmPromises = wave.map(async (runItem) => {
                 const tpl = runItem.tpl;
+                const itemScene = runItem.compiledScene || compiledScene;
                 try {
                     const lore = await resolveSidePromptLorebook(tpl, lorebookResolveContext);
                     const prepared = await prepareSidePromptRun({
                         tpl,
                         loreData: lore.data,
-                        compiledScene,
+                        compiledScene: itemScene,
                         defaultOverrides,
-                        fallbackKinds: ['plotpoints', 'scoreboard'],
+                        fallbackKinds: runItem.archiveInterval ? ['tracker'] : ['plotpoints', 'scoreboard'],
                         runtimeMacros: runItem.runtimeMacros,
                     });
                     console.log(`${MODULE_NAME}: SidePrompt attempt`, {
@@ -1707,7 +1745,7 @@ export async function runAfterMemory(compiledScene, profile = null, options = {}
                         initialText: textToSave,
                         finalPrompt: r.finalPrompt,
                         conn: r.conn,
-                        compiledScene,
+                        compiledScene: r.runItem.compiledScene || compiledScene,
                         runEpoch,
                         queuePreview: true,
                         unifiedTitle: r.unifiedTitle,
@@ -1745,12 +1783,13 @@ export async function runAfterMemory(compiledScene, profile = null, options = {}
                         entryOverrides,
                         sidePromptHistory: r.sidePromptHistory,
                         metadataUpdates: {
+                            ...(globalThis.archiveLoreFork ? { [`STMB_sp_${tpl.key}_lastMsgId`]: (r.runItem.compiledScene || compiledScene).metadata.sceneEnd } : {}),
                             [`STMB_sp_${tpl.key}_lastRunAt`]: new Date().toISOString(),
                         },
                         metadataFactory: createSidePromptRegenerationMetadataFactory(
                             tpl,
                             r.priorContent,
-                            compiledScene,
+                            r.runItem.compiledScene || compiledScene,
                             r.runItem?.runtimeMacros || {},
                         ),
                     });

@@ -75,6 +75,8 @@ try{
    await page.locator('.al-original-addons').waitFor();
    assert.equal(await page.locator('dialog').count(),1);assert.equal(await page.locator('.al-feature-home').count(),0);
    assert.equal(await page.locator('h2').innerText(),'📕 Memory Books');
+   assert.equal(await page.locator('dialog').getAttribute('data-al-palette'),'memorybooks');
+   assert.equal(await page.locator('dialog').evaluate(el=>getComputedStyle(el).backgroundColor),'rgb(23, 23, 23)');
    assert.equal(await page.locator('.popup-controls .popup-button-custom').count(),3);
    assert(await page.locator('#stmb-profile-buttons #native-edit-profile').isVisible());
    await page.locator('#native-edit-profile').click();await page.getByRole('button',{name:'🌈 Consolidate Memories',exact:true}).click();

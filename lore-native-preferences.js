@@ -26,7 +26,22 @@ export function applyNativeTheme(root, settings) {
     root.dataset.alPalette=layout==='original'?'default':palette;
 }
 export function applySceneButtonVisibility(settings, root=globalThis.document?.documentElement) {
-    root?.classList.toggle('al-hide-scene-buttons',settings?.moduleSettings?.archiveLoreShowSceneButtons===false);
+    if(!root)return;
+    const hidden=settings?.moduleSettings?.archiveLoreShowSceneButtons===false;
+    // A theme can override stylesheet-only hiding when extra message actions open.
+    // Keep the prior inline display on the element: bundled and unbundled callers
+    // share the same DOM and must restore exactly the same original value.
+    if(root===root.ownerDocument?.documentElement)root.classList.toggle('al-hide-scene-buttons',hidden);
+    for(const button of root.querySelectorAll('.mes_stmb_start,.mes_stmb_end')){
+        if(hidden){
+            if(!button.hasAttribute('data-al-scene-display'))button.setAttribute('data-al-scene-display',JSON.stringify([button.style.getPropertyValue('display'),button.style.getPropertyPriority('display')]));
+            button.style.setProperty('display','none','important');
+        }else if(button.hasAttribute('data-al-scene-display')){
+            const [value,priority]=JSON.parse(button.getAttribute('data-al-scene-display'));
+            if(value)button.style.setProperty('display',value,priority);else button.style.removeProperty('display');
+            button.removeAttribute('data-al-scene-display');
+        }
+    }
 }
 export function mountSceneButtonPreference(root, {settings,save}) {
     const boundary=root?.querySelector('#stmb-memory-boundary-mode')?.closest('label');

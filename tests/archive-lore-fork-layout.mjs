@@ -8,6 +8,8 @@ import {fileURLToPath} from 'node:url';
 const {chromium}=await import(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const extra=process.env.CHROMIUM_ARGS_MODULE?(await import(process.env.CHROMIUM_ARGS_MODULE)).default.args:[];
 const root=fileURLToPath(new URL('../',import.meta.url));
+const sceneSource=await fs.readFile(new URL('../sceneManager.js',import.meta.url),'utf8');
+const sceneFactory=sceneSource.slice(sceneSource.indexOf('export function createSceneButtons('),sceneSource.indexOf('/**\n * Get scene data')).replace('export function','function');
 const fixture=`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">${process.env.KOREAN_FONT_ROOT ? '<link rel="stylesheet" href="/fonts/400.css">' : ''}<link rel="stylesheet" href="/lore-fork.css"><style>:root{--SmartThemeBlurTintColor:#f8f9fb;--SmartThemeBodyColor:#303740;--SmartThemeBorderColor:#d5dbe3;--mainFontSize:16px}body{background:#edf0f4;color:#303740;font:14px "Noto Sans KR",Arial;margin:12px}#content{background:#f8f9fb;padding:16px;max-width:850px;margin:auto;border-radius:12px}.menu_button{font:inherit;width:min-content;white-space:normal;overflow-wrap:anywhere;background:#edf0f5;color:inherit;padding:9px;border:1px solid #d5dbe3;border-radius:6px;cursor:pointer}.displayNone{display:none!important}.whitespacenowrap{white-space:nowrap!important}.text_pole{font:inherit;max-width:100%;box-sizing:border-box}h2{font-size:18px}</style><div id="content" class="al-fork-surface"></div><script src="/handlebars.js"></script><script type="module">
 import {settingsTemplate,generalSettingsTemplate} from '/templates.js';
 import {FEATURE_GROUPS,organizeMemoryBooks,restoreFeatureButtons} from '/lore-fork-layout.js';
@@ -321,10 +323,17 @@ try{
         await page.locator('dialog[open]').waitFor();await page.getByRole('button',{name:'닫기',exact:true}).click();
         await page.evaluate(()=>statusPanel.dispose());
     }
-    await page.evaluate(()=>{
+    await page.evaluate(sceneFactory=>{
         document.querySelector('#content').hidden=false;prefsSettings={moduleSettings:{}};mountPreferences();applySceneButtonVisibility(prefsSettings);
-        const chat=document.createElement('div');chat.id='chat';chat.innerHTML='<div class="mes"><button class="mes_stmb_start">▶</button><button class="mes_stmb_end">◀</button><button id="other-action">다른 기능</button><p>원문 대화</p></div>';document.body.append(chat);
-    });
+        window.archiveLoreFork=true;window.sceneSettings={STMemoryBooks:prefsSettings};window.markerClicks=0;
+        window.createActualSceneButtons=new Function('extension_settings','applySceneButtonVisibility','translate','setSceneMarker',sceneFactory+';return createSceneButtons;')(sceneSettings,applySceneButtonVisibility,text=>text,()=>markerClicks++);
+        const chat=document.createElement('div');chat.id='chat';chat.innerHTML='<div class="mes" mesid="1"><div class="mes_block"><div class="extraMesButtons"><button id="other-action">다른 기능</button></div><p>원문 대화</p></div></div>';document.body.append(chat);
+        createActualSceneButtons(chat.querySelector('.mes'));
+        // Real scene actions are DIVs. Host/theme rules when opening message actions
+        // can be more specific than the old stylesheet-only preference rule.
+        const theme=document.createElement('style');theme.textContent='#chat .mes .extraMesButtons > div {display:flex!important}';document.head.append(theme);
+        chat.querySelector('.mes_stmb_end').style.setProperty('display','inline-flex','important');
+    },sceneFactory);
     assert.equal(await page.locator('#al-show-scene-buttons').count(),0,'connection/theme no longer owns this setting');
     await page.evaluate(()=>mountGeneral());
     assert.equal(await page.locator('#al-show-scene-buttons').count(),1);
@@ -339,10 +348,15 @@ try{
     await page.evaluate(()=>{
         prefsSettings=JSON.parse(JSON.stringify(prefsSettings));prefsSettings.moduleSettings.archiveLoreLayout='original';
         document.documentElement.classList.remove('al-hide-scene-buttons');applySceneButtonVisibility(prefsSettings);mountGeneral();
-        const next=document.createElement('button');next.className='mes_stmb_start';next.textContent='▶';document.querySelector('#chat .mes').append(next);
+        sceneSettings.STMemoryBooks=prefsSettings;
+        const next=document.createElement('div');next.className='mes';next.setAttribute('mesid','2');next.innerHTML='<div class="mes_block"></div>';document.querySelector('#chat').append(next);
+        createActualSceneButtons(next);createActualSceneButtons(next);
     });
     assert(!await page.locator('#al-show-scene-buttons').isChecked());assert.equal(await page.locator('#chat .mes_stmb_start:visible').count(),0);
     await page.locator('#al-show-scene-buttons').check();assert.equal(await page.evaluate(()=>scenePreferenceSaves),2);
-    assert.equal(await page.locator('#chat .mes_stmb_start:visible').count(),2);assert(await page.locator('#chat .mes_stmb_end').isVisible());
+    assert.equal(await page.locator('#chat .mes_stmb_start:visible').count(),2);assert.equal(await page.locator('#chat .mes_stmb_end:visible').count(),2);
+    assert.equal(await page.locator('#chat .mes_stmb_end').first().evaluate(el=>el.style.getPropertyValue('display')),'inline-flex');
+    assert.equal(await page.locator('#chat .mes_stmb_start').first().evaluate(el=>el.style.getPropertyValue('display')),'');
+    await page.locator('#chat .mes_stmb_start').first().click();assert.equal(await page.evaluate(()=>markerClicks),1);
     assert.deepEqual(errors,[]);console.log('Completion popup, saved-records menu and persistent scene-button visibility passed on mobile/desktop.');
 }finally{await browser.close();server.close();}

@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
 import { chat, chat_metadata } from '../../../../script.js';
-import { saveMetadataDebounced, getContext } from '../../../extensions.js';
+import { saveMetadataDebounced, getContext, extension_settings } from '../../../extensions.js';
+import { applySceneButtonVisibility } from './lore-native-preferences.js';
 import { createSceneRequest, estimateTokenCount, compileScene } from './chatcompile.js';
 import { SCENE_MANAGEMENT } from './constants.js';
 import { t as __st_t_tag, translate } from '../../../i18n.js';
@@ -512,6 +513,8 @@ export function createSceneButtons(messageElement) {
         extraButtonsContainer.appendChild(endButton);
         addedButton = true;
     }
+
+    if(globalThis.archiveLoreFork)applySceneButtonVisibility(extension_settings.STMemoryBooks,messageElement);
 
     return addedButton;
 }

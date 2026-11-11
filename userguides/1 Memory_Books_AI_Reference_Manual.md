@@ -3527,3 +3527,9 @@ semantic alignment, and reordered translations with identical structure cannot
 be detected. Every translated excerpt exposes the actual source in a disclosure;
 the full exact injection is also available. Viewing does not modify source,
 translation, embeddings or generation prompts.
+
+The scene-button visibility preference applies inline `display: none !important`
+to existing and newly created start/end actions, so opening extra message actions
+or a more specific theme rule cannot reveal them. Re-enabling restores their
+previous inline display and keeps the original marker click handlers. This only
+changes visibility; scene ranges, other message actions and collection are unchanged.

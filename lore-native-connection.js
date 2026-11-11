@@ -23,7 +23,7 @@ export function savedConnectionOptions(profiles, selected = '') {
 export function createConnectionPicker({settings, profiles, service, save, compact=false}) {
     const box=document.createElement('div');box.className='al-native-connection';
     const profile=settings.profiles?.[settings.defaultProfile];
-    const label=document.createElement('label');label.textContent=compact?'AI 연결 프로필':'수집·통합·사이드 AI';
+    const label=document.createElement('label');label.textContent=compact?'현재 수집 프로필의 AI 연결':'수집·통합·사이드 AI';
     const select=document.createElement('select');select.className='text_pole';select.id='al-home-connection';
     const existing=String(profile?.archiveLoreConnectionProfileId || '');
     select.append(new Option('기존 연결 설정 사용',''));

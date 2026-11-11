@@ -3008,3 +3008,42 @@ nested saves, profile switches, custom titles and general/automatic setting
 serialization. It uses the same Playwright runtime variables as the layout tests.
 These are regression checks, not a live provider/Termux or every-feature parity
 certification.
+
+
+### Archive Lore: mobile controls, side automation and embedding status
+
+The collection-profile heading now keeps **편집 / 추가** beside its title, with
+its selector and optional explanation underneath. **현재 수집 프로필의 AI 연결**
+is a shortcut for the same connection binding in the selected collection profile;
+it is not an additional independent RP connection. Memory Assistance places its
+selector/actions above the explanation on narrow screens.
+
+The side manager provides **기억 수집 후 사이드 프롬프트 자동 실행**. This switch
+is stored in the current chat's scene metadata and defaults on for existing chats.
+Turning it off skips automatic after-memory side work, including retry scheduling,
+without deleting records or changing each template's enabled/trigger settings.
+Manual and interval-triggered side work remain separate. Already-started memory
+jobs use their originating settings snapshot. Version management is independent:
+new versions require both global version management and the template's save-all-
+versions option; otherwise the latest record is updated.
+
+**검색·주입 확인** shows completed/eligible lorebook entries and remaining entries,
+for example **104/105 완료 · 남은 임베딩 1개**. An entry counts as complete only when
+all its current chunks have vectors. Constant and disabled entries are excluded.
+Opening this panel checks the count but does not itself start embedding. A failed
+count check displays an error rather than zero remaining. Count refreshes coalesce
+and run when work completes, not once for every chunk. Closing the panel removes
+its subscriptions and does not cancel running work.
+
+Server job-status requests (`/jobs/get`) allow 60 seconds and retry transient
+network/timeout failures at most twice, after 1 and 2 seconds. This is a status-
+request timeout, not a limit on the AI generation job. Retries use the same job ID;
+an accepted job remains cancellable if status requests fail. No replacement job
+is automatically submitted. Permanent errors are not retried. These changes do
+not establish the cause of a particular Termux/server stall.
+
+Validation includes unit tests for partial vector completion, persisted side
+switches and skipped after-memory work, retry limits and chat-change protection;
+the browser layout fixture checks mobile widths and larger text, profile action
+placement, embedding counts and subscription disposal. Live provider and Termux
+behavior still requires verification in the user's installation.

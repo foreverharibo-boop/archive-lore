@@ -1,4 +1,5 @@
 import { PLAIN_SIDE_FORMAT, validatePlainSideRecord } from './lore-native-side.js';
+import { sideAutoEnabled } from './lore-native-side-toggle.js';
 // Copyright (C) 2024–2026 Aiko Hanasaki
 // SPDX-License-Identifier: AGPL-3.0-only
 
@@ -1474,6 +1475,7 @@ export async function evaluateTrackers() {
  * @param {Object} compiledScene
  */
 export async function runAfterMemory(compiledScene, profile = null, options = {}) {
+    if (!sideAutoEnabled(options.sceneMarkers || getSceneMarkers())) return 0;
     const parentTask = createStmbInFlightTask('SidePrompts:onAfterMemory');
     const runEpoch = parentTask.epoch;
     try {

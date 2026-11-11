@@ -117,6 +117,8 @@ const diagnostics = createDiagnostics({store:createDiagnosticStore(),
 let pendingGeneration = null;
 const serverCall=createServerClient({headers:getRequestHeaders});
 const vectorStore=serverVectorStore({local:createVectorStore(),call:serverCall,enabled:()=>!!settings()?.serverEnabled});
+const searchViewListeners=new Set();
+function notifySearchViews(){for(const listener of searchViewListeners){try{listener();}catch(e){console.warn('[Archive Lore] View refresh failed',e);}}}
 const localController = createLoreController({
     diagnostics,profileInfo:()=>{const profiles=getContext().extensionSettings?.connectionManager?.profiles || [];return profiles.filter(p=>[settings().profile,settings().searchProfile,getContext().extensionSettings?.connectionManager?.selectedProfile].includes(p.id)).map(p=>({id:p.id,name:p.name,model:p.model}));},
     settings, context:chatContext, books, target, initialStart:()=>chatSettings().initialStart || 0,
@@ -133,10 +135,10 @@ const localController = createLoreController({
     store:vectorStore, embed:(config,text,query,signal)=>config.serverEnabled?serverCall('/embedding',{settings:config,text,query}).then(r=>r.vector):embed(config,text,query,signal),
     ask:(profile,system,data,signal,tokens)=>ask(getContext(),profile,system,data,signal,tokens),
     countTokens:text=>getContext().getTokenCountAsync(text,0),
-    changed:()=>{void ui?.refresh().catch(error);if(autoPending&&!controller.state().busy&&!generationInFlight&&!writing)scheduleAutomatic();},
+    changed:()=>{notifySearchViews();void ui?.refresh().catch(error);if(autoPending&&!controller.state().busy&&!generationInFlight&&!writing)scheduleAutomatic();},
 });
 const controller=createServerController({local:localController,enabled:()=>!!settings()?.serverEnabled,settings,context:chatContext,call:serverCall,
-    changed:()=>{void ui?.refresh().catch(error);if(autoPending&&!controller.state().busy&&!generationInFlight&&!writing)scheduleAutomatic();},
+    changed:()=>{notifySearchViews();void ui?.refresh().catch(error);if(autoPending&&!controller.state().busy&&!generationInFlight&&!writing)scheduleAutomatic();},
     generating:()=>generationInFlight||writing,countTokens:text=>getContext().getTokenCountAsync(text,0),
     input:async(kind,options)=>{
         const key=chatContext().key;if(!key)throw Error('채팅방에서 실행해 줘.');
@@ -289,7 +291,7 @@ function init() {
     menu.addEventListener('click',()=>void ui.open().catch(error));menu.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();void ui.open().catch(error);}});
     document.querySelector('#extensionsMenu')?.append(menu);
     }
-    globalThis.archiveLoreSearch={openSettings:()=>ui.openSettings(),controller,settings,saveSettings,books,target,loadBook,saveBook,store:vectorStore,diagnostics:diagnosticView,context:chatContext,clearPrompts};
+    globalThis.archiveLoreSearch={subscribe:listener=>{searchViewListeners.add(listener);return ()=>searchViewListeners.delete(listener);},openSettings:()=>ui.openSettings(),controller,settings,saveSettings,books,target,loadBook,saveBook,store:vectorStore,diagnostics:diagnosticView,context:chatContext,clearPrompts};
     globalThis.archiveLoreInterceptor=intercept;
     eventSource.on(event_types.WORLDINFO_ENTRIES_LOADED,nativePolicy);
     eventSource.on(event_types.CHAT_CHANGED,()=>{clearTimeout(autoTimer);autoPending=false;autoAttempt='';generationInFlight=false;controller.detach();controller.discardDraft();if(pendingGeneration)void pendingGeneration.trace.event('generation.chat-changed');pendingGeneration=null;controller.clearRecall();clearPrompts();void ui.refresh().catch(error);});

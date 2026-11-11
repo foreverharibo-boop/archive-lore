@@ -8,11 +8,21 @@ import {fileURLToPath} from 'node:url';
 const {chromium}=await import(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const extra=process.env.CHROMIUM_ARGS_MODULE?(await import(process.env.CHROMIUM_ARGS_MODULE)).default.args:[];
 const root=fileURLToPath(new URL('../',import.meta.url));
-const fixture=`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">${process.env.KOREAN_FONT_ROOT ? '<link rel="stylesheet" href="/fonts/400.css">' : ''}<link rel="stylesheet" href="/lore-fork.css"><style>:root{--SmartThemeBlurTintColor:#f8f9fb;--SmartThemeBodyColor:#303740;--SmartThemeBorderColor:#d5dbe3;--mainFontSize:16px}body{background:#edf0f4;color:#303740;font:14px "Noto Sans KR",Arial;margin:12px}#content{background:#f8f9fb;padding:16px;max-width:850px;margin:auto;border-radius:12px}.menu_button{width:min-content;white-space:normal;overflow-wrap:anywhere;background:#edf0f5;color:inherit;padding:9px;border:1px solid #d5dbe3;border-radius:6px;cursor:pointer}.text_pole{max-width:100%;box-sizing:border-box}h2{font-size:18px}</style><div id="content" class="al-fork-surface"></div><script src="/handlebars.js"></script><script type="module">
+const fixture=`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">${process.env.KOREAN_FONT_ROOT ? '<link rel="stylesheet" href="/fonts/400.css">' : ''}<link rel="stylesheet" href="/lore-fork.css"><style>:root{--SmartThemeBlurTintColor:#f8f9fb;--SmartThemeBodyColor:#303740;--SmartThemeBorderColor:#d5dbe3;--mainFontSize:16px}body{background:#edf0f4;color:#303740;font:14px "Noto Sans KR",Arial;margin:12px}#content{background:#f8f9fb;padding:16px;max-width:850px;margin:auto;border-radius:12px}.menu_button{font:inherit;width:min-content;white-space:normal;overflow-wrap:anywhere;background:#edf0f5;color:inherit;padding:9px;border:1px solid #d5dbe3;border-radius:6px;cursor:pointer}.text_pole{max-width:100%;box-sizing:border-box}h2{font-size:18px}</style><div id="content" class="al-fork-surface"></div><script src="/handlebars.js"></script><script type="module">
 import {settingsTemplate} from '/templates.js';
 import {FEATURE_GROUPS,organizeMemoryBooks,restoreFeatureButtons} from '/lore-fork-layout.js';
 import {createConnectionPicker} from '/lore-native-connection.js';
 import {createHomeContext} from '/lore-native-home.js';
+import {createSearchToolsPanel} from '/lore-native-tools.js';
+import {mountSideAutoToggle} from '/lore-native-side-toggle.js';
+window.mountTools=()=>{
+ document.body.innerHTML='<div id="content" class="al-fork-surface"></div>';const host=document.querySelector('#content');
+ const listeners=new Set();window.counts={embedded:104,pending:1};window.reads=0;window.indexes=0;window.toolState={busy:false,status:''};window.chatKey='chat';window.failure=false;
+ window.emit=()=>{for(const listener of listeners)listener();};window.listenerCount=()=>listeners.size;
+ const search={context:()=>({key:window.chatKey}),subscribe:fn=>{listeners.add(fn);return()=>listeners.delete(fn);},controller:{state:()=>window.toolState,dashboard:async()=>{reads++;if(failure)throw Error('조회 실패');return counts;},index:async()=>{indexes++;toolState.busy=true;emit();await new Promise(r=>window.finishIndex=()=>{counts={embedded:105,pending:0};toolState={busy:false,status:'임베딩 완료 · 160구간'};emit();r();});},cancel(){},restore:async()=>{},jobs:()=>[]}};
+ window.toolsPanel=createSearchToolsPanel({search,download(){}});host.append(toolsPanel.node);
+ window.sideMarkers={};window.sideSaves=0;window.paintSwitch=()=>{document.querySelector('.al-side-auto-toggle')?.remove();mountSideAutoToggle(host,{markers:sideMarkers,save:()=>sideSaves++});};paintSwitch();
+};
 import {installSettingsHelp} from '/lore-help.js';
 window.collectionSettings={defaultProfile:0,profiles:[{name:'기본 수집',connection:{model:'old'}},{name:'다른 수집',connection:{model:'other'}}]};
 const root=document.querySelector('#content');root.innerHTML=settingsTemplate({profiles:[{name:'기본 수집',isDefault:true}],selectedProfile:{connection:{api:'현재 프로필',model:'연결 모델'},effectivePrompt:'Preserve established facts.'},currentLorebookName:'기존 기억',highestMemoryProcessed:2105,hasHighestMemoryProcessed:true});
@@ -35,6 +45,11 @@ try{
     for(const width of [320,390,1000]){
         await page.setViewportSize({width,height:900});await page.goto('http://127.0.0.1:'+server.address().port);await page.waitForFunction(()=>window.ready);
         assert.equal(await page.locator('.al-home-tabs button').count(),3);
+        await page.locator('#al-quick-profile + .al-setting-help').waitFor();
+        const profileHeading=await page.locator('.al-profile-heading').boundingBox(),actionsBox=await page.locator('.al-context-actions').boundingBox(),profileSelect=await page.locator('#al-quick-profile').boundingBox();
+        assert(actionsBox.y<profileSelect.y,'profile actions must stay next to heading, above select/help');
+        assert(profileHeading.y<actionsBox.y+actionsBox.height && profileHeading.y+profileHeading.height>actionsBox.y);
+
         assert.equal(await page.locator('.al-home-pane:not([hidden]) .al-feature-card').count(),3);
         assert(await page.getByRole('button',{name:'지금 수집',exact:true}).isVisible());
         assert(await page.getByText('다음 수집 #2106–#2119 · 14개').isVisible());
@@ -84,11 +99,21 @@ try{
     const sideStart=sideSource.indexOf(sideMarker)+sideMarker.length;
     const sideTemplate=Handlebars.compile(sideSource.slice(sideStart,sideSource.indexOf('`);',sideStart)));
     await page.setViewportSize({width:320,height:900});
-    await page.locator('#content').evaluate((el,html)=>{el.innerHTML='<div id="stmb-sp-list">'+html+'</div>';},sideTemplate({items:[{key:'relationship',name:'Relationship Turning Points',enabled:true,badges:['메모리 후','수동']}]}));
-    assert(await page.locator('.stmb-sp-action-edit').isVisible());
+    await page.locator('#content').evaluate((el,html)=>{el.innerHTML='<div id="stmb-sp-list">'+html+'</div>';},sideTemplate({items:[{key:'relationship',name:'Relationship Turning Points',enabled:true,badges:['메모리 후','수동']},{key:'memory-assistance',name:'Memory Assistance',special:true,modeOff:true,badges:['Memory Assistance: 사용 안 함']}]}));
+    assert(await page.locator('.stmb-sp-action-edit').first().isVisible());
     assert(await page.locator('.stmb-sp-action-delete').isVisible());
     assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
     assert(await page.locator('.stmb-sp-action-delete').evaluate(el=>el.getBoundingClientRect().right<=innerWidth));
+    await page.locator('.stmb-sp-special-mode + .al-setting-help').waitFor();
+    for(const width of [320,390,768])for(const font of [16,22]){
+        await page.setViewportSize({width,height:900});await page.locator('#content').evaluate((el,font)=>el.style.fontSize=font+'px',font);
+        const select=await page.locator('.stmb-sp-special-mode').boundingBox(),note=await page.locator('.stmb-sp-special-mode + .al-setting-help').boundingBox();
+        assert(note.y>=select.y+select.height,'assistance explanation must be below controls');
+        assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+    }
+    await page.setViewportSize({width:390,height:900});
+    await page.evaluate(()=>document.fonts.ready);
+    await page.screenshot({path:'/tmp/archive-lore-assistance.png',fullPage:true});
     // Render the real native profile template, not a replacement UI.
     Handlebars.registerHelper('eq',(a,b)=>a===b);
     const source=await fs.readFile(root+'profileManager.js','utf8');
@@ -103,5 +128,26 @@ try{
     assert.equal(await page.locator('#stmb-profile-model').isVisible(),false);
     await page.locator('.al-legacy-connection summary').click();
     assert(await page.locator('#stmb-profile-model').isVisible());
+    await page.setViewportSize({width:390,height:900});
+    await page.goto('http://127.0.0.1:'+server.address().port);await page.waitForFunction(()=>window.ready);
+    await page.evaluate(()=>mountTools());
+    await page.getByText('104/105 완료 · 남은 임베딩 1개',{exact:true}).waitFor();
+    assert.equal(await page.evaluate(()=>indexes),0,'opening counts must not call embedding');
+    await page.getByRole('button',{name:'남은 임베딩 실행',exact:true}).click();
+    assert(await page.getByRole('button',{name:'남은 임베딩 실행',exact:true}).isDisabled());
+    await page.evaluate(()=>{for(let i=0;i<100;i++)emit();});assert.equal(await page.evaluate(()=>reads),1);
+    await page.evaluate(()=>finishIndex());await page.getByText('105/105 완료 · 남은 임베딩 0개',{exact:true}).waitFor();
+    assert.equal(await page.evaluate(()=>reads),2);assert(await page.getByRole('button',{name:'임베딩 완료',exact:true}).isDisabled());
+    assert(!await page.locator('[role=status]').innerText());
+    const auto=page.locator('#al-side-after-memory-enabled');assert(await auto.isChecked());await auto.uncheck();
+    assert.equal(await page.evaluate(()=>sideMarkers.archiveLoreSideAfterMemoryEnabled),false);
+    await page.evaluate(()=>{sideMarkers=JSON.parse(JSON.stringify(sideMarkers));paintSwitch();});assert(!await auto.isChecked());
+    await auto.check();assert.equal(await page.evaluate(()=>sideSaves),2);
+    await page.evaluate(()=>document.fonts.ready);
+    await page.screenshot({path:'/tmp/archive-lore-embedding-status.png',fullPage:true});
+    await page.evaluate(()=>{counts={embedded:0,pending:0};return toolsPanel.refresh();});await page.getByText('0/0 완료 · 남은 임베딩 0개',{exact:true}).waitFor();
+    await page.evaluate(()=>{failure=true;return toolsPanel.refresh();});await page.getByText('임베딩 개수를 확인하지 못했습니다.',{exact:true}).waitFor();
+    assert(await page.getByText('조회 실패',{exact:true}).isVisible());
+    await page.evaluate(()=>{toolsPanel.dispose();emit();});assert.equal(await page.evaluate(()=>listenerCount()),0);
     assert.deepEqual(errors,[]);console.log('Fork home: three tabs, visible migration, host without popup-content class, actions, refresh and mobile/desktop passed.');
 }finally{await browser.close();server.close();}

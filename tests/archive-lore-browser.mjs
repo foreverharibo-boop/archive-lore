@@ -46,6 +46,8 @@ await page.locator('[name="embeddingProvider"]').selectOption('vertex');
 await page.locator('[name="embeddingVertexProjectId"]').fill('fixture-project');await page.locator('[name="embeddingVertexProjectId"]').dispatchEvent('change');
 await page.locator('[name="embeddingKey"]').fill('vertex-fixture-key');await page.locator('[name="embeddingKey"]').dispatchEvent('change');
 await page.locator('[name="embeddingProvider"]').selectOption('gemini');assert.equal(await page.locator('[name="embeddingKey"]').inputValue(),'fixture-only');
+await page.screenshot({path:path.join(os.tmpdir(),'archive-lore-connections.png'),fullPage:true});
+await page.locator('#archive-lore-settings [data-settings-tab="prompts"]').click();
 await page.locator('#archive-lore-settings summary').filter({hasText:'기본 프롬프트 편집'}).click();
 await page.locator('#archive-lore-settings summary').filter({hasText:'기억 수집'}).click();
 await page.locator('[data-action="expand-prompt"][data-key="collect"]').click();
@@ -58,9 +60,22 @@ await page.locator('[data-action="expand-prompt"][data-key="collect"]').click();
 await page.screenshot({path:path.join(os.tmpdir(),'archive-lore-settings.png'),fullPage:true});
 await page.locator('#archive-lore-menu').click();
 await page.locator('[data-next]').filter({hasText:'다음 수집'}).waitFor();
+// The modal keeps search mode in settings and uses one consistent outline icon set.
+assert.equal(await page.locator('.al-dialog [name="mode"]').count(),0);
+await page.locator('.al-dialog [data-action="settings"]').click();
+await page.locator('.al-settings-dialog [data-settings-tab="collection"]').click();
+await page.locator('.al-settings-dialog [name="recentCount"]').fill('12');
+await page.locator('.al-settings-dialog [name="recentCount"]').dispatchEvent('change');
+await page.getByRole('button',{name:'설정 닫기',exact:true}).click();
+await page.locator('.al-settings-dialog').waitFor({state:'detached'});
+assert.equal(await page.locator('#archive-lore-settings [name="recentCount"]').inputValue(),'12');
+assert.equal(await page.locator('.al-dialog > header .al-icon').count(),4);
 await page.getByRole('button',{name:'기억 수집',exact:true}).click();
 await page.locator('[data-status]').filter({hasText:'수집 완료'}).waitFor();
 assert.equal(Object.keys(book.entries).length,9);assert.equal(Object.values(book.entries).filter(e=>e.archiveLore?.sideCategory).length,6);assert.equal(book.archiveLore.receipts.length,1);
+await page.waitForFunction(()=>document.querySelectorAll('[data-records] [data-record]').length===3);
+await page.locator('[data-view-tab="side"]').click();
+await page.waitForFunction(()=>document.querySelectorAll('[data-records] [data-record]').length===6);
 await page.locator('.al-record').filter({has:page.locator('summary span',{hasText:'Relationship'})}).locator('summary').first().click();
 await page.locator('[name="relationshipToday"]').fill('2026-03-12');
 await page.locator('.al-record').filter({has:page.locator('[name="relationshipToday"]')}).getByRole('button',{name:'저장',exact:true}).click();
@@ -81,6 +96,11 @@ await page.evaluate(async()=>{await window.archiveLoreInterceptor([],30000,()=>{
 const prompts=await page.evaluate(()=>window.prompts);assert(prompts['archive-lore-core'].includes('오래된 친구'));assert(prompts['archive-lore-recalled']);
 const scan=await page.evaluate(async()=>{const lists={characterLore:[{world:'Example',uid:0,content:'core',constant:true},{world:'Example',uid:1,content:'memory'}]};for(const cb of events.entries)await cb(lists);return lists;});assert(scan.characterLore.every(e=>e.disable));
 await page.waitForFunction(()=>document.querySelector('[data-recall-translations]')?.textContent.includes('전체 번역'));
+await page.locator('[data-view-tab="recall"]').click();
+await page.locator('[data-recall]').waitFor({state:'visible'});
+assert((await page.locator('[data-recall]').textContent()).includes('코어'));
+assert.equal(await page.locator('[data-main-pane="records"]').isVisible(),false);
+await page.locator('[data-view-tab="memory"]').click();
 // Execute ten actual interceptor attempts per mode, then retain response/end events.
 await page.evaluate(async()=>{
     for(const mode of ['dialogue','questions']){
@@ -98,6 +118,7 @@ await page.evaluate(async()=>{window.badQuestion=true;await window.archiveLoreIn
 assert.equal(await page.evaluate(()=>window.aborted),true);assert.equal(await page.evaluate(()=>prompts['archive-lore-recalled']),'');
 assert.equal((await page.evaluate(()=>window.errors.splice(0))).length,1);
 await page.locator('[data-action="refresh"]').click();
+await page.locator('[data-action="tools"]').click();
 await page.locator('summary').filter({hasText:'턴별 진단 기록'}).click();
 const downloadEvent=page.waitForEvent('download');await page.getByRole('button',{name:'진단 TXT 다운로드'}).click();
 const downloaded=await downloadEvent;const diagnosticText=await fs.readFile(await downloaded.path(),'utf8');
@@ -106,20 +127,23 @@ assert.equal((diagnosticText.match(/"stage": "injection.installed"/g)||[]).lengt
 assert(diagnosticText.includes('search.ranking'));assert(diagnosticText.includes('ai.request'));assert(diagnosticText.includes('injection.budget'));
 assert(!diagnosticText.includes('fixture-only'));assert(!diagnosticText.includes('vertex-fixture-key'));
 await page.locator('summary').filter({hasText:'턴별 진단 기록'}).click();
+await page.locator('[data-view-tab="memory"]').click();
 await page.evaluate(()=>document.fonts.ready);await page.screenshot({path:path.join(os.tmpdir(),'archive-lore-mobile.png'),fullPage:true});
 const overflow=await page.evaluate(()=>{const root=document.querySelector('.al-dialog');return {scroll:root.scrollWidth,client:root.clientWidth,font:getComputedStyle(root.querySelector('select')).fontSize};});assert(overflow.scroll<=overflow.client+1);assert.equal(overflow.font,'12px');
 await page.getByRole('button',{name:'닫기',exact:true}).click();
 await page.locator('[name="enabled"]').uncheck();await page.evaluate(()=>window.archiveLoreInterceptor([],30000,()=>{},'normal'));assert.equal(await page.evaluate(()=>prompts['archive-lore-recalled']),'');
 await page.setViewportSize({width:1280,height:900});await page.locator('#archive-lore-menu').click();await page.locator('[data-action="refresh"]').click();await page.screenshot({path:path.join(os.tmpdir(),'archive-lore-desktop.png'),fullPage:true});
 await page.getByRole('button',{name:'닫기',exact:true}).click();
+await page.locator('#archive-lore-settings [data-settings-tab="connection"]').click();
 await page.locator('[name="embeddingProvider"]').selectOption('vertex');assert.equal(await page.locator('[name="embeddingKey"]').inputValue(),'vertex-fixture-key');
 await page.getByRole('button',{name:'임베딩 연결 확인',exact:true}).click();await page.locator('[data-embedding-status]').filter({hasText:'임베딩 성공'}).waitFor();assert.equal(await page.locator('[data-embedding-settings] [name="profile"]').count(),0);assert.equal(await page.locator('[data-embedding-settings] [data-action="profiles"]').count(),0);await page.locator('[name="embeddingProvider"]').selectOption('gemini');
-await page.locator('#archive-lore-menu').click();await page.getByRole('button',{name:'남은 임베딩',exact:true}).click();
+await page.locator('#archive-lore-menu').click();await page.locator('[data-action="tools"]').click();await page.getByRole('button',{name:'남은 임베딩',exact:true}).click();
 await page.locator('[data-status]').filter({hasText:'임베딩 완료'}).waitFor();
 await page.reload();await page.locator('#archive-lore-menu').click();
 await page.waitForFunction(()=>document.querySelector('[data-log-counts]')?.textContent.includes('질문으로 검색 10회'));
 // New collection controls, per-side editing, draft maintenance and automatic hiding.
 await page.getByRole('button',{name:'닫기',exact:true}).click();
+await page.locator('#archive-lore-settings [data-settings-tab="prompts"]').click();
 await page.locator('[data-side-settings] > summary').click();
 await page.getByRole('button',{name:'사이드 항목 추가',exact:true}).click();
 const custom=page.locator('[data-side]').last();
@@ -138,11 +162,13 @@ await page.evaluate(()=>{
     for(let i=2;i<6;i++)ctx.chat.push({name:'User',mes:'New fact '+i,is_user:true});
 });
 await page.locator('#archive-lore-menu').click();
+await page.locator('[data-action="tools"]').click();
 await page.locator('summary').filter({hasText:'지난 대화 한꺼번에 수집·로어북'}).click();
 await page.locator('[name="rangeStart"]').fill('2');await page.locator('[name="rangeEnd"]').fill('5');await page.locator('[name="rangeBatch"]').fill('2');
 await page.getByRole('button',{name:'범위 나눠 수집',exact:true}).click();await page.locator('[data-status]').filter({hasText:'수집 완료'}).waitFor();
 assert.deepEqual(book.archiveLore.receipts.slice(-2).map(r=>[r.source.start,r.source.end]),[[2,3],[4,5]]);
 await page.getByRole('button',{name:'닫기',exact:true}).click();
+await page.locator('#archive-lore-settings [data-settings-tab="collection"]').click();
 await page.locator('summary').filter({hasText:'자동 수집·숨기기'}).click();
 await page.locator('[name="autoMessages"]').fill('3');await page.locator('[name="autoMessages"]').dispatchEvent('change');
 await page.locator('[name="keepMessages"]').fill('2');await page.locator('[name="keepMessages"]').dispatchEvent('change');
@@ -188,6 +214,7 @@ for(const title of ['첫 여행','Hospital promise']){
     const row=page.locator('.al-record').filter({has:page.locator('summary span',{hasText:title})});await row.locator('summary').first().click();await row.locator('[data-select-memory]').check();
 }
 const count=Object.keys(book.entries).length;
+await page.locator('.al-organize > summary').click();
 await page.getByRole('button',{name:'선택 기억 묶기 · 아크',exact:true}).click();await page.locator('.al-editor [data-action="apply-draft"]').click();await page.locator('.al-editor').waitFor({state:'detached'});
 assert.equal(Object.keys(book.entries).length,count+1);
 const arc=Object.values(book.entries).find(e=>e.archiveLore?.tier===1);assert.equal(arc.archiveLore.members.length,2);
@@ -214,5 +241,19 @@ const bulk=await page.evaluate(async()=>{
 });
 assert(bulk.loading.includes('불러오는 중'));assert.equal(bulk.heading,'일괄 변경 확인');assert(bulk.counts.includes('대기 105'));assert(bulk.page.includes('105항목'));assert.equal(bulk.records,12);assert.equal(bulk.checks,4);assert(bulk.unchanged);
 await page.screenshot({path:path.join(os.tmpdir(),'archive-lore-bulk-105.png'),fullPage:true});
+for(const width of [320,390,1280]){
+    await page.setViewportSize({width,height:844});
+    for(const dark of [false,true]){
+        await page.evaluate(dark=>{
+            document.documentElement.style.setProperty('--SmartThemeBlurTintColor',dark?'#202127':'#f7f9fc');
+            document.documentElement.style.setProperty('--SmartThemeBodyColor',dark?'#eee':'#303740');
+            document.querySelector('.al-scroll').scrollTop=99999;
+        },dark);
+        const bounds=await page.locator('[data-action="collect"]').boundingBox();
+        assert(bounds.y>=0 && bounds.y+bounds.height<=844);
+        assert(await page.locator('.al-dialog').evaluate(e=>e.scrollWidth<=e.clientWidth+1));
+        if(width===390&&dark)await page.screenshot({path:path.join(os.tmpdir(),'archive-lore-dark.png')});
+    }
+}
 console.log(JSON.stringify({passed:true,bookEntries:Object.keys(book.entries).length,mobile:overflow,runtimeErrors,bulk}));
 await browser.close();server.close();

@@ -356,6 +356,7 @@ async function runLLM(prompt, overrides = null, options = {}) {
         signal: options?.signal || null,
         useChatCompletionService,
         chatCompletionPreset,
+        archiveLoreConnectionProfileId: overrides?.archiveLoreConnectionProfileId || '',
     });
     assertProviderDidNotTruncate(full, text);
     
@@ -393,7 +394,7 @@ export function resolveSidePromptConnection(profile = null, options = {}) {
             const useChatCompletionService = !!profile.useChatCompletionService && api !== 'full-manual';
             const chatCompletionPreset = useChatCompletionService ? String(profile.chatCompletionPreset || '').trim() : '';
             console.debug(`${MODULE_NAME}: resolveSidePromptConnection using provided profile api=${api} model=${model} temp=${temperature}`);
-            return { api, model, temperature, endpoint, apiKey, connectionProfileId, reverseProxy, extra, useChatCompletionService, chatCompletionPreset };
+            return { api, model, temperature, endpoint, apiKey, connectionProfileId, reverseProxy, extra, useChatCompletionService, chatCompletionPreset, archiveLoreConnectionProfileId: profile?.archiveLoreConnectionProfileId || "" };
         }
 
         const settings = extension_settings?.STMemoryBooks;
@@ -692,6 +693,8 @@ async function prepareSidePromptRun({
         ? resolveSidePromptConnection(null, { overrideProfileIndex: idx })
         : (defaultOverrides || resolveSidePromptConnection(null));
 
+    const chosenProfile=useOverride ? extension_settings.STMemoryBooks?.profiles?.[idx] : extension_settings.STMemoryBooks?.profiles?.[extension_settings.STMemoryBooks?.defaultProfile || 0];
+    if(!conn.archiveLoreConnectionProfileId && chosenProfile?.archiveLoreConnectionProfileId)conn.archiveLoreConnectionProfileId=chosenProfile.archiveLoreConnectionProfileId;
     return { unifiedTitle, sidePromptHistory, existing, prior, finalPrompt, conn };
 }
 

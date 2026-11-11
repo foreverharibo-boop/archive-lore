@@ -30,19 +30,26 @@ export function rankFocusedChunks(chunks, { focus = [], context = [], questions 
     return [...rows.values()].sort((a,b)=>b.score-a.score);
 }
 
-export function chooseCandidates(ranked, limit) {
+export function chooseCandidates(ranked, limit, mode = 'dialogue') {
     const selected = [], seen = new Set(), counts = new Map();
     const add = (row, diverse) => {
         const key = chunkKey(row);
         if (seen.has(key) || (diverse && (counts.get(row.id)||0)>=2)) return;
         seen.add(key); counts.set(row.id,(counts.get(row.id)||0)+1); selected.push(row);
     };
-    // Reserve half the review for the user's immediate request, while allowing context/questions to contribute.
     const focused = ranked.filter(r=>r.focusRank).sort((a,b)=>a.focusRank-b.focusRank);
-    for (const row of focused) { if (selected.length>=Math.ceil(limit/2)) break; add(row,true); }
     const questioned = ranked.filter(r=>r.questionsRank).sort((a,b)=>a.questionsRank-b.questionsRank);
-    const questionTarget = Math.min(limit,selected.length+Math.floor(limit/4));
-    for (const row of questioned) { if (selected.length>=questionTarget) break; add(row,true); }
+    if (mode === 'questions' && questioned.length) {
+        // Preserve the question's top hits before fused ranks or per-entry diversity can displace them.
+        for (const row of questioned) { if (selected.length>=Math.ceil(limit/2)) break; add(row,false); }
+        const focusTarget = Math.min(limit,selected.length+Math.floor(limit/4));
+        for (const row of focused) { if (selected.length>=focusTarget) break; add(row,true); }
+    } else {
+        // Dialogue search retains its existing latest-user reservation.
+        for (const row of focused) { if (selected.length>=Math.ceil(limit/2)) break; add(row,true); }
+        const questionTarget = Math.min(limit,selected.length+Math.floor(limit/4));
+        for (const row of questioned) { if (selected.length>=questionTarget) break; add(row,true); }
+    }
     for (const row of ranked) { if (selected.length>=limit) break; add(row,true); }
     // A small book or a single long event may legitimately need more than two chunks.
     for (const row of ranked) { if (selected.length>=limit) break; add(row,false); }

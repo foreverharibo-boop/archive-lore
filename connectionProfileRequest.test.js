@@ -195,3 +195,22 @@ test('cancellation retains the original error and does not retry', async () => {
     await assert.rejects(send({ api: 'nanogpt', prompt: 'scene', signal: controller.signal, useChatCompletionService: true }), candidate => candidate === error);
     assert.equal(calls.length, 0);
 });
+
+test('fork collection profile uses its own model without switching the RP profile', async () => {
+    const {context,calls:requests}=fixture('nanogpt');
+    context.ConnectionManagerRequestService.getProfile=id=>({id,model:id==='collector'?'collection-model':'rp-model'});
+    const {send,calls}=senderHarness(context);
+    await send({api:'openai',model:'ignored-native-model',prompt:'scene',archiveLoreConnectionProfileId:'collector'});
+    assert.equal(requests[0][0],'collector');
+    assert.equal(requests[0][4].model,'collection-model');
+    assert.equal(context.extensionSettings.connectionManager.selectedProfile,'active');
+    assert.equal(calls.length,0);
+});
+
+test('fork connection failure never falls back to a different direct account', async () => {
+    const {context}=fixture('nanogpt');
+    context.ConnectionManagerRequestService.sendRequest=async()=>{throw Error('collector unavailable');};
+    const {send,calls}=senderHarness(context);
+    await assert.rejects(send({api:'openai',prompt:'scene',archiveLoreConnectionProfileId:'collector'}),/collector unavailable/);
+    assert.equal(calls.length,0);
+});

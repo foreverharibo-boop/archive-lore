@@ -473,15 +473,19 @@ export async function sendRawCompletionRequest({
     jsonSchema = null,
     useChatCompletionService = false,
     chatCompletionPreset = '',
+    archiveLoreConnectionProfileId = '',
 }) {
     let url = getCurrentCompletionEndpoint();
     let headers = getRequestHeaders();
-    const connection = api !== 'full-manual' && useChatCompletionService
-        ? getSelectedConnectionProfile(getContext(), tr)
+    if(archiveLoreConnectionProfileId)useChatCompletionService=true;
+    const ctx=getContext();
+    const scoped=archiveLoreConnectionProfileId ? {...ctx,extensionSettings:{...ctx.extensionSettings,connectionManager:{...ctx.extensionSettings?.connectionManager,selectedProfile:archiveLoreConnectionProfileId}}} : ctx;
+    const connection = archiveLoreConnectionProfileId || (api !== 'full-manual' && useChatCompletionService)
+        ? getSelectedConnectionProfile(scoped, tr)
         : null;
     if (connection) {
         api = connection.source;
-        model = model || connection.profile.model;
+        model = archiveLoreConnectionProfileId ? connection.profile.model : (model || connection.profile.model);
         // The active ST profile owns its URL and secret, including for Custom.
         connectionProfileId = null;
     }
@@ -636,6 +640,7 @@ export async function sendRawCompletionRequest({
         if (serviceAttempt.result) {
             return serviceAttempt.result;
         }
+        if(archiveLoreConnectionProfileId)throw serviceAttempt.error || new Error("Selected Archive Lore connection failed");
         chatCompletionServiceError = serviceAttempt.error;
         body = routedFallbackBody;
     }
@@ -698,6 +703,7 @@ export async function requestCompletion({
     jsonSchema = null,
     useChatCompletionService = false,
     chatCompletionPreset = '',
+    archiveLoreConnectionProfileId = '',
 }) {
     // Delegate all provider-specific shaping to sendRawCompletionRequest which already
     // handles: full-manual, custom (custom_model_id  oai_settings.custom_url), and normal providers.
@@ -715,6 +721,7 @@ export async function requestCompletion({
         jsonSchema,
         useChatCompletionService,
         chatCompletionPreset,
+        archiveLoreConnectionProfileId,
     });
 }
 
@@ -1232,6 +1239,7 @@ async function generateMemoryWithAI(promptString, profile, options = {}) {
             jsonSchema: useStructuredOutput ? MEMORY_RESPONSE_JSON_SCHEMA : null,
             useChatCompletionService: profile?.useChatCompletionService === true && apiType !== 'full-manual',
             chatCompletionPreset: profile?.chatCompletionPreset || '',
+            archiveLoreConnectionProfileId: profile?.archiveLoreConnectionProfileId || '',
         };
 
         let aiResponse;

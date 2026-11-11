@@ -101,6 +101,23 @@ export function createLoreUI(api) {
     }
     function paintSettings(container) {
         container.innerHTML=settingsHtml();settingsTab(container,container.dataset.settingsTab || 'connection');
+        if(api.retrievalOnly){
+            const tab=container.querySelector('[data-settings-tab="collection"]');if(tab)tab.textContent='검색·주입';
+            const enabled=container.querySelector('[name="enabled"]')?.closest('label')?.querySelector('span');if(enabled)enabled.textContent='아카이브 검색·주입 활성화';
+            for(const name of ['batchSize','sideEnabled'])container.querySelector(`[name="${name}"]`)?.closest('label')?.remove();
+            container.querySelector('[name="autoCollect"]')?.closest('details')?.remove();
+            container.querySelector('[data-side-settings]')?.remove();
+            for(const key of ['collect','sides'])container.querySelector(`[name="prompt.${key}"]`)?.closest('details')?.remove();
+            const profile=container.querySelector('[name="profile"]')?.closest('label')?.querySelector('span');if(profile)profile.textContent='기본 검색 AI 프로필';
+            const connectionHeading=container.querySelector('[data-settings-pane="connection"] summary');if(connectionHeading)connectionHeading.textContent='검색·선별 AI';
+            const same=container.querySelector('[name="searchProfile"] option[value=""]');if(same)same.textContent='기본 검색 AI와 동일';
+            const pane=container.querySelector('[data-settings-pane="collection"]');
+            const heading=pane.querySelector('summary');if(heading)heading.textContent='검색·주입 설정';
+            const auto=document.createElement('div');auto.innerHTML=check('autoEmbed','기억 저장·수정 후 자동 임베딩',api.settings().autoEmbed!==false);pane.append(auto);
+            const note=document.createElement('p');note.textContent='서버 실행은 검색·선별·임베딩에 적용돼. 메모리북 수집·사이드 작업은 브라우저에서 실행돼.';container.querySelector('[data-settings-pane="server"]').append(note);
+            const top=container.querySelector('[data-action="open"]');if(top)top.textContent='메모리북 열기';
+        }
+
     }
     function openSettings() {
         const panel=document.createElement('dialog');panel.className='al-root al-dialog al-settings-dialog';panel.setAttribute('aria-label','아카이브 로어 설정');
@@ -146,7 +163,7 @@ export function createLoreUI(api) {
                     try{const result=await (target.dataset.action==='server-check'?api.serverCheck():api.embeddingTest());node.textContent=target.dataset.action==='server-check'?`연결됨 · 서버 ${result.version}`:`임베딩 성공 · ${result.dimensions}차원`;}
                     catch(error){node.textContent=error.message;throw error;}finally{target.disabled=false;}break;
                 }
-                case 'open': container.closest('.al-settings-dialog')?.close();await open(); break;
+                case 'open': container.closest('.al-settings-dialog')?.close();await (api.openHome ? api.openHome() : open()); break;
                 case 'expand-prompt': expandPrompt(container,target.dataset.key);break;
                 case 'expand-side':expandPrompt(container,null,target.closest('[data-side]').dataset.side);break;
                 case 'add-side':{
@@ -333,5 +350,5 @@ export function createLoreUI(api) {
         }));
         await refresh();
     }
-    return { mountSettings, open, refresh };
+    return { mountSettings, open, openSettings, refresh };
 }

@@ -3566,3 +3566,17 @@ recovery cannot infer it from the vector alone; the saved files remain untouched
 Browser-to-server migration can also reuse recoverable browser vectors through
 the existing indexing preparation path. Opening a renamed book must still resolve
 to the intended current lorebook in the extension's book connection settings.
+
+### Invalid retrieval-question responses
+
+Question planning always requires an explicit `questions` array, including
+`{"questions":[]}` when no past facts are needed. A bare `{}` is an invalid
+response, not evidence that retrieval is unnecessary. A malformed JSON response
+or invalid question list retries only the planner once, within the same job and
+using the same profile/dialogue. The retry adds a format reminder, preserves the
+custom question prompt, and is counted in question timing. Valid first responses
+add no calls. Provider/network errors and cancellation are not retried here.
+Two invalid responses stop with a specific error instead of silently omitting
+memory retrieval; existing memories and embeddings are unchanged. Server-mode
+users must update the server plugin and restart it to use this shared controller
+change. This does not fix browser background suspension or delayed job polling.

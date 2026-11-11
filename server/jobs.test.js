@@ -265,3 +265,13 @@ test('renamed book recovers a pre-update server embedding and recalls without re
     job=await restarted.submit(f.user,'index',input,randomUUID());let completed=await done(restarted,f.user,job.id);assert.equal(completed.status,'completed',completed.message);assert.equal(documentEmbeds,0);
     job=await restarted.submit(f.user,'recall',input,randomUUID());completed=await done(restarted,f.user,job.id);assert.equal(completed.status,'completed',completed.message);assert.match(completed.result.text,/bracelet/);assert.equal(documentEmbeds,0);assert(queryEmbeds>0);
 });
+
+test('server question mode repairs an empty JSON object in the same job and records the valid questions',async t=>{
+    const f=fixture(t),input=f.input();input.settings.mode='questions';
+    f.replies.push('{}','{"questions":["Which hospital did they visit?"]}');
+    const job=await f.service.submit(f.user,'recall',input,randomUUID()),result=await done(f.service,f.user,job.id);
+    assert.equal(result.status,'completed',result.message);assert.equal(f.calls.length,2);
+    assert.deepEqual(result.result.lastRecall.questions,['Which hospital did they visit?']);
+    assert.match(f.calls[1].messages[0].content,/previous response/);
+    assert.deepEqual(json(f.book),{entries:{}});
+});

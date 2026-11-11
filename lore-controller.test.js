@@ -443,3 +443,38 @@ test('parallel selector preserves every batch prompt and the final memory order'
     assert.deepEqual(parallel.prompts,serial.prompts);assert.equal(parallel.result.text,serial.result.text);
     assert.deepEqual([...parallel.result.selected],[...serial.result.selected]);assert.equal(parallel.result.tokens,serial.result.tokens);
 });
+
+for(const response of ['{}','null','[]','not JSON','{"questions":"Where?"}','{"questions":["1","2","3","4","5"]}'])test(`malformed question plan retries only the planner once: ${response}`,async()=>{
+    const f=fixture();f.config={mode:'questions',searchProfile:'search-profile'};
+    f.book={entries:{0:{uid:0,content:'They visited the hospital.'}}};await f.controller.index();f.calls.length=0;
+    const requests=[];f.host.ask=async(profile,system,data)=>{
+        requests.push({profile,system,data});
+        if(requests.length===1)return response;
+        if(requests.length===2)return '{"questions":["Which hospital did they visit?"]}';
+        return '{"selections":[]}';
+    };
+    await f.controller.recall();
+    assert.equal(requests.length,3);assert.equal(requests[0].profile,'search-profile');
+    assert.match(requests[0].system,/return exactly \{"questions":\[\]\}/);
+    assert.match(requests[1].system,/previous response/);
+    assert.deepEqual(requests[1].data,requests[0].data);
+    assert.deepEqual(f.controller.state().lastRecall.questions,['Which hospital did they visit?']);
+    assert.equal(f.calls.filter(c=>c==='document').length,0);
+});
+test('two empty objects stop with a clear error; only an explicit empty questions array skips retrieval',async()=>{
+    const f=fixture();f.config={mode:'questions'};f.replies.push('{}','{}');
+    await assert.rejects(f.controller.recall(),/한 번 재시도했지만 실패/);
+    assert.equal(f.calls.length,2);assert.equal(f.controller.state().lastRecall,null);
+    f.calls.length=0;f.replies.push('{}','{"questions":[]}');await f.controller.recall();
+    assert.equal(f.calls.length,2);assert.deepEqual(f.controller.state().lastRecall.questions,[]);
+});
+test('question provider errors are not retried and cancellation during the retry discards late output',async()=>{
+    const f=fixture();f.config={mode:'questions'};let calls=0;
+    f.host.ask=async()=>{calls++;throw Error('provider timeout');};
+    await assert.rejects(f.controller.recall(),/provider timeout/);assert.equal(calls,1);
+    let entered,release;const started=new Promise(r=>entered=r),gate=new Promise(r=>release=r);calls=0;
+    f.host.ask=async()=>{calls++;if(calls===1)return '{}';entered();await gate;return '{"questions":["Late question?"]}';};
+    const pending=f.controller.recall();await started;f.controller.cancel();
+    await assert.rejects(pending,{name:'AbortError'});release();await new Promise(r=>setImmediate(r));
+    assert.equal(calls,2);assert.equal(f.controller.state().lastRecall,null);
+});

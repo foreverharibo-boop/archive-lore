@@ -14,6 +14,8 @@ import { fitFocusedInjection } from './lore-focus-injection.js';
 import { withAbort } from './lore-cancellation.js';
 import { mapOrdered } from './lore-parallel.js';
 
+const QUESTION_SCHEMA = '\nReturn ONLY JSON: {"questions":["question"]}. The questions key is required, with zero to four strings of at most 2000 characters each. If no past information is needed, return exactly {"questions":[]}. Never return {} or omit questions.';
+
 const COLLECTION_SCHEMA = `Return ONLY JSON:
 {"entries":[{"title":"short English title","date":"story date/range or empty","time":"story time or empty","location":"place or empty","content":"English narrative paragraphs only, no title/metadata headings","keywords":["English keyword"],"supersedes":null}],
 "sideChanges":[{"op":"add or update","category":"one enabled side category ID","id":"existing fact ID for update","text":"English fact (relationship: short label only)","evidence":{"message":0,"quote":"exact original substring"},"relationship":{"kind":"start|breakup|reunion|other","since":"YYYY-MM-DD or null"},"dateEvidence":{"message":0,"quote":"exact dating/event evidence"}}],
@@ -257,11 +259,27 @@ export function createLoreController(host) {
             let questions = [];
             if (config.mode === 'questions') {
                 notify('최근 대화에서 검색 질문 만드는 중');
-                const raw = parseJson(await askTracked(config.searchProfile || config.profile,
-                    config.prompts.questions + focusQuestionPrompt(config.selectionFocus) + '\nReturn ONLY JSON: {"questions":["question"]}.', { latestUser:focus.latestUser, dialogue: recent.text, ...(config.selectionFocus.length?{selectionFocus:config.selectionFocus}:{}) }, signal, 1200, 'questionMs'));
-                if (!Array.isArray(raw.questions) || raw.questions.length > 4 || raw.questions.some(q => typeof q !== 'string' || q.length > 2000))
-                    throw new Error('검색 질문 형식이 올바르지 않아.');
-                questions = raw.questions.filter(q => q.trim());
+                const system=config.prompts.questions + focusQuestionPrompt(config.selectionFocus) + QUESTION_SCHEMA;
+                const data={latestUser:focus.latestUser,dialogue:recent.text,...(config.selectionFocus.length?{selectionFocus:config.selectionFocus}:{})};
+                for(let attempt=0;attempt<2;attempt++){
+                    assertCurrent(snapshot,signal);
+                    // Only retry a received but malformed plan, never transport errors
+                    // or cancellations. Keep the retry in this same search job.
+                    const response=await askTracked(config.searchProfile || config.profile,
+                        system+(attempt?'\nYour previous response did not match the required JSON format. Re-evaluate the supplied dialogue and return the required questions object, including an explicit empty array when appropriate.':''),
+                        data,signal,1200,'questionMs');
+                    try{
+                        const raw=parseJson(response);
+                        if(!Array.isArray(raw?.questions) || raw.questions.length>4 || raw.questions.some(q=>typeof q!=='string' || q.length>2000))
+                            throw Error('검색 질문 형식이 올바르지 않아.');
+                        questions=raw.questions.filter(q=>q.trim());break;
+                    }catch(error){
+                        signal.throwIfAborted();
+                        await log('question.invalid',{attempt:attempt+1,message:error.message,response});
+                        if(attempt===1)throw Error('검색 AI가 질문 목록을 올바르게 반환하지 않았어. 한 번 재시도했지만 실패했어. 검색 연결 프로필이나 질문 프롬프트를 확인해 줘.');
+                        notify('검색 질문 형식 오류 · 한 번 다시 생성하는 중');
+                    }
+                }
             }
             const emphasisQueries=config.mode==='embedding'||!config.selectionFocus.length ? [] : config.mode==='questions' ?
                 (questions.length>1 ? questions.slice(1) : questions.length ? [focusSearchQuery(config.selectionFocus,boundedText(questions[0],600))] : []) :

@@ -114,7 +114,8 @@ function error(error) {
     if(error?.name === 'AbortError') return;
     toastr.error(error?.message || '작업을 완료하지 못했어.','Archive Lore');
 }
-const diagnostics = createDiagnostics({store:createDiagnosticStore(),
+const diagnosticStore=createDiagnosticStore();
+const diagnostics = createDiagnostics({store:diagnosticStore,
     detailed:()=>settings()?.diagnosticsDetailed===true,
     secrets:()=>[settings()?.embeddingKey,...Object.values(settings()?.embeddingKeys || {})],
     warning:message=>toastr.warning(message,'Archive Lore'),
@@ -279,6 +280,7 @@ function nativePolicy(lists) {
 }
 function init() {
     saveSettings();
+    void diagnosticStore.ready().catch(error);
     ui=createLoreUI({settings,saveSettings,controller,context:chatContext,error,diagnostics:diagnosticView,
         retrievalOnly:!!globalThis.archiveLoreFork,openHome:globalThis.archiveLoreFork?()=>globalThis.archiveLoreMemoryBooks.open():null,
         serverCheck:()=>serverCall('/status'),serverJobs:()=>controller.jobs(),
@@ -291,7 +293,7 @@ function init() {
         setInitialStart:async n=>{if(!Number.isInteger(n)||n<0||n>chatContext().messages.length)throw new Error('시작 번호를 확인해 줘.');await saveChatSettings({initialStart:n});},
         saveRecord,
     });
-    if(settings().serverEnabled)void controller.restore(true).catch(error);
+    if(settings().serverEnabled){void serverCall('/status').catch(error);void controller.restore(true).catch(error);}
     if(!globalThis.archiveLoreFork){
     const settingsNode=document.createElement('div'); settingsNode.id='archive-lore-settings';settingsNode.className='extension_container';
     settingsNode.innerHTML='<div class="inline-drawer"><div class="inline-drawer-toggle inline-drawer-header"><b class="al-brand">'+loreIcon('book')+'Archive Lore</b><div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div></div><div class="inline-drawer-content" data-al-settings></div></div>';

@@ -12,6 +12,7 @@ import {privateStore,atomic} from './storage.js';
 import {diagnosticFiles,diagnosticStream} from './diagnostics.js';
 import {registerRoutes} from './index.js';
 import {createJobService} from './jobs.js';
+import {resetLegacyHistory} from './retention.js';
 
 function fixture(t){
     const root=fs.mkdtempSync(path.join(os.tmpdir(),'al-diagnostics-'));
@@ -37,7 +38,7 @@ test('header-only listing filters chats/modes, and streaming preserves every eve
 });
 
 test('diagnostic listing does not initialize or parse saved job history',async t=>{
-    const f=fixture(t),root=path.join(f.root,'archive-lore-server');fs.mkdirSync(root);
+    const f=fixture(t),root=path.join(f.root,'archive-lore-server');fs.mkdirSync(root);resetLegacyHistory(root);
     const store=privateStore(root,'diagnostics');await store.put('a',f.row('a','chat-a'));
     const jobs=path.join(root,'jobs');fs.mkdirSync(jobs);fs.writeFileSync(path.join(jobs,randomUUID()+'.json'),'invalid history must not be read');
     const user={profile:{handle:'owner'},directories:{root:f.root}};
@@ -71,7 +72,7 @@ test('legacy and new export routes stream authenticated JSON without calling res
 });
 
 test('80 MiB of logs and 80 MiB of completed job inputs fit a 64 MiB Node heap without losing bytes',async t=>{
-    const f=fixture(t),root=path.join(f.root,'archive-lore-server');fs.mkdirSync(root);
+    const f=fixture(t),root=path.join(f.root,'archive-lore-server');fs.mkdirSync(root);resetLegacyHistory(root);
     const store=privateStore(root,'diagnostics'),jobs=path.join(root,'jobs');fs.mkdirSync(jobs);
     const payload='x'.repeat(2*1024*1024);
     for(let i=0;i<40;i++){

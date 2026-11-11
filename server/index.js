@@ -10,7 +10,7 @@ import { invokeBackend } from './backend.js';
 import { embed } from '../lore-api.js';
 import { normalizeSettings } from '../lore-core.js';
 export const info={id:'archive-lore-server',name:'Archive Lore Server',description:'Persistent Archive Lore jobs and server-side embeddings.'};
-export const VERSION='0.3.13';
+export const VERSION='0.3.14';
 export async function init(router) {
     globalThis.crypto ||= webcrypto;
     const require=createRequire(path.join(process.cwd(),'package.json'));
@@ -27,7 +27,7 @@ export function registerRoutes(router,service,embedding=embed) {
         try{return res.json(await callback(req.user,req.body || {},abort.signal));}catch(error){if(!abort.signal.aborted)return res.status(400).json({error:error.message});}
         finally{if(cancelOnDisconnect)res.removeListener?.('close',closed);}
     });
-    route('/status',()=>({version:VERSION,protocol:1,capabilities:['collect','index','recall','prepareMaintenance','applyMaintenance']}));
+    route('/status',user=>{service.vectors(user);return {version:VERSION,protocol:1,capabilities:['collect','index','recall','prepareMaintenance','applyMaintenance']};});
     route('/embedding',async(_user,body,signal)=>{
         if(typeof body.text!=='string'||body.text.length>50000)throw Error('임베딩 입력 크기를 확인해 줘.');
         const vector=await embedding(normalizeSettings(body.settings),body.text,!!body.query,signal);return {vector};

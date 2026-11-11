@@ -1,4 +1,5 @@
 import { compileSideRefresh, SIDE_UPDATE_RULES } from './lore-side-story.js';
+import { sideWriteMode, SIDE_APPEND_RULES, NO_SIDE_CHANGES, appendSideRecord } from './lore-side-write-mode.js';
 import { intervalSceneAfterMemory, mergeAfterMemoryItems } from './lore-side-after-memory.js';
 import { PLAIN_SIDE_FORMAT, validatePlainSideRecord } from './lore-native-side.js';
 import { sideAutoEnabled } from './lore-native-side-toggle.js';
@@ -379,6 +380,10 @@ async function runLLM(prompt, overrides = null, options = {}) {
         console.warn('STMemoryBooks: sideprompt incoming regex application failed', e);
     }
 
+    if (overrides?.sideWriteMode === 'append') {
+        if (String(output).trim() !== NO_SIDE_CHANGES && overrides?.archiveLorePlainRecord) output = validatePlainSideRecord(output);
+        return appendSideRecord(overrides.sidePriorContent, output);
+    }
     return overrides?.archiveLorePlainRecord ? validatePlainSideRecord(output) : output;
 }
 
@@ -695,13 +700,18 @@ async function prepareSidePromptRun({
     }
 
     const additionalContext = await resolveSidePromptAdditionalContextEntries(tpl);
-    const finalPrompt = buildPrompt(tpl.prompt, prior, compiledScene, tpl.responseFormat, prevSummaries, runtimeMacros, additionalContext.entries);
+    let finalPrompt = buildPrompt(tpl.prompt, prior, compiledScene, tpl.responseFormat, prevSummaries, runtimeMacros, additionalContext.entries);
+    const writeMode = sideWriteMode(tpl.settings);
+    if (writeMode === 'append') finalPrompt += '\n' + SIDE_APPEND_RULES;
     const idx = Number(tpl?.settings?.overrideProfileIndex);
     const useOverride = !!tpl?.settings?.overrideProfileEnabled && Number.isFinite(idx);
     const conn = {...(useOverride
         ? resolveSidePromptConnection(null, { overrideProfileIndex: idx })
         : (defaultOverrides || resolveSidePromptConnection(null)))};
     conn.archiveLorePlainRecord = tpl.settings?.archiveLorePlainRecord === true && tpl.responseFormat === PLAIN_SIDE_FORMAT;
+    conn.sideWriteMode = writeMode;
+    conn.sidePriorContent = prior;
+    if (writeMode === 'append' && priorContentOverride === undefined) sidePromptHistory.expectedPriorContent = prior;
 
     const chosenProfile=useOverride ? extension_settings.STMemoryBooks?.profiles?.[idx] : extension_settings.STMemoryBooks?.profiles?.[extension_settings.STMemoryBooks?.defaultProfile || 0];
     if(!conn.archiveLoreConnectionProfileId && chosenProfile?.archiveLoreConnectionProfileId)conn.archiveLoreConnectionProfileId=chosenProfile.archiveLoreConnectionProfileId;
@@ -767,7 +777,7 @@ export async function generateSidePromptFromSnapshot({ snapshot, compiledScene, 
         error.code = 'STMB_SIDE_PROMPT_REGENERATION_BLANK';
         throw error;
     }
-    return { content: String(content).trim(), template: prepared.template };
+    return { content: prepared.conn?.sideWriteMode === 'append' ? String(content) : String(content).trim(), template: prepared.template };
 }
 
 async function runSidePromptAttempt({ taskLabel, finalPrompt, conn, runEpoch }) {

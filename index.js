@@ -1,3 +1,4 @@
+import { applyAutoHideRanges } from './lore-auto-hide.js';
 import { captureIntervalScene } from './lore-side-after-memory.js';
 import { nativePreferences, createNativePreferences, appendOriginalTools, BOOK_MODES } from './lore-native-preferences.js';
 import { scenePreview, mountLazyDetails } from './lore-native-lazy.js';
@@ -67,6 +68,7 @@ import {
   DEFAULT_LOREBOOK_ENTRY_SETTINGS,
   getDefaultTitleFormats,
   getAutoHideRanges,
+  applySavedMemoryAutoHide,
   identifyMemoryEntries,
   getRangeFromMemoryEntry,
   generateEntryTitleAtNumber,
@@ -5459,6 +5461,7 @@ async function executeMemoryGeneration(
     effectiveSettings;
   const generationRetryState =
     retryState && typeof retryState === "object" ? retryState : {};
+  const savedMemoryChat = chat;
   const memoryOriginSnapshot =
     generationRetryState.memoryOriginSnapshot ||
     captureMemoryOriginSnapshot(
@@ -5855,6 +5858,9 @@ async function executeMemoryGeneration(
       });
     } catch (e) {
       console.warn("STMemoryBooks: Memory Assistance after memory failed:", e);
+    }
+    if (getStmbChatKeySafe(memoryOriginSnapshot.chatRef) === getStmbChatKeySafe()) {
+      await applySavedMemoryAutoHide(finalMemoryResult, settings.moduleSettings, savedMemoryChat);
     }
     throwIfStmbStopped(runEpoch);
 
@@ -6273,9 +6279,7 @@ function queueDeferredQueuedAutoHideRanges(chatRef, ranges) {
 }
 
 async function runAutoHideRangesForCurrentChat(ranges) {
-  for (const range of normalizeAutoHideRanges(ranges)) {
-    await executeSlashCommands(`/hide ${range.start}-${range.end}`);
-  }
+  await applyAutoHideRanges(normalizeAutoHideRanges(ranges));
 }
 
 async function applyQueuedAutoHideRanges(chatRef, ranges) {
@@ -6290,7 +6294,9 @@ async function applyQueuedAutoHideRanges(chatRef, ranges) {
   try {
     await runAutoHideRangesForCurrentChat(safeRanges);
   } catch (error) {
+    queueDeferredQueuedAutoHideRanges(chatRef, safeRanges);
     console.warn("STMemoryBooks: queued auto-hide failed:", error);
+    toastr.warning(`기억은 저장됐지만 자동 숨기기에 실패했습니다. ${error.message}`, 'Archive Lore');
   }
 }
 
@@ -6304,6 +6310,7 @@ async function flushDeferredQueuedAutoHideRanges() {
     deferredQueuedAutoHideRanges.delete(chatKey);
   } catch (error) {
     console.warn("STMemoryBooks: deferred queued auto-hide failed:", error);
+    toastr.warning(`보류한 메시지 숨기기에 실패했습니다. ${error.message}`, 'Archive Lore');
   }
 }
 
@@ -6422,6 +6429,7 @@ async function executeQueuedMemoryJob(job, jobContext) {
       lorebookName,
       entryTitle: "",
     });
+    await applyQueuedMemoryAutoHide(job, { metadata: { sceneRange: `${sceneData.sceneStart}-${sceneData.sceneEnd}` } }, settings);
     await completeQueuedMemoryPostSave({
       job,
       jobContext,
@@ -11510,6 +11518,48 @@ function setupSettingsEventListeners(popupInstance = currentPopupInstance) {
 
   // Use full event delegation for all interactions
   popupElement.addEventListener("click", async (e) => {
+    const hideButton = e.target.closest('#stmb-apply-auto-hide-now');
+    if (hideButton) {
+      e.preventDefault();
+      hideButton.disabled = true;
+      try {
+        if (isMemoryProcessing()) throw new Error('진행 중인 수집이 끝난 뒤 적용해 주세요.');
+        const settings = initializeSettings();
+        const mode = popupElement.querySelector('#stmb-auto-hide-mode')?.value || 'none';
+        const keep = Number(popupElement.querySelector('#stmb-unhidden-entries-count')?.value);
+        if (mode === 'none') throw new Error('자동 숨기기 방식을 먼저 선택해 주세요.');
+        if (!Number.isInteger(keep) || keep < 0 || keep > 50) throw new Error('남길 메시지 수는 0~50 사이 정수로 입력해 주세요.');
+        const markers = getSceneMarkers();
+        const end = markers?.highestMemoryProcessed;
+        if (!Number.isInteger(end) || end < 0 || end >= chat.length) throw new Error('현재 채팅의 저장 완료 수집 위치를 확인할 수 없습니다.');
+        const origin = chat;
+        let start = 0;
+        if (mode === 'last') {
+          const name = getCurrentCanonicalLorebookName();
+          const data = name ? await loadWorldInfo(name) : null;
+          const memory = identifyMemoryEntries(data || { entries: {} }).find(({ entry }) => {
+            const range = getRangeFromMemoryEntry(entry);
+            return range?.end === end && String(entry.STMB_chatId || '') === String(getCurrentChatId() || '');
+          });
+          const range = memory && getRangeFromMemoryEntry(memory.entry);
+          if (!range) throw new Error('현재 채팅의 마지막 기억 범위를 확인할 수 없습니다.');
+          start = range.start;
+        }
+        const moduleSettings = { ...settings.moduleSettings, autoHideMode: mode, unhiddenEntriesCount: keep };
+        const plan = getAutoHideRanges({ metadata: { sceneRange: `${start}-${end}` } }, moduleSettings);
+        const count = await applyAutoHideRanges(plan.ranges, origin);
+        settings.moduleSettings.autoHideMode = mode;
+        settings.moduleSettings.unhiddenEntriesCount = keep;
+        saveSettingsDebounced();
+        toastr.success(count ? `${count}개 메시지에 숨기기를 적용했습니다.` : '추가로 숨길 메시지가 없습니다. 수집 구간과 남길 개수를 확인해 주세요.', 'Archive Lore');
+      } catch (error) {
+        toastr.warning(error.message, 'Archive Lore');
+      } finally {
+        hideButton.disabled = false;
+      }
+      return;
+    }
+
     const settings = initializeSettings();
 
     // Regex selection button (visible only when "Use regex" is checked)

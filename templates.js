@@ -431,6 +431,11 @@ export const generalSettingsTemplate = Handlebars.compile(`
     </div>
 
     <div class="world_entry_form_control">
+        <button type="button" id="stmb-apply-auto-hide-now" class="menu_button">저장된 수집 구간에 숨기기 지금 적용</button>
+        <small class="opacity70p">설정 변경만으로는 즉시 숨기지 않습니다. 자동 숨기기는 기억 저장 후 실행됩니다. 이 버튼은 현재 설정을 이미 저장된 수집 구간에 적용하며 미수집 대화는 숨기지 않습니다.</small>
+    </div>
+
+    <div class="world_entry_form_control">
         <label class="checkbox_label">
             <input type="checkbox" id="stmb-unhide-before-memory" {{#if unhideBeforeMemory}}checked{{/if}}>
             <span data-i18n="STMemoryBooks_UnhideBeforeMemory">Unhide hidden messages for memory generation (runs /unhide X-Y)</span>

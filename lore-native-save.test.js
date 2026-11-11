@@ -14,7 +14,7 @@ const src=fs.readFileSync(new URL('./addlore.js',import.meta.url),'utf8');
 function extract(name) {const a=src.search(new RegExp('(?:export )?(?:async )?function '+name+'\\('));return src.slice(a,src.indexOf('\n}',a)+2).replace(/^export /,'');}
 function harness() {
     const state={disk:{entries:{}},cache:new Map(),writes:0,notifications:0,progress:0,fail:false};
-    const scope={structuredClone,console:{warn(){},error(){}},Date,archiveLoreFork:true,
+    const scope={getContext:()=>({chat:[]}),applySavedMemoryAutoHide:async()=>true,structuredClone,console:{warn(){},error(){}},Date,archiveLoreFork:true,
         SIDE_PROMPT_HISTORY_KEY,resolveSidePromptHistory,validateSidePromptHistoryRequest,formatSidePromptVersionTitle,fingerprintRollbackEntry,
         getRequestHeaders:()=>({}),worldInfoCache:state.cache,eventSource:{emit:async()=>{}},event_types:{WORLDINFO_UPDATED:'update'},
         fetch:async(_url,options)=>{state.writes++;if(state.fail)return {ok:false,status:500,statusText:'failed'};state.disk=JSON.parse(options.body).data;return {ok:true};},
@@ -176,4 +176,21 @@ test('actual collection appends before sides and repeated side overwrites retain
  assert.equal(state.disk.entries[sideUid].displayIndex,1);
  assert.equal(applySidePromptRestoration(state.disk,{entryKey:String(sideUid)}).changed,true);
  assert.equal(state.disk.entries[sideUid].content,'First side');
+});
+
+for (const batch of [false, true]) test(`append refuses a stale prior record before mutating or writing (${batch ? 'batch' : 'single'})`, async () => {
+    const {state, scope} = harness();
+    const title = template.name + ' (STMB SidePrompt)';
+    await scope.upsertLorebookEntryByTitle('book', structuredClone(state.disk), title, 'Original', {sidePromptHistory:history(), refreshEditor:false});
+    const expected = {...history(), expectedPriorContent:'Original'};
+    await scope.upsertLorebookEntryByTitle('book', structuredClone(state.disk), title, 'Newer edit', {sidePromptHistory:history(), refreshEditor:false});
+    const writes = state.writes;
+    const data = structuredClone(state.disk);
+    const save = () => batch
+        ? scope.upsertLorebookEntriesBatch('book',data,[{title,content:'Original\n\nAddition',sidePromptHistory:expected}],{refreshEditor:false})
+        : scope.upsertLorebookEntryByTitle('book',data,title,'Original\n\nAddition',{sidePromptHistory:expected,refreshEditor:false});
+    await assert.rejects(save(), /최신 기록을 보존/);
+    assert.equal(state.writes,writes);
+    assert.equal(state.disk.entries[0].content,'Newer edit');
+    assert.equal(data.entries[0].content,'Newer edit');
 });

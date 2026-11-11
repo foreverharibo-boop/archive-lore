@@ -1,3 +1,4 @@
+import { sideWriteModeControl } from './lore-side-write-mode.js';
 import { getArchiveLoreBookRoute } from './utils.js';
 // Copyright (C) 2024–2026 Aiko Hanasaki
 // SPDX-License-Identifier: AGPL-3.0-only
@@ -958,6 +959,7 @@ async function openEditTemplate(parentPopup, key) {
                 <small class="opacity70p">${escapeHtml(translate('Number of previous memory entries to include before scene text (0 = none).', 'STMemoryBooks_PreviousMemoriesHelp'))}</small>
             </div>
 
+            ${sideWriteModeControl('stmb-sp-edit', s)}
             ${buildAdditionalContextBlock({ idPrefix: 'stmb-sp-edit', settings: s, contextSettings })}
 
             ${buildLorebookTargetBlock({ idPrefix: 'stmb-sp-edit-lb', tpl })}
@@ -1187,6 +1189,7 @@ async function openEditTemplate(parentPopup, key) {
             const lbIgnoreBudget2 = !!dlg.querySelector('#stmb-sp-edit-lb-ignore-budget')?.checked;
             const outletNameVal = lbPosRaw === 7 ? (dlg.querySelector('#stmb-sp-edit-lb-outlet-name')?.value?.trim() || '') : '';
 
+            settings.sideWriteMode = dlg.querySelector('#stmb-sp-edit-write-mode')?.value === 'append' ? 'append' : 'update';
             const prevCountRaw = parseInt(dlg.querySelector('#stmb-sp-edit-prev-mem-count')?.value ?? '0', 10);
             settings.previousMemoriesCount = Number.isFinite(prevCountRaw) && prevCountRaw > 0 ? Math.min(prevCountRaw, 7) : 0;
             const additionalContextSettings = readAdditionalContextSettings(dlg, 'stmb-sp-edit');
@@ -1393,6 +1396,7 @@ async function openNewTemplate(parentPopup) {
             <small class="opacity70p">${escapeHtml(translate('Number of previous memory entries to include before scene text (0 = none).', 'STMemoryBooks_PreviousMemoriesHelp'))}</small>
         </div>
 
+        ${sideWriteModeControl('stmb-sp-new')}
         ${buildAdditionalContextBlock({ idPrefix: 'stmb-sp-new', settings: {}, contextSettings })}
 
         <div class="world_entry_form_control">
@@ -1534,6 +1538,7 @@ async function openNewTemplate(parentPopup) {
         const lbIgnoreBudget2 = !!dlg.querySelector('#stmb-sp-new-lb-ignore-budget')?.checked;
         const outletNameVal = lbPosRaw === 7 ? (dlg.querySelector('#stmb-sp-new-lb-outlet-name')?.value?.trim() || '') : '';
 
+        settings.sideWriteMode = dlg.querySelector('#stmb-sp-new-write-mode')?.value === 'append' ? 'append' : 'update';
         const prevCountRaw = parseInt(dlg.querySelector('#stmb-sp-new-prev-mem-count')?.value ?? '0', 10);
         settings.previousMemoriesCount = Number.isFinite(prevCountRaw) && prevCountRaw > 0 ? Math.min(prevCountRaw, 7) : 0;
         const additionalContextSettings = readAdditionalContextSettings(dlg, 'stmb-sp-new');

@@ -1,6 +1,7 @@
 import { ARCHIVE_LORE_TITLE_FORMAT, isArchiveLoreDateFormat, archiveLoreDateTitle } from './lore-native-title.js';
 import { maintainArchiveDisplayOrder } from './lore-display-order.js';
 import { advanceCollectionCheckpoint } from './lore-native-progress.js';
+import { applyAutoHideRanges } from './lore-auto-hide.js';
 // Copyright (C) 2024–2026 Aiko Hanasaki
 // SPDX-License-Identifier: AGPL-3.0-only
 
@@ -17,7 +18,6 @@ import {
 } from '../../../world-info.js';
 import { extension_settings } from '../../../extensions.js';
 import { moment } from '../../../../lib.js';
-import { executeSlashCommands } from '../../../slash-commands.js';
 import { getSceneMarkers, saveMetadataForCurrentContext } from './sceneManager.js';
 import { i18n } from './i18nHelpers.js';
 import {
@@ -58,6 +58,9 @@ export async function saveSidePromptLorebookChecked(name, data) {
 function applySidePromptHistory(data, title, history, entry, createEntry) {
     validateSidePromptHistoryRequest(history);
     const resolved = resolveSidePromptHistory(data, history);
+    if (typeof history.expectedPriorContent === 'string' && String(resolved.latest?.content || '') !== history.expectedPriorContent) {
+        throw new Error('이어서 쓰기 요청 이후 사이드 내용이 변경되었습니다. 최신 기록을 보존했으니 다시 실행해 주세요.');
+    }
     const group = resolved.versions[0]?.group || history.group;
     const stamp = (target, sequence) => {
         target[SIDE_PROMPT_HISTORY_KEY] = { version: 1, templateKey: history.templateKey, chatKey: history.chatKey,
@@ -120,29 +123,18 @@ function parseSceneRange(sceneRange) {
     return { start, end };
 }
 
-/**
- * Execute hide command with consistent logging
- * @private
- * @param {string} hideCommand - Hide command to execute
- * @param {string} context - Optional context description
- */
-async function executeHideCommand(hideCommand, context = '') {
-    const contextStr = context ? ` (${context})` : '';
-    console.log(i18n('addlore.log.executingHideCommand', `${MODULE_NAME}: Executing hide command${contextStr}: {{hideCommand}}`, { hideCommand }));
-    await executeSlashCommands(hideCommand);
-}
-
-/**
- * Safely execute a hide command and log a warning on failure
- * @private
- * @param {string} hideCommand - Hide command to execute
- * @param {string} context - Optional context description
- */
-async function safeExecuteHideCommand(hideCommand, context = '') {
+/** Memory saves remain successful even if hiding fails; report the failure separately. */
+export async function applySavedMemoryAutoHide(memoryResult, moduleSettings, expectedChat = getContext().chat) {
+    const plan = getAutoHideRanges(memoryResult, moduleSettings);
+    if (plan.mode === 'none') return true;
     try {
-        await executeHideCommand(hideCommand, context);
-    } catch (e) {
-        console.warn(i18n('addlore.warn.autohideFailed', `${MODULE_NAME}: Auto-hide failed:`), e);
+        if (plan.invalidRange) throw new Error('기억의 수집 범위를 확인할 수 없습니다.');
+        await applyAutoHideRanges(plan.ranges, expectedChat);
+        return true;
+    } catch (error) {
+        console.warn(`${MODULE_NAME}: Auto-hide failed:`, error);
+        toastr.warning(`기억은 저장됐지만 메시지 자동 숨기기에 실패했습니다. ${error.message}`, 'Archive Lore');
+        return false;
     }
 }
 
@@ -571,6 +563,7 @@ export function applyLorebookEntrySettings(entry, lorebookSettings = {}, options
  */
 export async function addMemoryToLorebook(memoryResult, lorebookValidation, options = {}) {
 
+    const originChat = getContext().chat;
     try {
         if (!memoryResult?.content) {
             throw new Error(i18n('addlore.errors.invalidContent', 'Invalid memory result: missing content'));
@@ -664,24 +657,8 @@ export async function addMemoryToLorebook(memoryResult, lorebookValidation, opti
             }
         }
         
-        // Execute auto-hide commands if enabled
-        const autoHidePlan = getAutoHideRanges(effectiveMemoryResult, settings.moduleSettings);
-
-        if (options.autoHide !== false && autoHidePlan.mode !== 'none') {
-            if (autoHidePlan.invalidRange) {
-                console.warn(i18n('addlore.warn.autohideSkippedInvalidRange', `${MODULE_NAME}: Auto-hide skipped - invalid scene range: "{{range}}"`, { range: autoHidePlan.rawRange }));
-                toastr.warning(
-                    i18n('addlore.toast.autohideInvalidRange', 'Auto-hide skipped: invalid scene range metadata'),
-                    i18n('addlore.toast.title', 'STMemoryBooks')
-                );
-            } else {
-                for (const range of autoHidePlan.ranges) {
-                    await safeExecuteHideCommand(
-                        `/hide ${range.start}-${range.end}`,
-                        i18n(range.contextKey, range.contextFallback),
-                    );
-                }
-            }
+        if (options.autoHide !== false) {
+            await applySavedMemoryAutoHide(effectiveMemoryResult, settings.moduleSettings, originChat);
         }
 
         return {

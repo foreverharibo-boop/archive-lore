@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
+import { sideWriteMode, SIDE_APPEND_RULES } from './lore-side-write-mode.js';
 import { compileSideRefresh, SIDE_UPDATE_RULES } from './lore-side-story.js';
 const source=fs.readFileSync(new URL('./sidePrompts.js',import.meta.url),'utf8');
 const extract=(name,async=false)=>{const start=source.indexOf(`${async?'async ':''}function ${name}(`);return source.slice(start,source.indexOf('\n}\n',start)+2);};
@@ -14,7 +15,7 @@ test('manual refresh with no new dialogue keeps an empty scene without widening 
 });
 function preparationHarness(fork=true) {
  const calls=[];const memories=Array.from({length:12},(_,i)=>({title:`memory ${i}`,content:`established fact ${i}`,entry:{STMB_end:i,STMB_chatId:'origin'}}));
- const scope={archiveLoreFork:fork, SIDE_UPDATE_RULES,
+ const scope={archiveLoreFork:fork, SIDE_UPDATE_RULES, sideWriteMode, SIDE_APPEND_RULES,
   getUnifiedSidePromptTitle:()=> 'Side',getCurrentStmbChatRef:()=>({chatId:'wrong-open-chat'}),
   getSidePromptHistory:(_tpl,_macros,_kinds,ref)=>({chatId:ref.chatId}),
   resolveSidePromptHistory:(_data,h)=>(calls.push(['history',h.chatId]),{latest:{content:'prior side facts'}}),
@@ -80,4 +81,15 @@ test('original Memory Books keeps its configured context count',async()=>{
  const h=preparationHarness(false);
  const result=await h.scope.prepareSidePromptRun({tpl:{key:'side',prompt:'Update',settings:{previousMemoriesCount:2}},loreData:{},compiledScene:{metadata:{sceneEnd:19},messages:[]}});
  assert(h.calls.some(c=>c[0]==='previous'&&c[1]===2));assert(result.finalPrompt.includes('DO NOT PROCESS'));assert(!result.finalPrompt.includes('=== SAVED STORY MEMORIES ==='));
+});
+
+
+test('append mode is snapshotted in the request and its output rule follows the response-format instructions', async () => {
+ const h=preparationHarness();
+ const result=await h.scope.prepareSidePromptRun({tpl:{key:'side',prompt:'Update',responseFormat:'Return the whole record',settings:{sideWriteMode:'append'}},loreData:{},compiledScene:{metadata:{sceneEnd:19},messages:[{mes:'Later event'}]}});
+ assert.equal(result.conn.sideWriteMode,'append');
+ assert.equal(result.conn.sidePriorContent,'prior side facts');
+ assert.equal(result.sidePromptHistory.expectedPriorContent,'prior side facts');
+ assert(result.finalPrompt.lastIndexOf('APPEND-ONLY SIDE RECORD') > result.finalPrompt.indexOf('Return the whole record'));
+ assert(result.finalPrompt.includes('Later event'));
 });

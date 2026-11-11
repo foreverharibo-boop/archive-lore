@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-// Small session receipts contain counts only, never generated text or credentials.
+// Session receipts retain counts and failure labels/messages, never generated memories.
 const recent = new Map();
 const dismissed = new Map();
 const flushedHides = new Map();
@@ -34,10 +34,15 @@ export function collectionResult(key, jobs = []) {
         result.hide={...result.hide,status:'deferredDone'};
     const children = jobs.filter(j => j.chatKey === key && j.parentJobId === result.id && ['sidePrompt','sidePromptBatch'].includes(j.type));
     if (children.length) {
-        const side = { updated: 0, failed: result.side?.failed || 0, pending: false, interrupted: !!result.side?.interrupted };
+        const side = { updated: 0, failed: result.side?.failed || 0, failures: [...(result.side?.failures || [])], pending: false, interrupted: !!result.side?.interrupted };
         for (const child of children) {
             side.updated += Array.isArray(child.result?.successes) ? child.result.successes.length : child.result?.title ? 1 : 0;
-            side.failed += Array.isArray(child.result?.failures) ? child.result.failures.length : child.state === 'failed' ? 1 : 0;
+            side.failed += child.result?.failures?.length || (child.state === 'failed' ? 1 : 0);
+            if (child.result?.failures?.length) side.failures.push(...child.result.failures);
+            else if (child.state === 'failed') side.failures.push({
+                name: child.title || child.payload?.tpl?.name || '사이드 작업',
+                message: child.error?.message || '실패 이유가 기록되지 않았습니다.',
+            });
             side.pending ||= !terminal.has(child.state);
             side.interrupted ||= ['cancelled','canceled','needs_review','blocked'].includes(child.state);
         }
@@ -50,7 +55,15 @@ export function collectionResultLines(result) {
     const side = result.side || {};
     const lines = [`기억 ${result.memoryCount ?? 1}개 저장 · 사이드 ${side.updated ?? 0}개 갱신`];
     if (side.pending) lines.push('사이드 작업 대기·진행 중');
-    if (side.failed) lines.push(`사이드 ${side.failed}개 실패`);
+    if (side.failed) {
+        lines.push(`사이드 ${side.failed}개 실패`);
+        for (const failure of side.failures || []) {
+            const name = String(failure.name || '사이드 작업');
+            const message = String(failure.message || '실패 이유가 기록되지 않았습니다.');
+            lines.push(`• ${name}: ${message}`);
+        }
+        if (!side.failures?.length) lines.push('실패 항목의 상세 정보가 없습니다. 진행·저장 확인에서 확인해 주세요.');
+    }
     if (side.interrupted || result.interrupted) lines.push('일부 후속 작업 중단 · 진행·저장 확인에서 확인해 주세요.');
     const hide = result.hide;
     if (!hide) lines.push('메시지 숨김 결과 확인 필요');

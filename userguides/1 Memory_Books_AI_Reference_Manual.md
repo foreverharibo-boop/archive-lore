@@ -3580,3 +3580,7 @@ Two invalid responses stop with a specific error instead of silently omitting
 memory retrieval; existing memories and embeddings are unchanged. Server-mode
 users must update the server plugin and restart it to use this shared controller
 change. This does not fix browser background suspension or delayed job polling.
+
+### Collection result failure details
+
+Archive Lore collection receipts now retain and display failed side prompt names and error messages for direct and queued runs. Older receipts without details explicitly state that the details are unavailable. The completion popup uses a 300px width constrained to the viewport, with compact adjacent action buttons aligned to the right. Saved-memory list titles are right-aligned; original and translated body text retain their existing layout.

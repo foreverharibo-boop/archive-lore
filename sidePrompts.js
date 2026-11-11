@@ -1501,6 +1501,8 @@ export async function runAfterMemory(compiledScene, profile = null, options = {}
     const parentTask = createStmbInFlightTask('SidePrompts:onAfterMemory');
     const runEpoch = parentTask.epoch;
     const results = [];
+    const summaryFailures = [];
+    let failureName = '사이드 작업 준비';
     let summaryPending = false, summaryInterrupted = false, summaryFailed = 0;
     try {
         throwIfStmbStopped(runEpoch);
@@ -1548,12 +1550,14 @@ export async function runAfterMemory(compiledScene, profile = null, options = {}
             logSkippedSetItems(skipped, 'onAfterMemory');
             if (!resolvedSet.set) {
                 summaryFailed++;
+                summaryFailures.push({name: selectedSetKey, message: '선택한 사이드 세트를 찾을 수 없습니다.'});
                 toastr.warning(translate('Selected side prompt set was not found. No after-memory side prompts were run.', 'STMemoryBooks_SidePromptSetMissingNoFallback'), 'STMemoryBooks');
                 return;
             }
             const missingMacros = summarizeMissingSetMacros(skipped);
             if (missingMacros.length > 0) {
                 summaryFailed += skipped.length;
+                summaryFailures.push(...skipped.map(item => ({name: item.tpl?.name || item.item?.promptKey || '사이드 항목', message: `실행에 필요한 설정을 확인해 주세요: ${(item.missingRuntimeMacros || [item.reason]).join(', ')}`})));
                 toastr.warning(
                     tr(
                         'STMemoryBooks_SidePromptSetSkippedUnresolvedMacros',
@@ -1614,6 +1618,7 @@ export async function runAfterMemory(compiledScene, profile = null, options = {}
                         console.warn(`${MODULE_NAME}: Deferred interval preparation failed`, error);
                     }
                     summaryFailed++;
+                    summaryFailures.push({name: item.name || item.tpl.name, message: String(error?.message || error)});
                 }
             }
             runItems = ready;
@@ -1627,6 +1632,7 @@ export async function runAfterMemory(compiledScene, profile = null, options = {}
             for (const runItem of runItems) {
                 throwIfStmbStopped(runEpoch);
                 const tpl = runItem.tpl;
+                failureName = runItem.name || tpl.name;
                 const itemScene = runItem.compiledScene || compiledScene;
                 let lore, prepared;
                 try {
@@ -1643,6 +1649,7 @@ export async function runAfterMemory(compiledScene, profile = null, options = {}
                 } catch (err) {
                     if (!reportSidePromptHistoryConflict(err, runItem.name || tpl.name)) throw err;
                     summaryFailed++;
+                    summaryFailures.push({name: runItem.name || tpl.name, message: String(err?.message || err)});
                     continue;
                 }
                 const lbs = getEffectiveLorebookSettingsForTemplate(tpl);
@@ -1661,6 +1668,7 @@ export async function runAfterMemory(compiledScene, profile = null, options = {}
             }
             for (let index = 0; index < preparedItems.length; index++) {
                 const item = preparedItems[index];
+                failureName = item.displayName;
                 throwIfStmbStopped(runEpoch);
                 enqueueStmbJob(buildSidePromptJob({
                     tpl: item.tpl,
@@ -1878,11 +1886,14 @@ export async function runAfterMemory(compiledScene, profile = null, options = {}
         }
     } catch (outer) {
         summaryInterrupted = isStmbStopError(outer);
-        if (!summaryInterrupted) summaryFailed++;
+        if (!summaryInterrupted) {
+            summaryFailed++;
+            summaryFailures.push({name: failureName, message: String(outer?.message || outer)});
+        }
         if (isStmbStopError(outer)) return;
         // No lorebook => do nothing
     } finally {
-        try { options.onSummary?.({updated:results.filter(r=>r.ok).length,failed:results.filter(r=>!r.ok).length+summaryFailed,pending:summaryPending,interrupted:summaryInterrupted}); }
+        try { options.onSummary?.({updated:results.filter(r=>r.ok).length,failed:results.filter(r=>!r.ok).length+summaryFailed,failures:[...summaryFailures,...results.filter(r=>!r.ok).map(r=>({name:r.name,message:String(r.error?.message || r.error || '')}))],pending:summaryPending,interrupted:summaryInterrupted}); }
         catch (error) { console.warn(`${MODULE_NAME}: collection status display failed`,error); }
         parentTask.finish();
     }

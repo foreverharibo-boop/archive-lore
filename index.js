@@ -5867,7 +5867,7 @@ async function executeMemoryGeneration(
         settings,
       });
     } catch (e) {
-      if(collectionReceipt)collectionReceipt.side={updated:0,failed:1};
+      if(collectionReceipt)collectionReceipt.side={updated:0,failed:1,failures:[{name:'사이드 작업',message:String(e?.message || e)}]};
       console.warn("STMemoryBooks: runAfterMemory failed:", e);
     }
     try {
@@ -6418,7 +6418,7 @@ async function completeQueuedMemoryPostSave({
         retryJobSnapshots,
       });
     } catch (error) {
-      job.result={...job.result,sideSummary:{updated:0,failed:1}};
+      job.result={...job.result,sideSummary:{updated:0,failed:1,failures:[{name:'사이드 작업',message:String(error?.message || error)}]}};
       console.warn("STMemoryBooks: queued after-memory side prompts failed:", error);
     }
   }
@@ -14172,7 +14172,7 @@ async function applyManualFixedJson(correctedRaw) {
         settings,
       });
     } catch (e) {
-      if(collectionReceipt)collectionReceipt.side={updated:0,failed:1};
+      if(collectionReceipt)collectionReceipt.side={updated:0,failed:1,failures:[{name:'사이드 작업',message:String(e?.message || e)}]};
       console.warn("STMemoryBooks: runAfterMemory failed:", e);
     }
     try {

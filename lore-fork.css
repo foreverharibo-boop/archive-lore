@@ -87,10 +87,10 @@
 .al-collection-result .al-range-actions {flex-wrap:wrap;margin-top:9px;}
 .al-collection-result [role=status]:empty {display:none;}
 .al-collection-result-popup {border:0;margin:0;padding:0;text-align:left;}
-dialog.al-collection-completion {box-sizing:border-box;width:min-content!important;max-width:calc(100vw - 24px)!important;min-width:0!important;height:auto!important;max-height:calc(100dvh - 24px);padding:12px!important;font-size:14px;}
+dialog.al-collection-completion {box-sizing:border-box;width:300px!important;max-width:calc(100vw - 24px)!important;min-width:0!important;min-height:0!important;height:fit-content!important;max-height:calc(100dvh - 24px);padding:14px!important;font-size:15px;}
 .al-collection-completion .popup-body,.al-collection-completion .popup-content {padding:0!important;margin:0;gap:0;}
 .al-collection-completion .popup-controls {display:none!important;}
-.al-collection-completion .al-range-actions {width:max-content;display:flex;flex-wrap:nowrap;justify-content:flex-start;gap:6px;margin-top:9px;}
+.al-collection-completion .al-range-actions {width:max-content;margin-left:auto;display:flex;flex-wrap:nowrap;justify-content:flex-start;gap:6px;margin-top:9px;}
 .al-collection-completion .al-range-actions .menu_button {flex:0 0 auto;width:auto!important;min-width:0!important;min-height:28px;margin:0!important;padding:5px 6px!important;font-size:11px!important;line-height:1.4;white-space:nowrap;word-break:normal;}
 .al-feature-home #al-native-collect {justify-content:center;background:var(--SmartThemeQuoteColor, #53677e)!important;color:var(--SmartThemeBlurTintColor,#fff)!important;border-radius:9px;padding:12px!important;font-weight:600!important;}
 .al-home-pane .al-feature-card {padding:8px 0;}
@@ -193,3 +193,5 @@ dialog.al-collection-completion {box-sizing:border-box;width:min-content!importa
 .al-injection-view small {display:block;opacity:.75;}
 .al-injection-view pre {white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word;font:inherit;margin:8px 0;}
 .al-injection-view details {margin:8px 0;}
+
+.al-saved-records > details > summary {text-align:right;}

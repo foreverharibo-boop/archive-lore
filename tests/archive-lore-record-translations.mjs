@@ -32,6 +32,7 @@ try {
     for (const width of [320, 1000]) {
         await page.setViewportSize({ width, height: 850 });
         await page.setContent('<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>body{font:14px/1.6 Arial,sans-serif;background:#f8f9fb;color:#303740;margin:14px}pre{white-space:pre-wrap;overflow-wrap:anywhere}details{margin:12px 0}strong{font-size:13px}</style>');
+        await page.addStyleTag({content: await fs.readFile(new URL('../lore-fork.css', import.meta.url), 'utf8')});
         await page.evaluate(async ({ settings, books, bridge, openRecords }) => {
             const before = JSON.stringify({ settings, books });
             const search = () => ({ books: () => Object.keys(books), loadBook: async name => books[name] });
@@ -46,6 +47,7 @@ try {
         }, { settings, books, bridge, openRecords });
         await page.locator('details').evaluateAll(items => items.forEach(el => el.open = true));
         assert.equal(await page.locator('details').count(), 5);
+        assert.equal(await page.locator('summary').first().evaluate(el=>getComputedStyle(el).textAlign),'right');
         assert.deepEqual(await page.locator('details > summary').allTextContents(), ['부산 도착','날짜 변경','번역 언어 변경','다른 책','번역 없는 책']);
         assert.equal(await page.locator('.al-manager-translation').count(), 3);
         assert.equal(await page.locator('details').nth(0).locator(':scope > pre').textContent(), 'They arrived in Busan.');

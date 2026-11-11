@@ -100,3 +100,13 @@ test('switch off and original Memory Books mode preserve their execution boundar
  const off=harness({enabled:false,after:[template('after',0,true)],intervals:[template('a')]});await off.scope.runAfterMemory(sceneFixture().scene);assert.deepEqual(off.jobs.map(j=>j.tpl.key),['a']);
  const original=harness({fork:false,intervals:[template('a')]});await original.scope.runAfterMemory(sceneFixture().scene);assert.equal(original.jobs.length,0);
 });
+
+for(const queued of [true,false])test(`after-memory reports failed name/reason (${queued})`,async()=>{
+ const h=harness({queued,after:[template('약속',3,true)]});let receipt;
+ const fail=async()=>{throw Error('응답 시간 초과');};
+ if(queued)h.scope.prepareSidePromptRun=fail;else h.scope.runSidePromptAttempt=fail;
+ await h.scope.runAfterMemory(sceneFixture().scene,null,{onSummary:value=>receipt=value});
+ assert.equal(receipt.failed,1);assert.equal(receipt.updated,0);
+ assert.equal(receipt.failures[0].name,'약속');assert.equal(receipt.failures[0].message,'응답 시간 초과');
+ assert.equal(h.saves.length,0);
+});

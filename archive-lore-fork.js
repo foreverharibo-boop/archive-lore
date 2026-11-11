@@ -60,7 +60,7 @@ async function openRange(){
 }
 
 async function openRecords(){
-    const node=document.createElement('div');node.className='al-search-tools';
+    const node=document.createElement('div');node.className='al-search-tools al-saved-records';
     const h=document.createElement('h3');h.textContent='저장된 기억';node.append(h);
     const help=document.createElement('p');help.textContent='저장된 본문을 확인하는 목록입니다. 수정·재생성은 실리태번 로어북 편집기에서 해당 항목을 열어 실행해 주세요.';node.append(help);
     for(const name of search().books()){

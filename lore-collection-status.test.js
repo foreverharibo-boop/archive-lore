@@ -16,7 +16,7 @@ test('queued sides count saved items, not queued jobs, and keep partial failures
     const side={id:'s',parentJobId:'m',chatKey:'sides',type:'sidePromptBatch',state:'running'};
     assert.equal(collectionResult('sides',[memory,side]).side.pending,true);
     const done={...side,state:'completed',result:{successes:['one','two'],failures:[{name:'three'}]}};
-    assert.deepEqual(collectionResult('sides',[memory,done]).side,{updated:2,failed:2,pending:false,interrupted:false});
+    assert.deepEqual(collectionResult('sides',[memory,done]).side,{updated:2,failed:2,failures:[{name:'three'}],pending:false,interrupted:false});
     assert.equal(collectionResult('sides',[memory,{...side,state:'blocked'}]).side.interrupted,true);
 });
 test('successful deferred hiding replaces the old failure without inventing a per-job count',()=>{
@@ -72,4 +72,20 @@ test('completion opens once without a home, waits for side jobs and stays until 
     result={id:'next',complete:true,side:{}};notifier.check();await tick();assert.equal(shown.length,1);
     close();await tick();assert.deepEqual(shown,[['first','a'],['next','a']]);
     close();await tick();notifier.check();await tick();assert.equal(shown.length,2);
+});
+
+test('failure labels and reasons survive direct and queued receipts without duplicate counting',()=>{
+    const failure={name:'약속·합의',message:'응답이 비어 있습니다.'};
+    recordCollectionResult('failure-direct',{complete:true,side:{updated:5,failed:1,failures:[failure]}});
+    assert(collectionResultLines(collectionResult('failure-direct')).includes('• 약속·합의: 응답이 비어 있습니다.'));
+    const memory={id:'fm',chatKey:'failure-queue',type:'memory',createdAt:1,state:'completed',result:{memorySaved:true}};
+    const child={id:'fs',parentJobId:'fm',chatKey:'failure-queue',type:'sidePrompt',state:'failed',title:'관계',error:{message:'시간 초과'}};
+    const result=collectionResult('failure-queue',[memory,child]);
+    assert.equal(result.side.failed,1);
+    assert(collectionResultLines(result).includes('• 관계: 시간 초과'));
+    const batch={...child,type:'sidePromptBatch',result:{successes:['취향'],failures:[failure]}};
+    const batched=collectionResult('failure-queue',[memory,batch]);
+    assert.equal(batched.side.failed,1);assert.equal(batched.side.updated,1);
+    assert.deepEqual(batched.side.failures,[failure]);
+    assert.equal(collectionResult('failure-queue',[memory,{...child,result:{failures:[]}}]).side.failed,1);
 });

@@ -7,6 +7,7 @@ import { normalizeSides, DEFAULT_SIDES, SIDE_COMMON } from './lore-side-config.j
 import { tierLabel } from './lore-maintenance.js';
 import { loreIcon } from './lore-icons.js';
 import { makeId } from './lore-api.js';
+import { SELECTION_FOCUS, normalizeSelectionFocus } from './lore-selection-focus.js';
 
 const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
 const button = (action, label, extra = '') => `<button type="button" class="al-button" data-action="${action}" ${extra}>${label}</button>`;
@@ -60,6 +61,10 @@ export function createLoreUI(api) {
             ${field('검색 후보 구간',input('candidateCount',s.candidateCount,'number','min="1" max="40"'))}
             </div>${check('keywordActivation','기존 키워드 발동도 허용',s.keywordActivation)}
             ${check('sideEnabled','사이드 기록 변화 자동 반영',s.sideEnabled !== false)}</details>
+            <details data-selection-focus><summary>기억 선별 중점</summary>
+            <fieldset class="al-selection-focus" aria-label="기억 선별 중점" ${s.mode==='embedding'?'disabled':''}>
+            ${SELECTION_FOCUS.map(item=>check('selectionFocus.'+item.id,item.label,s.selectionFocus.includes(item.id))).join('')}
+            </fieldset><small data-selection-focus-status role="status">${s.mode==='embedding'?'일반 임베딩에서는 AI 선별을 사용하지 않아 적용되지 않습니다.':'여러 개 선택 가능 · 선택하지 않으면 기존 자동 선별'}</small></details>
             <details><summary>자동 수집·숨기기</summary>
             ${check('autoCollect','새 대화 자동 수집',s.autoCollect)}
             ${field('수집 기준',select('autoMode',[['messages','메시지 개수'],['tokens','대화 토큰 수']],s.autoMode))}
@@ -142,6 +147,10 @@ export function createLoreUI(api) {
             }
             if(element.dataset.sideField){const name=element.dataset.sideField;saveSide(element.closest('[data-side]').dataset.side,{[name]:name==='enabled'?element.checked:element.value,...(name==='title'?{label:element.value}:{})});if(name==='title')element.closest('[data-side]').querySelector('summary').textContent=element.value;return;}
             if (!element.name) return;
+            if(element.name.startsWith('selectionFocus.')){
+                const id=element.name.slice('selectionFocus.'.length),current=normalizeSelectionFocus(api.settings().selectionFocus);
+                api.saveSettings({selectionFocus:normalizeSelectionFocus(element.checked?[...current,id]:current.filter(value=>value!==id))});return;
+            }
             let value = element.type === 'checkbox' ? element.checked : element.value;
             if (element.name.startsWith('prompt.')) {
                 const key = element.name.slice(7);
@@ -153,7 +162,13 @@ export function createLoreUI(api) {
                     api.saveSettings({embeddingProvider:value,embeddingKeys:keys,embeddingKey:keys[value] || '',embeddingModel:value==='openai'?'text-embedding-3-small':'gemini-embedding-001'});
                     paintSettings(container);
                 } else if(element.name==='embeddingKey') api.saveSettings({embeddingKey:value,embeddingKeys:{...api.settings().embeddingKeys,[api.settings().embeddingProvider]:value}});
-                else api.saveSettings({ [element.name]: value });
+                else {
+                    api.saveSettings({ [element.name]: value });
+                    if(element.name==='mode'){
+                        container.querySelector('.al-selection-focus').disabled=value==='embedding';
+                        container.querySelector('[data-selection-focus-status]').textContent=value==='embedding'?'일반 임베딩에서는 AI 선별을 사용하지 않아 적용되지 않습니다.':'여러 개 선택 가능 · 선택하지 않으면 기존 자동 선별';
+                    }
+                }
             }
         }));
         container.addEventListener('click', safe(async event => {

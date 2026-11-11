@@ -22,6 +22,32 @@ function fixture() {
         set key(v){key=v;},set failSave(v){failSave=v;},set failEmbed(v){failEmbed=v;},set config(v){config={...config,...v};}};
 }
 const memory=()=>JSON.stringify({entries:[{title:'병원 약속',content:'두 사람은 병원에 함께 가기로 약속했다.',keywords:['병원']}],sideChanges:[]});
+for(const mode of ['dialogue','questions','embedding'])test(`selection emphasis reaches only the selector in ${mode} mode without extra calls`,async()=>{
+    const f=fixture();f.config={mode,selectionFocus:['affection','meaning'],prompts:{select:'My custom selector'},injectionTokens:500};
+    f.book={entries:{0:{uid:0,comment:'Hospital visit',content:'They went to the hospital together. She thanked him for staying.'}}};
+    f.messages.splice(0,f.messages.length,{name:'A',is_user:true,mes:'Why was that hospital visit special?'});
+    let planners=0,selectors=0;
+    f.host.ask=async(_p,system,data)=>{
+        if(system.includes('"questions":')){
+            planners++;assert(!system.includes('MEMORY SELECTION EMPHASIS'));assert(!('selectionFocus' in data));
+            return '{"questions":["What happened at the hospital?"]}';
+        }
+        selectors++;assert(system.startsWith('My custom selector'));assert.match(system,/Affection and emotions/);assert.match(system,/Meaning and relationship changes/);
+        assert.deepEqual(data.selectionFocus,['affection','meaning']);assert.equal(data.injectionBudgetTokens,500);
+        const fact=data.memories.find(x=>x.text.includes('thanked'));
+        return JSON.stringify({selections:[{id:fact.id,priority:3,reason:'Recorded gratitude explains why this visit mattered.'}]});
+    };
+    await f.controller.index();const indexed=f.calls.filter(x=>x==='document').length;
+    const result=await f.controller.recall();assert(result.text.includes('thanked him'));assert(result.tokens<=500);
+    assert.equal(selectors,mode==='embedding'?0:1);assert.equal(planners,mode==='questions'?1:0);
+    assert.equal(f.calls.filter(x=>x==='document').length,indexed);
+});
+test('clearing selection emphasis restores the original selector request',async()=>{
+    const f=fixture();f.book={entries:{0:{uid:0,content:'They visited the hospital.'}}};await f.controller.index();
+    const systems=[];f.host.ask=async(_p,system,data)=>{systems.push(system);assert.equal('selectionFocus' in data,systems.length===2);return '{"selections":[]}';};
+    await f.controller.recall();f.config={selectionFocus:['boundaries']};await f.controller.recall();f.config={selectionFocus:[]};await f.controller.recall();
+    assert.equal(systems[0],systems[2]);assert.notEqual(systems[0],systems[1]);
+});
 test('count-only reads one book, never migrates vectors or reads receipts, and scopes its immediate cache',async()=>{
     const f=fixture();f.book={entries:{0:{uid:0,content:'First'},1:{uid:1,content:'Second'},2:{uid:2,content:'Core',constant:true},3:{uid:3,content:'Disabled',disable:true}}};
     let reads=0,checks=0;const load=f.host.loadBook;

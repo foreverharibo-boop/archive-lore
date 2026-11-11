@@ -63,6 +63,23 @@ test('direct embedding aborts on HTTP disconnect but persistent jobs do not',asy
     await started;res.emit('close');await result;assert(signal.aborted);assert.equal(res.listenerCount('close'),0);
 });
 async function done(service,user,id){for(let i=0;i<500;i++){const job=service.get(user,id);if(!['queued','running'].includes(job.status))return job;await new Promise(r=>setTimeout(r,5));}throw Error('job timeout');}
+test('server recall preserves selection emphasis in persisted jobs, AI requests and diagnostics',async t=>{
+    const f=fixture(t);atomic(f.book,{entries:{0:{uid:0,content:'They visited the hospital. She felt grateful for his support.'}}});
+    const input=f.input();input.settings.selectionFocus=['meaning','affection','unknown'];
+    let job=await f.service.submit(f.user,'index',input,randomUUID());assert.equal((await done(f.service,f.user,job.id)).status,'completed');
+    f.replies.push(payload=>{
+        const messages=payload.messages,system=messages.find(x=>x.role==='system').content,data=JSON.parse(messages.find(x=>x.role==='user').content);
+        assert.match(system,/MEMORY SELECTION EMPHASIS/);assert.deepEqual(data.selectionFocus,['affection','meaning']);
+        const unit=data.memories.find(x=>x.text.includes('grateful'));
+        return JSON.stringify({selections:[{id:unit.id,priority:3,reason:'Recorded gratitude'}]});
+    });
+    job=await f.service.submit(f.user,'recall',input,randomUUID());const result=await done(f.service,f.user,job.id);
+    assert.equal(result.status,'completed',result.message);assert(result.result.text.includes('grateful'));assert.equal(f.calls.length,1);
+    const saved=json(path.join(f.root,'archive-lore-server','jobs',job.id+'.json'));
+    assert.deepEqual(saved.input.settings.selectionFocus,['affection','meaning']);
+    const logs=await f.service.logs(f.user,'test-key');
+    assert(logs.some(r=>r.events.some(e=>e.stage==='selection.plan'&&e.data.selectionFocus.join(',')==='affection,meaning')));
+});
 test('accepted collection survives without polling; saves book, vector, hide flags and redacted diagnostics on disk',async t=>{
     const f=fixture(t);f.replies.push(memory());const id=randomUUID(),job=await f.service.submit(f.user,'collect',f.input(),id);
     assert.equal((await f.service.submit(f.user,'collect',f.input(),id)).id,job.id);

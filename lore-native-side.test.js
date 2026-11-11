@@ -3,11 +3,10 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 import { SIDE_COMMON, DEFAULT_SIDES } from './lore-side-config.js';
-import { migrationSideTemplates } from './lore-migration.js';
 import { adaptArchiveSideTemplate, migrateArchiveSideTemplates, PLAIN_SIDE_FORMAT, validatePlainSideRecord } from './lore-native-side.js';
 
 test('all six migrated records use readable record formats without old JSON operation instructions',()=>{
- const rows=migrationSideTemplates({sidePrompt:SIDE_COMMON},'imported');
+ const rows=DEFAULT_SIDES.map(side=>adaptArchiveSideTemplate({key:side.id,prompt:SIDE_COMMON+'\n'+side.prompt,responseFormat:'',settings:{archiveLoreSetOnly:true}}));
  assert.equal(rows.length,6);
  for(const tpl of rows){
   assert.equal(tpl.responseFormat,PLAIN_SIDE_FORMAT);

@@ -61,16 +61,6 @@ export function organizeMemoryBooks(root, actions = {}, explicitContent = null) 
     for(const child of [...content.children])if(child!==heading)advanced.append(child);
     content.append(home);
     if(actions['al-context-panel'])home.append(actions['al-context-panel']());
-    let migrationPanel;
-    if(actions['al-migrate']){
-        const box=document.createElement('div');box.className='al-migration-panel';
-        const label=document.createElement('strong');label.textContent='기존 아카이브 로어 기억 이관';
-        const help=document.createElement('small');help.textContent='원본 백업 파일이 먼저 다운로드됩니다. 재업로드할 필요 없이 이관이 이어집니다. 아래에 완료가 표시될 때까지 기다려 주세요.';
-        const b=document.createElement('button');b.type='button';b.className='menu_button';b.textContent='기존 기억 가져오기';
-        const state=document.createElement('p');state.setAttribute('role','status');
-        b.onclick=async()=>{b.disabled=true;state.textContent='백업·이관 중…';try{state.textContent=await actions['al-migrate'](message=>{state.textContent=message;});}catch(e){state.textContent=e.message;}finally{b.disabled=false;}};
-        box.append(label,help,b,state);migrationPanel=box;
-    }
     const nav=document.createElement('nav');nav.className='al-home-tabs';nav.setAttribute('aria-label','아카이브 로어 메뉴');home.append(nav);
     const features=new Map(FEATURE_GROUPS.flatMap(g=>g[2]).map(f=>[f[0],f]));
     const panes=new Map();
@@ -100,7 +90,6 @@ export function organizeMemoryBooks(root, actions = {}, explicitContent = null) 
     const scene=advanced.querySelector('#stmb-scene');
     if(scene){const details=document.createElement('details');details.className='al-selected-scene';const label=document.createElement('summary');label.textContent='선택한 대화 범위 확인';details.append(label,scene);
         if(actions['al-native-clear']){const b=document.createElement('button');b.type='button';b.className='menu_button';b.textContent='선택 범위 지우기';b.onclick=actions['al-native-clear'];details.append(b);}panes.get('collect').append(details);}
-    if(migrationPanel){const details=document.createElement('details');details.className='al-migration-details';const label=document.createElement('summary');label.textContent='기존 기억 가져오기';details.append(label,migrationPanel);panes.get('settings').append(details);}
     panes.get('settings').append(advanced);
     function select(key){
         if(!panes.has(key))key='collect';home.dataset.tab=key;root.dataset.alHomeTab=key;

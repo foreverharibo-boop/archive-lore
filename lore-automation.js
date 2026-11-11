@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { estimateTokens, matchesRange } from './lore-core.js';
 // A server result refresh is not a new edit. Re-indexing it creates a feedback loop.
-export function shouldIndexBookUpdate(name, books, metadata, migrating = false) {
-    return !migrating && !metadata?.archiveLoreServerSync && books.includes(name);
+export function shouldIndexBookUpdate(name, books, metadata) {
+    return !metadata?.archiveLoreServerSync && books.includes(name);
 }
 export async function syncServerBooks(job, {loadBook, cache, emit}) {
     // Read-only jobs and indexing never change book content or require update notifications.

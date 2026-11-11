@@ -48,7 +48,7 @@ window.collectionSettings={defaultProfile:0,profiles:[{name:'기본 수집',conn
 const root=document.querySelector('#content');root.innerHTML=settingsTemplate({profiles:[{name:'기본 수집',isDefault:true}],selectedProfile:{connection:{api:'현재 프로필',model:'연결 모델'},effectivePrompt:'Preserve established facts.'},currentLorebookName:'기존 기억',highestMemoryProcessed:2105,hasHighestMemoryProcessed:true});
 window.clicks=[];
 function populate(){for(const [, ,features] of FEATURE_GROUPS)for(const [id] of features)if(id.startsWith('stmb-')){const b=document.createElement('div');b.id=id;b.textContent=id;b.onclick=()=>clicks.push(id);root.querySelector('#stmb-prompt-manager-buttons').append(b);}}
-window.paint=()=>{restoreFeatureButtons(root);root.querySelector('#stmb-prompt-manager-buttons').replaceChildren();populate();const actions=Object.fromEntries(FEATURE_GROUPS.flatMap(g=>g[2]).filter(f=>f[0].startsWith('al-')).map(f=>[f[0],()=>clicks.push(f[0])]));actions['al-context-panel']=()=>createHomeContext({settings:collectionSettings,markers:{highestMemoryProcessed:2105},length:2120,book:'현재 연결된 테스트 로어북 이름',books:['현재 연결된 테스트 로어북 이름'],changeBook:()=>clicks.push('book'),changeProfile:index=>{collectionSettings.defaultProfile=index;paint();},editProfile:()=>clicks.push('edit-profile'),newProfile:()=>clicks.push('new-profile'),connection:createConnectionPicker({settings:collectionSettings,profiles:[{id:'saved',name:'저장된 제미나이'}],service:{getProfile:id=>({id,model:'stored-model'}),validateProfile:()=>({selected:'openai',source:'makersuite'}),sendRequest(){}},save:()=>window.savedConnection=true,compact:true})});actions['al-migrate']=async()=> '이관 완료';organizeMemoryBooks(root,actions,root);};paint();installSettingsHelp({read:()=>true,write:()=>{}});window.ready=true;
+window.paint=()=>{restoreFeatureButtons(root);root.querySelector('#stmb-prompt-manager-buttons').replaceChildren();populate();const actions=Object.fromEntries(FEATURE_GROUPS.flatMap(g=>g[2]).filter(f=>f[0].startsWith('al-')).map(f=>[f[0],()=>clicks.push(f[0])]));actions['al-context-panel']=()=>createHomeContext({settings:collectionSettings,markers:{highestMemoryProcessed:2105},length:2120,book:'현재 연결된 테스트 로어북 이름',books:['현재 연결된 테스트 로어북 이름'],changeBook:()=>clicks.push('book'),changeProfile:index=>{collectionSettings.defaultProfile=index;paint();},editProfile:()=>clicks.push('edit-profile'),newProfile:()=>clicks.push('new-profile'),connection:createConnectionPicker({settings:collectionSettings,profiles:[{id:'saved',name:'저장된 제미나이'}],service:{getProfile:id=>({id,model:'stored-model'}),validateProfile:()=>({selected:'openai',source:'makersuite'}),sendRequest(){}},save:()=>window.savedConnection=true,compact:true})});organizeMemoryBooks(root,actions,root);};paint();installSettingsHelp({read:()=>true,write:()=>{}});window.ready=true;
 </script>`;
 const server=http.createServer(async(req,res)=>{try{
     const pathname=new URL(req.url,'http://local').pathname;
@@ -94,16 +94,13 @@ try{
         assert.equal(await page.evaluate(()=>collectionSettings.profiles[0].archiveLoreConnectionProfileId),'saved');
         assert.equal(await page.evaluate(()=>collectionSettings.profiles[0].connection.model),'old');
         assert(await page.evaluate(()=>savedConnection));
-        await page.locator('.al-migration-details summary').click();
-        await page.getByRole('button',{name:'기존 기억 가져오기',exact:true}).click();await page.getByRole('status').filter({hasText:'이관 완료'}).waitFor();
         await page.evaluate(()=>document.fonts.ready);
         assert(await page.locator('.al-feature-button').evaluateAll(items=>items.every(el=>el.getBoundingClientRect().right<=el.parentElement.getBoundingClientRect().right)));
-        const migration=page.getByRole('button',{name:'기존 기억 가져오기',exact:true});
-        assert(await migration.evaluate(el=>el.getBoundingClientRect().width>el.getBoundingClientRect().height*2));
+        assert.equal(await page.getByRole('button',{name:'기존 기억 가져오기',exact:true}).count(),0);
         // Match the host's narrow button default in independent tool and extension surfaces too.
         await page.evaluate(()=>{
             const fixture=document.createElement('div');fixture.id='tool-fixture';
-            fixture.innerHTML='<div class="al-search-tools"><div class="al-tool-buttons"><button class="menu_button">백업하고 기억 가져오기</button><button class="menu_button">검색 미리보기</button><button class="menu_button">진단 TXT 다운로드</button></div></div><div class="al-fork-settings"><div class="al-extension-actions"><button class="menu_button">아카이브 로어 열기</button><button class="menu_button">검색·임베딩 설정</button></div></div>';
+            fixture.innerHTML='<div class="al-search-tools"><div class="al-tool-buttons"><button class="menu_button">검색 미리보기</button><button class="menu_button">진단 TXT 다운로드</button></div></div><div class="al-fork-settings"><div class="al-extension-actions"><button class="menu_button">아카이브 로어 열기</button><button class="menu_button">검색·임베딩 설정</button></div></div>';
             document.querySelector('#content').append(fixture);
         });
         assert(await page.locator('#tool-fixture button').evaluateAll(items=>items.every(el=>{
@@ -264,5 +261,5 @@ try{
     await page.evaluate(()=>{failure=true;return toolsPanel.refresh();});await page.getByText('임베딩 개수를 확인하지 못했습니다.',{exact:true}).waitFor();
     assert(await page.getByText('조회 실패',{exact:true}).isVisible());
     await page.evaluate(()=>{toolsPanel.dispose();emit();});assert.equal(await page.evaluate(()=>listenerCount()),0);
-    assert.deepEqual(errors,[]);console.log('Fork home: three tabs, visible migration, host without popup-content class, actions, refresh and mobile/desktop passed.');
+    assert.deepEqual(errors,[]);console.log('Fork home: three tabs, retired importer absent, host without popup-content class, actions, refresh and mobile/desktop passed.');
 }finally{await browser.close();server.close();}

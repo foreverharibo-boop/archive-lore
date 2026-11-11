@@ -257,7 +257,6 @@ async function intercept(_chat,_contextSize,abort,type) {
     if(pendingGeneration)await pendingGeneration.trace.finish('superseded',{nextAttempt:trace.id});
     pendingGeneration=null;
     try {
-        if(globalThis.archiveLoreMigrating)throw new Error('기억 이관이 끝난 뒤 다시 전송해 줘.');
         if(writing)throw new Error('기억 저장이 끝난 뒤 다시 전송해 줘.');
         const result=await backgroundRecall.prepare(type,trace) || await controller.recall({kind:'generation',generationType:type,trace});
         if(epoch!==generationEpoch || generationStopped || chatContext().key!==context.key)throw new DOMException('생성이 중지되어 검색 결과를 주입하지 않았어.','AbortError');

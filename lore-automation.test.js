@@ -57,7 +57,6 @@ test('server completion notifications do not enqueue another automatic index',as
     await syncServerBooks({kind:'collect',books},host);
     await syncServerBooks({kind:'applyMaintenance',books},host);
     assert.equal(indexes,1);assert.equal(loads,2);assert.equal(events,2);assert(cache.has('Book'));
-    assert(!shouldIndexBookUpdate('Book',books,undefined,true));
     assert(!shouldIndexBookUpdate('Unrelated',books));
     assert(shouldIndexBookUpdate('Book',books));
 });

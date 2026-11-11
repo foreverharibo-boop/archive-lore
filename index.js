@@ -510,7 +510,7 @@ async function handleSetHighestMemoryProcessedCommand(namedArgs, unnamedArgs) {
  * @returns {boolean} True if memory creation is in progress
  */
 export function isMemoryProcessing() {
-  return !!globalThis.archiveLoreUndoing || !!globalThis.archiveLoreMigrating || isProcessingMemory || hasActiveStmbJobs(getStmbChatKey());
+  return !!globalThis.archiveLoreUndoing || isProcessingMemory || hasActiveStmbJobs(getStmbChatKey());
 }
 
 export { currentProfile };
@@ -1711,7 +1711,6 @@ function validateSceneMemoryRange(startId, endId) {
 }
 
 async function collectNextArchiveLore() {
-  if (globalThis.archiveLoreMigrating) throw new Error('이관이 끝난 뒤 수집해 주세요.');
   if (isMemoryProcessing()) throw new Error('진행 중인 수집이 끝난 뒤 다시 눌러 주세요.');
   const range=nextCollectionRange(getSceneMarkers(),chat.length);
   if (!range.count) { toastr.info('새로 수집할 메시지가 없습니다.','Archive Lore'); return false; }
@@ -1720,7 +1719,6 @@ async function collectNextArchiveLore() {
 
 async function runSceneMemoryRange(startId, endId, options = {}) {
   if(globalThis.archiveLoreFork && isMemoryProcessing())throw new Error('진행 중인 수집이 끝난 뒤 다시 눌러 주세요.');
-  if(globalThis.archiveLoreMigrating)throw new Error('이관이 끝난 뒤 수집해 줘.');
   if (guardPendingProgress()) return false;
   const { showSceneToast = true } = options;
 
@@ -1905,7 +1903,6 @@ async function handleSceneMemoryCommand(namedArgs, unnamedArgs) {
 }
 
 async function handleStmbCatchupCommand(namedArgs) {
-  if(globalThis.archiveLoreMigrating)throw new Error('이관이 끝난 뒤 수집해 줘.');
   if (guardPendingProgress()) return "";
   try {
     if (isProcessingMemory) {
@@ -7060,7 +7057,6 @@ async function showConsolidationRecoveryPopup() {
 
 async function initiateMemoryCreation(selectedProfileIndex = null) {
   if(globalThis.archiveLoreUndoing){toastr.info('되돌리기가 끝난 뒤 수집해 줘.','Archive Lore');return false;}
-  if(globalThis.archiveLoreMigrating){toastr.info('이관이 끝난 뒤 수집해 줘.','Archive Lore');return false;}
   const reminderChatKey = getStmbChatKey();
   if (guardPendingProgress()) return false;
   // Early validation checks (no flag set yet) - GROUP CHAT COMPATIBLE
@@ -8219,7 +8215,6 @@ function populateInlineButtons() {
     'al-preferences': () => showArchiveLorePreferences(),
     'al-search-settings': () => globalThis.archiveLoreSearch.openSettings(),
     'al-search-tools': () => globalThis.archiveLoreSearch.openTools(),
-    'al-migrate': (report) => globalThis.archiveLoreMigration(report),
     'al-native-clear': () => {clearScene();return refreshPopupContent();},
   };
   if(nativePreferences(settings).layout==='original')appendOriginalTools(currentPopupInstance.dlg,actions,currentPopupInstance.content);
@@ -15089,26 +15084,4 @@ if (globalThis.archiveLoreFork) globalThis.archiveLoreMemoryBooks = {
   route: getArchiveLoreBookRoute,
   books: () => [...getCurrentChatLorebookNames(initializeSettings())],
   refresh: refreshPopupContent,
-  async saveMigrationPrompts(config, templates, setKey) {
-    const manager = await import('./sidePromptsManager.js');
-    for (const template of templates) await manager.upsertTemplate(template);
-    await manager.upsertSet({key:setKey,name:'Archive Lore · 이관한 사이드 기록',items:templates.map(t=>({id:t.key,promptKey:t.key}))});
-    const preset='archive-lore-imported';
-    await SummaryPromptManager.upsertPreset(preset, config.prompts.collect + '\n\nOutput ONE Memory Books JSON object: {"title":"short title","content":"complete English memory","keywords":[]}. Do not return sideChanges or memories arrays. These output rules override old output formats.', 'Archive Lore · 이관한 수집 프롬프트');
-    const settings=initializeSettings();
-    let profile=settings.profiles.find(p=>p.name==='Archive Lore · 이관');
-    if(!profile){profile={...deepClone(settings.profiles[settings.defaultProfile] || settings.profiles[0]),profileKey:generateProfileKey(),name:'Archive Lore · 이관'};delete profile.isBuiltinCurrentST;settings.profiles.push(profile);}
-    profile.preset=preset;
-    profile.archiveLoreConnectionProfileId=config.profile || "";
-    // Retain the user's complete source settings separately; never silently reinterpret API secrets.
-    settings.defaultProfile=settings.profiles.indexOf(profile);
-    settings.moduleSettings.autoSummaryEnabled=!!config.autoCollect;
-    settings.moduleSettings.autoSummaryTriggerMode=config.autoMode;
-    settings.moduleSettings.autoSummaryInterval=config.autoMessages;
-    settings.moduleSettings.autoSummaryTokenThreshold=config.autoTokens;
-    settings.moduleSettings.autoSummaryBuffer=0;
-    settings.moduleSettings.autoHideMode='all';
-    settings.moduleSettings.unhiddenEntriesCount=config.keepMessages;
-    saveSettingsDebounced();
-  },
 };

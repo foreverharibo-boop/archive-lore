@@ -49,35 +49,31 @@ Server counts reflect vectors already present on the server. Browser-only vector
 The RP stop button cancels Archive Lore retrieval (question generation, embeddings and AI selection), native in-flight tasks, and queued automatic embedding. A following generation-ended event does not restart the canceled automatic work. Late recall results cannot install prompts after stopping. Server cancellation also uses the client request ID when submission has not yet returned a job ID; update both extension and server plugin and restart SillyTavern to enable this path (server 0.3.6). Chat switching still detaches persistent server jobs rather than canceling them. Completed saved memories are retained. Cancellation aborts outgoing requests; an external provider may already have processed or billed work before receiving the disconnect.
 
 
-## Temporary standalone-data migration
+## Retired standalone-data importer
 
-In each existing chat, use **기존 기억 가져오기** at the top of the Archive Lore home. It is also accessible directly from Extensions → Archive Lore → 기존 기억 가져오기, or `/al-migrate`, even without opening the home. This imports old Archive Lore data, not the separate Archive extension. The importer downloads a backup without embedding credentials, copies each selected book to a separate `· AL` book, writes native memory fields and native side-prompt titles/templates, reads the copies back to verify the writes, and then changes this chat's target/search books. Original books are retained. This chat excludes retained source books from native World Info activation so source and copy cannot inject twice; other chats keep their original bindings. Do not delete them while checking the result. Allocation is saved before writes so a failed retry reuses destinations. Collection checkpoints are calculated only from matching contiguous source receipts. Existing uncollected external lore entries do not invent a collection checkpoint.
-
-Migration snapshots the current branch's materialized content; incompatible source records remain disabled. Old branch/history data stays in the original books and backup. Native regeneration can only recover original dialogue where valid source message ranges exist. Side prompts are converted into native complete-record updates and an explicit after-memory set; they do not auto-run in unrelated chats. The old collection prompt becomes a native preset with the required single-memory JSON response contract.
-
-Embeddings are copied only for identical chunk text with the same provider/model settings; changed chunk text remains pending. No AI reclassification or re-summarization is performed during migration. Converted book entries have no `archiveLore` metadata dependency: the one-time importer can later be removed without a special legacy entry reader. Normal native book loading and the new search/embedding layer remain. Current source books are never overwritten.
+The temporary standalone-data importer has been removed from the home, extension drawer, original-layout tools, and slash commands. Updating does not delete or rewrite existing memories, side templates, profiles, embeddings, collection checkpoints, or chat book bindings. Compatibility for already converted data and retained source-book exclusions remains active.
 
 ## Validation limits
 
-Automated tests cover native units, retrieval/server behavior, source conversion and retry handling. Browser fixtures exercise the real native template, grouped controls, refresh, keyboard and mobile/desktop layout. These are mocked host tests, not an end-to-end installed SillyTavern session or paid RP/API validation.
+Automated tests cover native units, retrieval/server behavior, saved-data compatibility and retry handling. Browser fixtures exercise the real native template, grouped controls, refresh, keyboard and mobile/desktop layout. These are mocked host tests, not an end-to-end installed SillyTavern session or paid RP/API validation.
 
 The following 0.4.x section is retained only to describe old data and server internals. Its standalone collection/dashboard instructions are not the active 0.5.0 UI. The original Memory Books reference below it describes the active native workflows.
 
 ---
 
-Fork UI descriptions use polite Korean. Buttons in native fork popups, migration/search tools, and the extension drawer retain horizontal labels; action rows wrap whole buttons on narrow screens. The native popup marker scopes these rules to Archive Lore.
+Fork UI descriptions use polite Korean. Buttons in native fork popups, search tools, and the extension drawer retain horizontal labels; action rows wrap whole buttons on narrow screens. The native popup marker scopes these rules to Archive Lore.
 
-Migration reports each phase (source read, backup, destination allocation/write/verification, vector copy, prompt save, chat binding) and includes the failing phase in errors. Transport errors distinguish timeout from network failure and show the plugin route; they no longer claim that synchronous migration continues on the server. Source books remain preserved. Prompt/token-count dry runs do not set the fork's generation-busy flags. These messages improve diagnosis; they do not guarantee server availability or repair unrelated chat integrity metadata.
+Transport errors distinguish timeout from network failure and show the plugin route. Prompt/token-count dry runs do not set the fork's generation-busy flags. These messages improve diagnosis; they do not guarantee server availability or repair unrelated chat integrity metadata.
 
 ### Server 0.3.5: automatic indexing and polling
 
-Update both repository checkouts (extension and `plugins/archive-lore-server`) and restart the ST server, then reload the browser. Automatic indexing ignores server-result refresh notifications and is suspended during migration. An index job does not rewrite a lorebook, so completing one no longer emits book update events that schedule another index. Real native/editor saves still trigger automatic indexing.
+Update both repository checkouts (extension and `plugins/archive-lore-server`) and restart the ST server, then reload the browser. Automatic indexing ignores server-result refresh notifications. An index job does not rewrite a lorebook, so completing one no longer emits book update events that schedule another index. Real native/editor saves still trigger automatic indexing.
 
 Concurrent restores share one request sequence and completed results synchronize once. The active run's polling loop does not also start the background restore timer. `/jobs/get` no longer reads/hashes the whole chat for running jobs or recall results. Completed collect/index results still refresh actual hide flags. Indexing uses a cheap chat-key check per chunk and yields to the server event loop every sixteen chunks; source-content checks before writes remain intact.
 
-The 30-second timeout applies to each ordinary HTTP request, not the total migration or AI job. Migration first checks existing server jobs, downloads a source backup, copies and verifies books and compatible cached vectors, saves native prompts, then changes chat bindings. The downloaded JSON is a backup, not a file the user must upload. There is no overall 30-second migration deadline.
+The 30-second timeout applies to each ordinary HTTP request, not the total AI job.
 
-# Legacy standalone runtime (0.4.x; migration reference only)
+# Legacy standalone runtime (0.4.x; historical reference only)
 
 This repository is an AGPL-3.0-only fork of Aiko Hanasaki's Memory Books. The manifest now loads `archive-lore.js` and `lore-style.css` directly. The upstream `index.js`, bundles, and other features remain as historical fork source; they are not loaded by this runtime. Upstream connection-profile routing, chat message fingerprints, lorebook naming, and the default compaction prompt are reused. Settings, IndexedDB storage, chat metadata, prompt slots, menu IDs, and slash commands use independent Archive Lore namespaces.
 
@@ -3126,7 +3122,7 @@ checkpoint. Existing memories are not moved or merged when changing this setting
 
 **아카이브 로어** keeps the three-tab home. **오리지널 메모리북** renders the native
 Memory Books template, original controls/listeners and original footer buttons;
-Archive Lore collection shortcuts, retrieval, migration and preferences are
+Archive Lore collection shortcuts, retrieval and preferences are
 appended separately. The original template is not run through the custom layout
 or help-text transformations. Both layouts use the same settings and data.
 

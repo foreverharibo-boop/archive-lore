@@ -1,4 +1,4 @@
-import { ARCHIVE_LORE_TITLE_FORMAT } from './lore-native-title.js';
+import { ARCHIVE_LORE_TITLE_FORMAT, isArchiveLoreDateFormat, archiveLoreDateTitle } from './lore-native-title.js';
 import { advanceCollectionCheckpoint } from './lore-native-progress.js';
 // Copyright (C) 2024–2026 Aiko Hanasaki
 // SPDX-License-Identifier: AGPL-3.0-only
@@ -620,6 +620,10 @@ export async function addMemoryToLorebook(memoryResult, lorebookValidation, opti
         const entryTitle = options.entryTitle
             ? sanitizeTitle(String(options.entryTitle))
             : generateEntryTitle(titleFormat, effectiveMemoryResult, lorebookValidation.data);
+        // A date-only title still needs an internal sequence for regeneration and auto order.
+        if (isArchiveLoreDateFormat(titleFormat)) {
+            newEntry.STMB_memoryNumber = getNextEntryNumber(lorebookValidation.data, titleFormat);
+        }
         populateLorebookEntry(newEntry, effectiveMemoryResult, entryTitle, lorebookSettings);
         if (options.inclusionGroup) {
             newEntry.group = String(options.inclusionGroup);
@@ -720,7 +724,7 @@ function populateLorebookEntry(entry, memoryResult, entryTitle, lorebookSettings
     entry.comment = entryTitle;
     
     // Extract order number from title for auto-numbering
-    const orderNumber = extractNumberFromTitle(entryTitle) || 1;
+    const orderNumber = entry.STMB_memoryNumber ?? (extractNumberFromTitle(entryTitle) || 1);
     applyLorebookEntrySettings(entry, lorebookSettings, {
         orderNumber,
         orderNumberLabel: 'memory',
@@ -819,6 +823,7 @@ function generateEntryTitle(titleFormat, memoryResult, lorebookData) {
  * @returns {string} The generated title
  */
 export function generateEntryTitleAtNumber(titleFormat, memoryResult, sequenceNumber, options = {}) {
+    if (isArchiveLoreDateFormat(titleFormat)) return archiveLoreDateTitle(memoryResult.extractedTitle);
     let title = applyFixedSequenceNumber(titleFormat, sequenceNumber);
     if (options.forceNumber && !hasSequenceNumberPlaceholder(titleFormat)) {
         title = `[${String(sequenceNumber).padStart(3, '0')}] ${title}`;
@@ -871,7 +876,8 @@ function getNextEntryNumber(lorebookData, titleFormat = null) {
         // Only check memory entries for numbering conflicts
         if (isMemoryEntry(entry) && entry.comment) {
             // Use format-aware extraction if available, otherwise fall back to original method
-            const number = titleFormat
+            const stored = entry.STMB_memoryNumber;
+            const number = Number.isSafeInteger(stored) && stored >= 1 ? stored : titleFormat
                 ? extractNumberUsingFormat(entry.comment, titleFormat)
                 : extractNumberFromTitle(entry.comment);
             if (number !== null) {

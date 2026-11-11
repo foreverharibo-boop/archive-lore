@@ -58,6 +58,74 @@ test('changed chat, native save failure and silent no-op are reported without tr
     }
 });
 
+test('a save failure after flags change immediately retries once and successful saves are not repeated', async () => {
+    const {scope,state,messages}=harness();
+    let saves=0;
+    scope.hideChatMessageRange=async(start,end)=>{
+        saves++;
+        for(let i=start;i<=end;i++)messages[i].is_system=true;
+        if(saves===1) throw Error('save failed after flags changed');
+    };
+    const memory={metadata:{sceneRange:'0-19'}};
+    const settings={autoHideMode:'all',unhiddenEntriesCount:8};
+    assert.equal(await scope.applySavedMemoryAutoHide(memory,settings),true);
+    assert.equal(saves,2);
+    assert.equal(state.warnings.length,0);
+    assert(messages.slice(12).every(m=>!m.is_system));
+    await scope.applySavedMemoryAutoHide(memory,settings);
+    assert.equal(saves,2);
+});
+
+test('two failed saves warn and remain retryable despite all target flags already being hidden', async () => {
+    const {scope,state,messages}=harness();
+    let saves=0;
+    scope.hideChatMessageRange=async(start,end)=>{
+        saves++;
+        for(let i=start;i<=end;i++)messages[i].is_system=true;
+        if(saves<=2) throw Error('save failed');
+    };
+    const memory={metadata:{sceneRange:'0-19'}};
+    const settings={autoHideMode:'all',unhiddenEntriesCount:8};
+    assert.equal(await scope.applySavedMemoryAutoHide(memory,settings),false);
+    assert.equal(saves,2);
+    assert.equal(state.warnings.length,1);
+    assert.equal(await scope.applySavedMemoryAutoHide(memory,settings),true);
+    assert.equal(saves,3);
+    await scope.applySavedMemoryAutoHide(memory,settings);
+    assert.equal(saves,3);
+});
+
+test('immediate retry also recovers failures before hiding and silent no-ops', async () => {
+    for(const silent of [false,true]) {
+        const {scope,messages}=harness();
+        let calls=0;
+        scope.hideChatMessageRange=async(start,end)=>{
+            calls++;
+            if(calls===1) {
+                if(silent) return;
+                throw Error('hide failed');
+            }
+            for(let i=start;i<=end;i++)messages[i].is_system=true;
+        };
+        assert.equal(await scope.applyAutoHideRanges([{start:0,end:11}],messages),12);
+        assert.equal(calls,2);
+    }
+});
+
+test('a chat switch during a failed save prevents the immediate retry from hiding the new chat', async () => {
+    const {scope,state,messages}=harness();
+    const other=[{is_system:false}];
+    let calls=0;
+    scope.hideChatMessageRange=async()=>{
+        calls++;
+        state.ctx={chat:other};
+        throw Error('save failed');
+    };
+    await assert.rejects(scope.applyAutoHideRanges([{start:0,end:11}],messages));
+    assert.equal(calls,1);
+    assert.equal(other[0].is_system,false);
+});
+
 test('successful memory generation retries missing auto-hide on saved-job resume before post-save work',()=>{
     const index=read('./index.js');
     const start=index.indexOf('if (payload.resumeSavedMemory === true)');

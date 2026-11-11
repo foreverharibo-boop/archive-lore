@@ -1,3 +1,4 @@
+import { ARCHIVE_LORE_TITLE_FORMAT } from './lore-native-title.js';
 import { advanceCollectionCheckpoint } from './lore-native-progress.js';
 // Copyright (C) 2024–2026 Aiko Hanasaki
 // SPDX-License-Identifier: AGPL-3.0-only
@@ -801,6 +802,7 @@ export function generateEntryTitleAtNumber(titleFormat, memoryResult, sequenceNu
     const metadata = memoryResult.metadata || {};
     const substitutions = {
         '{{title}}': memoryResult.extractedTitle || i18n('addlore.defaults.title', 'Memory'),
+        '{{archiveLoreTitle}}': memoryResult.extractedTitle || i18n('addlore.defaults.title', 'Memory'),
         '{{scene}}': i18n('addlore.defaults.scene', 'Scene {{range}}', { range: metadata.sceneRange || i18n('common.unknown', 'Unknown') }),
         '{{char}}': metadata.characterName || i18n('common.unknown', 'Unknown'),
         '{{groupname}}': metadata.groupName || i18n('common.unknown', 'Unknown'),
@@ -1077,7 +1079,8 @@ function sanitizeTitle(title) {
  * @returns {Array<string>} Array of title format options
  */
 export function getDefaultTitleFormats() {
-    return DEFAULT_TITLE_FORMATS.map((fmt, idx) => i18n(`addlore.titleFormats.${idx}`, fmt));
+    const formats = DEFAULT_TITLE_FORMATS.map((fmt, idx) => i18n(`addlore.titleFormats.${idx}`, fmt));
+    return globalThis.archiveLoreFork ? [ARCHIVE_LORE_TITLE_FORMAT, ...formats] : formats;
 }
 
 /**
@@ -1105,7 +1108,7 @@ export function validateTitleFormat(format) {
     
     // Check for valid placeholder syntax
     const invalidPlaceholders = format.match(/\{\{[^}]*\}\}/g)?.filter(placeholder => {
-        const validPlaceholders = ['{{title}}', '{{scene}}', '{{char}}', '{{groupname}}', '{{present}}', '{{user}}', '{{messages}}', '{{profile}}', '{{date}}', '{{time}}'];
+        const validPlaceholders = ['{{archiveLoreTitle}}', '{{title}}', '{{scene}}', '{{char}}', '{{groupname}}', '{{present}}', '{{user}}', '{{messages}}', '{{profile}}', '{{date}}', '{{time}}'];
         return !validPlaceholders.includes(placeholder);
     });
     

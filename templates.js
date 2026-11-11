@@ -151,7 +151,7 @@ export const settingsTemplate = Handlebars.compile(`
             <h4 data-i18n="STMemoryBooks_TitleFormat">Memory Title Format:</h4>
             <select id="stmb-title-format-select" class="text_pole">
                 {{#each titleFormats}}
-                <option value="{{value}}" {{#if isSelected}}selected{{/if}}>{{value}}</option>
+                <option value="{{value}}" {{#if isSelected}}selected{{/if}}>{{#if label}}{{label}}{{else}}{{value}}{{/if}}</option>
                 {{/each}}
                 <option value="custom" {{#if isCustomTitleFormat}}selected{{/if}} data-i18n="STMemoryBooks_CustomTitleFormat">Custom Title Format...</option>
             </select>

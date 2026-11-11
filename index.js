@@ -1,3 +1,4 @@
+import { titleFormatLabel } from './lore-native-title.js';
 import { createHomeContext } from './lore-native-home.js';
 import { advanceCollectionCheckpoint, nextCollectionRange } from './lore-native-progress.js';
 import { createConnectionPicker } from './lore-native-connection.js';
@@ -8890,8 +8891,6 @@ async function showArcPromptManagerPopup() {
       '<button id="stmb-apm-recreate-builtins" class="menu_button whitespacenowrap" data-i18n="STMemoryBooks_ArcPromptManager_RecreateBuiltins">♻️ Recreate Built-in Consolidation Prompts</button>';
     content += "</div>";
 
-    if (globalThis.archiveLoreFork) content += '<button id="al-restore-default-arc" class="menu_button">기본 통합 프롬프트 복원</button>';
-
     // Hidden file input for import
     content +=
       '<input type="file" id="stmb-apm-import-file" accept=".json" style="display: none;" />';
@@ -9053,18 +9052,6 @@ function setupArcPromptManagerEventHandlers(popup) {
     ?.addEventListener("change", async (e) => {
       await importArcPrompts(e, popup);
     });
-
-  dlg.querySelector('#al-restore-default-arc')?.addEventListener('click', async () => {
-    const confirmation = new Popup('<h3>기본 통합 프롬프트 복원</h3><p>기본 다중 통합 프롬프트 한 개를 원본으로 복원하고 기본값으로 선택합니다. 다른 프롬프트는 유지됩니다.</p>', POPUP_TYPE.CONFIRM, '', {okButton:'복원',cancelButton:'취소'});
-    if (await confirmation.show() !== POPUP_RESULT.AFFIRMATIVE) return;
-    try {
-      await ArcPrompts.restoreDefaultPreset();
-      window.dispatchEvent(new CustomEvent('stmb-arc-presets-updated'));
-      toastr.success('기본 통합 프롬프트를 복원했습니다.', 'Archive Lore');
-      popup.completeAffirmative();
-      await showArcPromptManagerPopup();
-    } catch (error) { toastr.error(error.message, 'Archive Lore'); }
-  });
 
   // Recreate built-ins (remove overrides for built-in keys)
   dlg
@@ -11181,6 +11168,7 @@ async function buildSettingsTemplateData({ includeSidePromptSets = false } = {})
     selectedRegexIncoming,
     titleFormats: getDefaultTitleFormats().map((format) => ({
       value: format,
+      label: titleFormatLabel(format),
       isSelected: format === defaultProfileTitleFormat,
     })),
     isCustomTitleFormat,

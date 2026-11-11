@@ -125,7 +125,7 @@ export function createLoreController(host) {
                 const source = sourceRange(snapshot.messages, start, stop);
                 const receiptId = await digest(JSON.stringify([book, source]));
                 data = await host.loadBook(book);
-                if ((data[NS]?.receipts || []).some(r => r.id === receiptId)) { start = stop + 1; continue; }
+                if ((data[NS]?.receipts || []).some(r => r.id === receiptId || JSON.stringify(r.source)===JSON.stringify(source))) { start = stop + 1; continue; }
                 const before = JSON.stringify(data);
                 const available = consolidationView(Object.values(data.entries || {}),snapshot.messages).map(e => materializeEntry(e, snapshot.messages)).filter(e => entryAvailable(e, snapshot.messages));
                 const facts = sideRecords(available).filter(f=>Object.hasOwn(categories,f.category));
@@ -293,6 +293,7 @@ export function createLoreController(host) {
     }
     return {
         prepareMaintenance, applyMaintenance, discardDraft:()=>{draft=null;},
+        exportDraft:()=>structuredClone(draft), restoreDraft:value=>{if(active)throw Error('작업 중에는 초안을 복원할 수 없어.');draft=structuredClone(value);},
         collect, recall, cancel: () => active?.abort(), clearRecall: () => { lastRecall = null; },
         index: (force = false) => job('임베딩 확인 중', async signal => {
             const snapshot=structuredClone(host.context()),config=settings();

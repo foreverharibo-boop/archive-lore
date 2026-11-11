@@ -1,3 +1,4 @@
+import { getArchiveLoreBookRoute } from './utils.js';
 // Copyright (C) 2024–2026 Aiko Hanasaki
 // SPDX-License-Identifier: AGPL-3.0-only
 
@@ -1441,6 +1442,8 @@ export async function showCompactReviewPopup(lorebookName, lorebookData, entry, 
 }
 
 async function getDefaultCompactionLorebookName() {
+    const route = getArchiveLoreBookRoute();
+    if (route) return route.name || '';
     const settings = extension_settings?.STMemoryBooks;
     const manualMode = !!settings?.moduleSettings?.manualModeEnabled;
     const lorebookName = manualMode

@@ -121,3 +121,19 @@
     .al-fork-surface #stmb-sp-set-controls tr {display:grid;grid-template-columns:1fr auto;align-items:center;}
     .al-fork-surface #stmb-sp-set-controls td:first-child {grid-column:1/-1;}
 }
+/* Palette variables are local to Archive Lore dialogs. Original MemoryBooks inherits ST. */
+.al-fork-surface[data-al-palette="rose"] {--SmartThemeBlurTintColor:#fff4f6;--SmartThemeBodyColor:#492e38;--SmartThemeBorderColor:#dec0ca;--SmartThemeQuoteColor:#9a4665;}
+.al-fork-surface[data-al-palette="lavender"] {--SmartThemeBlurTintColor:#f5f2ff;--SmartThemeBodyColor:#39304d;--SmartThemeBorderColor:#cfc5e5;--SmartThemeQuoteColor:#70539b;}
+.al-fork-surface[data-al-palette="sage"] {--SmartThemeBlurTintColor:#f2f7ef;--SmartThemeBodyColor:#2f4030;--SmartThemeBorderColor:#c2d1bc;--SmartThemeQuoteColor:#4f7050;}
+.al-fork-surface[data-al-palette="midnight"] {--SmartThemeBlurTintColor:#202638;--SmartThemeBodyColor:#e6e9f4;--SmartThemeBorderColor:#4e5975;--SmartThemeQuoteColor:#bac8f3;}
+.al-fork-surface[data-al-palette]:not([data-al-palette="default"]) {background:var(--SmartThemeBlurTintColor)!important;color:var(--SmartThemeBodyColor)!important;text-shadow:none;}
+.al-fork-surface[data-al-palette]:not([data-al-palette="default"]) :is(.text_pole,.menu_button,select,textarea) {background:var(--SmartThemeBlurTintColor);color:var(--SmartThemeBodyColor);border-color:var(--SmartThemeBorderColor);text-shadow:none;}
+.al-native-preferences {display:grid;gap:12px;min-width:0;text-align:left;}
+.al-native-preferences h4 {margin:4px 0;}
+.al-native-preferences label {display:grid;gap:6px;min-width:0;}
+.al-native-preferences [hidden] {display:none!important;}
+.al-native-preferences .text_pole {font:inherit;width:100%;max-width:100%;min-width:0;box-sizing:border-box;}
+.al-native-preferences small {line-height:1.5;opacity:.8;}
+.al-native-preferences .menu_button,.al-original-addons .menu_button {width:auto;max-width:100%;white-space:normal;word-break:keep-all;overflow-wrap:anywhere;}
+.al-original-addons {border-top:1px solid var(--SmartThemeBorderColor);margin-top:16px;padding-top:8px;display:flex;flex-wrap:wrap;gap:8px;}
+.al-original-addons h4 {width:100%;}

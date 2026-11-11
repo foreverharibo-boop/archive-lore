@@ -26,7 +26,7 @@ export function installSettingsHelp({document:doc=globalThis.document,read,write
         box.append(label,note);host.prepend(box);
     }
     function annotate(root) {
-        if(!root.isConnected || stopped)return;
+        if(!root.isConnected || stopped || root.closest('.al-original-memorybooks'))return;
         for(const host of root.querySelectorAll('.al-home-pane[data-home-pane="settings"],.al-fork-settings .inline-drawer-content,.al-settings'))toggleAt(host);
         if(root.matches('.al-settings'))toggleAt(root);
         if(root.matches('.al-fork-settings'))toggleAt(root.querySelector('.inline-drawer-content'));
@@ -68,7 +68,7 @@ export function installSettingsHelp({document:doc=globalThis.document,read,write
         queueMicrotask(()=>{queued=false;const roots=[...pending];pending.clear();for(const root of roots)annotate(root);});
     }
     function discover(node) {
-        if(node.nodeType!==1 || node.closest('#chat') || node.closest(OWN))return;
+        if(node.nodeType!==1 || node.closest('#chat,.al-original-memorybooks') || node.closest(OWN))return;
         const existing=node.closest(SURFACE);
         if(existing){schedule(existing);return;}
         for(const root of node.querySelectorAll(SURFACE))schedule(root);

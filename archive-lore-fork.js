@@ -12,6 +12,7 @@ import { embeddingChunks, entryId } from './lore-core.js';
 import { nextCollectionRange } from './lore-native-progress.js';
 import { shouldIndexBookUpdate } from './lore-automation.js';
 import { createSearchToolsPanel } from './lore-native-tools.js';
+import { applyNativeTheme } from './lore-native-preferences.js';
 import { installSettingsHelp } from './lore-help.js';
 
 globalThis.archiveLoreFork=true;
@@ -34,6 +35,10 @@ const download=(text,name,type='text/plain;charset=utf-8')=>{
 };
 let migrating=false,generating=false,indexPending=false,indexTimer;
 
+function themedPopup(content,options){
+    const popup=new Popup(content,POPUP_TYPE.TEXT,'',options);applyNativeTheme(popup.dlg,native.settings());return popup;
+}
+
 async function openMigration(){
     const node=document.createElement('div');node.className='al-search-tools';
     const h=document.createElement('h3');h.textContent='기존 아카이브 로어 기억 가져오기';
@@ -41,7 +46,7 @@ async function openMigration(){
     const button=document.createElement('button');button.type='button';button.className='menu_button';button.textContent='백업하고 기억 가져오기';
     const status=document.createElement('p');status.setAttribute('role','status');
     button.onclick=async()=>{button.disabled=true;status.textContent='백업·이관 중…';try{status.textContent=await globalThis.archiveLoreMigration(message=>{status.textContent=message;});}catch(e){status.textContent=e.message;}finally{button.disabled=false;}};
-    node.append(h,p,button,status);await new Popup(node,POPUP_TYPE.TEXT,'',{wide:true,okButton:false,cancelButton:'닫기'}).show();
+    node.append(h,p,button,status);await themedPopup(node,{wide:true,okButton:false,cancelButton:'닫기'}).show();
 }
 
 async function openRange(){
@@ -51,7 +56,7 @@ async function openRange(){
     const status=document.createElement('p');status.setAttribute('role','status');
     const actions=document.createElement('div');actions.className='al-range-actions';node.append(actions);
     for(const [label,batch] of [['한 번에 수집',false],['나눠서 수집',true]]){const b=document.createElement('button');b.type='button';b.className='menu_button';b.textContent=label;b.onclick=async()=>{const values=Object.fromEntries(Object.entries(fields).map(([k,v])=>[k,Number(v.value)]));if(Object.values(values).some(n=>!Number.isInteger(n))||values.start<0||values.end<values.start||values.end>=c.chat.length||values.interval<1){status.textContent='시작·끝 번호와 분할 개수를 확인해 주세요.';return;}b.disabled=true;try{if(getContext().chat!==c.chat)throw Error('채팅이 변경되었습니다. 다시 열어 주세요.');if(batch)await native.catchup(values);else {const ok=await native.collectRange(values.start,values.end);if(!ok){status.textContent='수집이 완료되지 않았습니다. 취소 여부와 메모리북 알림을 확인해 주세요.';return;}}const last=getContext().chatMetadata.STMemoryBooks?.highestMemoryProcessed;status.textContent=Number.isInteger(last)?`저장된 수집 위치: #${last} · 다음 수집은 #${last+1}부터 시작합니다.`:'저장된 수집 위치가 없습니다. 메모리북 알림을 확인해 주세요.';await native.refresh();}catch(e){status.textContent=e.message;}finally{b.disabled=false;}};actions.append(b);}
-    node.append(status);await new Popup(node,POPUP_TYPE.TEXT,'',{wide:true,okButton:false,cancelButton:'닫기'}).show();
+    node.append(status);await themedPopup(node,{wide:true,okButton:false,cancelButton:'닫기'}).show();
 }
 
 async function openRecords(){
@@ -65,14 +70,14 @@ async function openRecords(){
             summary.textContent=`${entry.disable?'[비활성] ':''}${entry.comment || '제목 없음'} · ${name}`;pre.textContent=entry.content;details.append(summary,pre);node.append(details);
         }
     }
-    await new Popup(node,POPUP_TYPE.TEXT,'',{wide:true,large:true,allowVerticalScrolling:true,okButton:false,cancelButton:'닫기'}).show();
+    await themedPopup(node,{wide:true,large:true,allowVerticalScrolling:true,okButton:false,cancelButton:'닫기'}).show();
 }
 
 async function openTools(){
     const panel=createSearchToolsPanel({search:search(),download});
     const updated=name=>{if(search().books().includes(name))void panel.refresh();};
     eventSource.on(event_types.WORLDINFO_UPDATED,updated);
-    try{await new Popup(panel.node,POPUP_TYPE.TEXT,'',{wide:true,large:true,allowVerticalScrolling:true,okButton:false,cancelButton:'닫기'}).show();}
+    try{await themedPopup(panel.node,{wide:true,large:true,allowVerticalScrolling:true,okButton:false,cancelButton:'닫기'}).show();}
     finally{panel.dispose();eventSource.removeListener(event_types.WORLDINFO_UPDATED,updated);}
 }
 

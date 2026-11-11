@@ -15,6 +15,7 @@ import { translate } from "../../../i18n.js";
 import { autoCreateLorebook } from "./autocreate.js";
 import { getSceneMarkers } from "./sceneManager.js";
 import {
+  getArchiveLoreBookRoute,
   getCurrentManualLorebookResolution,
   markStmbPopup,
   showLorebookSelectionPopup,
@@ -213,6 +214,15 @@ export async function validateLorebookRequirement(options = {}) {
     manualMode = undefined,
     lorebookName: lorebookNameOverride = undefined,
   } = options;
+  const route = lorebookNameOverride === undefined ? getArchiveLoreBookRoute() : null;
+  if (route) {
+    if (!route.name || !world_names?.includes(route.name)) return {valid:false,error:'설정 → 로어북 연결·테마에서 사용할 로어북을 확인해 주세요.'};
+    try {
+      const data = await loadWorldInfo(route.name);
+      if (!data) throw new Error('load failed');
+      return {valid:true,data,name:route.name,source:'archive-lore'};
+    } catch { return {valid:false,error:'선택한 로어북을 불러오지 못했습니다. 로어북 연결·테마 설정을 확인해 주세요.'}; }
+  }
   const settings = extension_settings.STMemoryBooks;
   const resolvedManualMode =
     manualMode ?? !!settings?.moduleSettings?.manualModeEnabled;

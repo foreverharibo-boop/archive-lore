@@ -6,6 +6,7 @@ import { chat, chat_metadata } from '../../../../script.js';
 import { METADATA_KEY } from '../../../world-info.js';
 import { getSceneMarkers, saveMetadataForCurrentContext, clearScene } from './sceneManager.js';
 import {
+    getArchiveLoreBookRoute,
     clampInt,
     getCurrentManualLorebookResolution,
     showLorebookSelectionPopup,
@@ -38,6 +39,7 @@ function i18n(key, fallback, params) {
  * Validates lorebook for auto-summary with user-friendly prompts
  */
 async function validateLorebookForAutoSummary() {
+    if (getArchiveLoreBookRoute()) return validateLorebookRequirement({createContext:'auto-summary'});
     const settings = extension_settings.STMemoryBooks;
     const manualMode = !!settings?.moduleSettings?.manualModeEnabled;
 

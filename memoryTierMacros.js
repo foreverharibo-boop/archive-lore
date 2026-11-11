@@ -1,3 +1,4 @@
+import { getArchiveLoreBookRoute } from './utils.js';
 // Copyright (C) 2024–2026 Aiko Hanasaki
 // SPDX-License-Identifier: AGPL-3.0-only
 
@@ -20,6 +21,8 @@ let sidePromptCount = 0;
 let refreshSequence = 0;
 
 function getEffectiveLorebookNameNonInteractive() {
+    const route = getArchiveLoreBookRoute();
+    if (route) return route.name && world_names.includes(route.name) ? route.name : null;
     const moduleSettings = extension_settings.STMemoryBooks?.moduleSettings;
     if (!moduleSettings?.manualModeEnabled) {
         return chat_metadata?.[METADATA_KEY] || null;

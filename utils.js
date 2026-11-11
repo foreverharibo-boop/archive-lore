@@ -1,3 +1,4 @@
+import { resolveBookPreference, applyNativeTheme } from './lore-native-preferences.js';
 import { englishPrompt } from './lore-native-defaults.js';
 // Copyright (C) 2024–2026 Aiko Hanasaki
 // SPDX-License-Identifier: AGPL-3.0-only
@@ -49,7 +50,7 @@ export function clampInt(n, min, max) {
 
 export function markStmbPopup(popup) {
     popup?.dlg?.classList?.add('stmb-popup');
-    if (globalThis.archiveLoreFork) popup?.dlg?.classList?.add('al-fork-surface');
+    if (globalThis.archiveLoreFork) applyNativeTheme(popup?.dlg, extension_settings.STMemoryBooks);
     return popup;
 }
 
@@ -284,6 +285,8 @@ export function getCurrentMemoryBooksContext() {
             lorebookName = chat_metadata[METADATA_KEY];
         }
 
+        lorebookName = getArchiveLoreBookRoute()?.name ?? lorebookName;
+
         // Get current model/temperature settings (following ModelTempLocks approach)
         let modelSettings = null;
         
@@ -371,6 +374,16 @@ export function getCurrentManualLorebookResolution(options = {}) {
     });
 }
 
+export function getArchiveLoreBookRoute() {
+    if (!globalThis.archiveLoreFork) return null;
+    const context = getContext();
+    return resolveBookPreference(extension_settings.STMemoryBooks, {
+        chatBook: chat_metadata?.[METADATA_KEY] || '',
+        characterBook: characters?.[this_chid]?.data?.extensions?.world || '',
+        isGroup: !!context?.groupId,
+    });
+}
+
 /**
  * Determines which lorebook to use based on settings and chat metadata.
  * If in manual mode and no lorebook is set, it will trigger a selection popup.
@@ -382,6 +395,8 @@ export function getCurrentManualLorebookResolution(options = {}) {
  * @returns {Promise<string|null>} The name of the effective lorebook, or null if none is available/selected.
  */
 export async function getEffectiveLorebookName() {
+    const route = getArchiveLoreBookRoute();
+    if (route) return route.name && world_names.includes(route.name) ? route.name : null;
     const settings = extension_settings.STMemoryBooks;
     
     // This helper keeps its legacy behavior on purpose. Passive read paths still

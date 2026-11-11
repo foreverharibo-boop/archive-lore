@@ -8,13 +8,33 @@ import {fileURLToPath} from 'node:url';
 const {chromium}=await import(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const extra=process.env.CHROMIUM_ARGS_MODULE?(await import(process.env.CHROMIUM_ARGS_MODULE)).default.args:[];
 const root=fileURLToPath(new URL('../',import.meta.url));
-const fixture=`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">${process.env.KOREAN_FONT_ROOT ? '<link rel="stylesheet" href="/fonts/400.css">' : ''}<link rel="stylesheet" href="/lore-fork.css"><style>:root{--SmartThemeBlurTintColor:#f8f9fb;--SmartThemeBodyColor:#303740;--SmartThemeBorderColor:#d5dbe3;--mainFontSize:16px}body{background:#edf0f4;color:#303740;font:14px "Noto Sans KR",Arial;margin:12px}#content{background:#f8f9fb;padding:16px;max-width:850px;margin:auto;border-radius:12px}.menu_button{font:inherit;width:min-content;white-space:normal;overflow-wrap:anywhere;background:#edf0f5;color:inherit;padding:9px;border:1px solid #d5dbe3;border-radius:6px;cursor:pointer}.text_pole{max-width:100%;box-sizing:border-box}h2{font-size:18px}</style><div id="content" class="al-fork-surface"></div><script src="/handlebars.js"></script><script type="module">
+const fixture=`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">${process.env.KOREAN_FONT_ROOT ? '<link rel="stylesheet" href="/fonts/400.css">' : ''}<link rel="stylesheet" href="/lore-fork.css"><style>:root{--SmartThemeBlurTintColor:#f8f9fb;--SmartThemeBodyColor:#303740;--SmartThemeBorderColor:#d5dbe3;--mainFontSize:16px}body{background:#edf0f4;color:#303740;font:14px "Noto Sans KR",Arial;margin:12px}#content{background:#f8f9fb;padding:16px;max-width:850px;margin:auto;border-radius:12px}.menu_button{font:inherit;width:min-content;white-space:normal;overflow-wrap:anywhere;background:#edf0f5;color:inherit;padding:9px;border:1px solid #d5dbe3;border-radius:6px;cursor:pointer}.displayNone{display:none!important}.whitespacenowrap{white-space:nowrap!important}.text_pole{font:inherit;max-width:100%;box-sizing:border-box}h2{font-size:18px}</style><div id="content" class="al-fork-surface"></div><script src="/handlebars.js"></script><script type="module">
 import {settingsTemplate} from '/templates.js';
 import {FEATURE_GROUPS,organizeMemoryBooks,restoreFeatureButtons} from '/lore-fork-layout.js';
 import {createConnectionPicker} from '/lore-native-connection.js';
 import {createHomeContext} from '/lore-native-home.js';
 import {createSearchToolsPanel} from '/lore-native-tools.js';
 import {mountSideAutoToggle} from '/lore-native-side-toggle.js';
+import {nativePreferences,createNativePreferences,appendOriginalTools,applyNativeTheme} from '/lore-native-preferences.js';
+import {mountLazyDetails} from '/lore-native-lazy.js';
+window.prefsSettings={moduleSettings:{}};
+window.mountPreferences=()=>{
+ const host=document.querySelector('#content');host.replaceChildren();applyNativeTheme(host,prefsSettings);
+ host.append(createNativePreferences({settings:prefsSettings,books:['공용 기억','캐릭터 기억'],activeBook:'공용 기억',save:patch=>{Object.assign(prefsSettings.moduleSettings,patch);applyNativeTheme(host,prefsSettings);}}));
+};
+window.mountOriginal=()=>{
+ const host=document.querySelector('#content');prefsSettings.moduleSettings.archiveLoreLayout='original';applyNativeTheme(host,prefsSettings);
+ host.innerHTML=settingsTemplate({profiles:[{name:'Native Profile',isDefault:true}],selectedProfile:{connection:{api:'Native API',model:'Native Model'},effectivePrompt:'Native prompt'},currentLorebookName:'공용 기억'});
+ for(const id of ['stmb-profile-buttons','stmb-extra-function-buttons']){const b=document.createElement('button');b.textContent='Native action';b.onclick=()=>window.originalClicks=(window.originalClicks||0)+1;host.querySelector('#'+id).append(b);}
+ window.originalMarkup=[...host.children].map(el=>el.outerHTML).join('');
+ const actions={'al-preferences':()=>window.preferenceClicks=(window.preferenceClicks||0)+1,'al-search-tools':()=>window.searchClicks=(window.searchClicks||0)+1};
+ appendOriginalTools(host,actions,host);appendOriginalTools(host,actions,host);
+};
+window.mountLazy=()=>{
+ const host=document.querySelector('#content');host.innerHTML='<details id="lazy-prompt"><summary>Prompt</summary><code id="stmb-summary-prompt"></code></details><details id="lazy-scene"><summary>Scene</summary><span data-al-scene-tokens>…</span></details>';
+ window.promptReads=0;window.sceneReads=0;window.current=true;
+ mountLazyDetails(host,{isCurrent:()=>window.current,loadPrompt:()=>{promptReads++;return new Promise(resolve=>window.finishPrompt=resolve);},loadScene:async()=>{sceneReads++;return {estimatedTokens:1234};}});
+};
 window.mountTools=()=>{
  document.body.innerHTML='<div id="content" class="al-fork-surface"></div>';const host=document.querySelector('#content');
  const listeners=new Set();window.counts={embedded:104,pending:1};window.reads=0;window.indexes=0;window.toolState={busy:false,status:''};window.chatKey='chat';window.failure=false;
@@ -58,7 +78,7 @@ try{
         assert.equal(await page.evaluate(()=>collectionSettings.defaultProfile),1);
         await page.locator('#al-quick-profile').selectOption('0');
         await page.getByRole('button',{name:'저장된 기억',exact:true}).click();
-        assert.equal(await page.locator('.al-feature-card').count(),17);
+        assert.equal(await page.locator('.al-feature-card').count(),18);
         assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
         await page.getByRole('button',{name:'기억 압축',exact:true}).click();
         assert.equal(await page.evaluate(()=>clicks.at(-1)),'stmb-compact-review');
@@ -130,6 +150,41 @@ try{
     assert(await page.locator('#stmb-profile-model').isVisible());
     await page.setViewportSize({width:390,height:900});
     await page.goto('http://127.0.0.1:'+server.address().port);await page.waitForFunction(()=>window.ready);
+    // Persistent destination and palettes, then untouched original template/actions.
+    for(const width of [320,1000]){
+        await page.setViewportSize({width,height:900});await page.evaluate(()=>mountPreferences());
+        await page.locator('#al-book-mode').selectOption('fixed');
+        await page.getByRole('button',{name:'적용',exact:true}).click();
+        assert(await page.getByText('사용할 로어북을 선택해 주세요.',{exact:true}).isVisible());
+        await page.locator('#al-fixed-book').selectOption('공용 기억');
+        await page.locator('#al-layout').selectOption('archive');
+        for(const palette of ['rose','lavender','sage','midnight','default']){
+            await page.locator('#al-palette').selectOption(palette);await page.getByRole('button',{name:'적용',exact:true}).click();
+            assert.equal(await page.locator('#content').getAttribute('data-al-palette'),palette);
+        }
+        await page.locator('#al-palette').selectOption('rose');await page.getByRole('button',{name:'적용',exact:true}).click();
+        await page.evaluate(()=>mountPreferences());assert.equal(await page.locator('#al-fixed-book').inputValue(),'공용 기억');
+        assert.equal(await page.locator('#al-palette').inputValue(),'rose');
+        assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+        await page.screenshot({path:'/tmp/archive-lore-preferences-'+width+'.png',fullPage:true});
+        await page.evaluate(()=>mountOriginal());
+        assert.equal(await page.locator('.al-feature-home').count(),0);assert.equal(await page.locator('.al-original-addons').count(),1);
+        assert.equal(await page.locator('#content').getAttribute('data-al-palette'),'default');
+        assert(await page.getByRole('heading',{name:'📕 Memory Books',exact:true}).isVisible());
+        await page.locator('#stmb-profile-buttons button').click();assert((await page.evaluate(()=>originalClicks))>0);
+        await page.locator('#al-preferences').click();assert((await page.evaluate(()=>preferenceClicks))>0);
+        assert(await page.evaluate(()=>[...document.querySelector('#content').children].filter(el=>!el.matches('.al-original-addons')).map(el=>el.outerHTML).join('')===originalMarkup));
+        await page.screenshot({path:'/tmp/archive-lore-original-'+width+'.png',fullPage:true});
+        await page.evaluate(()=>prefsSettings={moduleSettings:{}});
+    }
+    await page.evaluate(()=>mountLazy());
+    assert.deepEqual(await page.evaluate(()=>[promptReads,sceneReads]),[0,0]);
+    await page.locator('#lazy-prompt summary').click();await page.waitForFunction(()=>promptReads===1);
+    await page.locator('#lazy-prompt summary').click();await page.locator('#lazy-prompt summary').click();assert.equal(await page.evaluate(()=>promptReads),1);
+    await page.evaluate(()=>{current=false;finishPrompt('Stale prompt');});
+    assert.notEqual(await page.locator('#stmb-summary-prompt').textContent(),'Stale prompt');
+    await page.evaluate(()=>current=true);await page.locator('#lazy-scene summary').click();await page.getByText('1234',{exact:true}).waitFor();
+    assert.equal(await page.evaluate(()=>sceneReads),1);
     await page.evaluate(()=>mountTools());
     await page.getByText('104/105 완료 · 남은 임베딩 1개',{exact:true}).waitFor();
     assert.equal(await page.evaluate(()=>indexes),0,'opening counts must not call embedding');

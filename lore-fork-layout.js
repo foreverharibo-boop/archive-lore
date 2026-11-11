@@ -21,6 +21,7 @@ export const FEATURE_GROUPS = [
         ['al-search-settings','검색·임베딩 설정','임베딩 키, 검색 방식, 참고 대화 수와 주입 상한을 설정합니다.'],
         ['al-search-tools','임베딩·주입 확인','남은 임베딩, 검색 미리보기, 최근 주입과 턴별 TXT 기록을 확인합니다.'],
     ]],
+    ['화면·연결', '', [['al-preferences','로어북 연결·테마','따라갈 로어북, 오리지널 메모리북 화면과 색상을 선택합니다.']]],
     ['프롬프트·고급 설정', '원본 메모리북 설정을 필요에 따라 펼쳐 조절할 수 있습니다.', [
         ['stmb-prompt-manager','기억 수집 프롬프트','새 기억을 요약할 형식과 기준을 편집합니다.'],
         ['stmb-arc-prompt-manager','통합 프롬프트','여러 기억을 아크 등으로 묶는 기준을 편집합니다.'],
@@ -32,7 +33,7 @@ export const FEATURE_GROUPS = [
 const PANES = [
     ['collect','수집','새 대화는 지금 수집, 특정 대화는 범위 지정으로 저장합니다.',['al-native-collect','al-native-range','stmb-pending-progress']],
     ['records','저장된 기억','기억과 사이드 기록을 확인하고 정리합니다.',['al-native-books','stmb-side-prompts','al-search-tools','al-native-consolidate','stmb-compact-review','stmb-topical-clip','stmb-clip-review-suggestions','stmb-consolidation-recovery']],
-    ['settings','설정','연결, 자동 수집과 프롬프트를 설정합니다.',['al-search-settings','stmb-automatic-memories-settings','stmb-prompt-manager','stmb-arc-prompt-manager','stmb-context-settings','stmb-general-settings']],
+    ['settings','설정','연결, 자동 수집과 프롬프트를 설정합니다.',['al-preferences','al-search-settings','stmb-automatic-memories-settings','stmb-prompt-manager','stmb-arc-prompt-manager','stmb-context-settings','stmb-general-settings']],
 ];
 
 export function restoreFeatureButtons(root) {

@@ -1,5 +1,6 @@
 // Archive Lore modifications Copyright (C) 2026 foreverharibo-boop
 // SPDX-License-Identifier: AGPL-3.0-only
+import { applyNativeTheme } from './lore-native-preferences.js';
 import { DEFAULT_PROMPTS, SIDE_PROMPT, NS, normalizeSettings, isCore } from './lore-core.js';
 
 import { normalizeSides, DEFAULT_SIDES, SIDE_COMMON } from './lore-side-config.js';
@@ -122,6 +123,7 @@ export function createLoreUI(api) {
     function openSettings() {
         const panel=document.createElement('dialog');panel.className='al-root al-dialog al-settings-dialog';panel.setAttribute('aria-label','아카이브 로어 설정');
         panel.innerHTML=`<header><span class="al-brand">${loreIcon('settings')}설정</span>${iconButton('settings-close','close','설정 닫기')}</header><div class="al-scroll" data-settings-body></div>`;
+        if(globalThis.archiveLoreFork)applyNativeTheme(panel,globalThis.archiveLoreMemoryBooks?.settings());
         document.body.append(panel);mountSettings(panel.querySelector('[data-settings-body]'));
         panel.querySelector('[data-action="settings-close"]').onclick=()=>panel.close();
         panel.addEventListener('close',()=>{panel.remove();for(const container of settingsContainers){if(container.isConnected)paintSettings(container);else settingsContainers.delete(container);}void refresh().catch(api.error);},{once:true});panel.showModal();

@@ -43,8 +43,10 @@ function primaryBook() {
     const c = getContext();
     return (globalThis.archiveLoreFork ? c.chatMetadata?.[METADATA_KEY] : '') || c.characters?.[c.characterId]?.data?.extensions?.world || c.chatMetadata?.[METADATA_KEY] || '';
 }
-function target() { const s=chatSettings(); return Object.hasOwn(s,'target') ? s.target : primaryBook(); }
+function target() { const route=globalThis.archiveLoreMemoryBooks?.route?.(); if(route)return route.name; const s=chatSettings(); return Object.hasOwn(s,'target') ? s.target : primaryBook(); }
 function books() {
+    const route=globalThis.archiveLoreMemoryBooks?.route?.();
+    if(route)return [...(globalThis.archiveLoreMemoryBooks.books() || [])].filter(n=>world_names.includes(n));
     let selected = chatSettings().books;
     if (globalThis.archiveLoreFork && (chatSettings().nativeFormat || !chatSettings().target)) {
         const nativeBooks = [...(globalThis.archiveLoreMemoryBooks?.books() || [])];

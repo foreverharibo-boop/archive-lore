@@ -1,3 +1,4 @@
+import { getArchiveLoreBookRoute } from './utils.js';
 // Copyright (C) 2024–2026 Aiko Hanasaki
 // SPDX-License-Identifier: AGPL-3.0-only
 
@@ -215,6 +216,8 @@ function validateKeywordsMacroConfig({ prompt, responseFormat, keywordsTemplate 
 }
 
 function getMemoryLorebookName() {
+    const route = getArchiveLoreBookRoute();
+    if (route) return route.name || '';
     const settings = extension_settings?.STMemoryBooks;
     return settings?.moduleSettings?.manualModeEnabled
         ? getCurrentManualLorebookResolution({ settings }).lorebookName

@@ -299,7 +299,7 @@ export function createLoreController(host) {
             const snapshot=structuredClone(host.context()),config=settings();
             const result = await indexRecords(snapshot, signal, config, force);
             if(host.target())await hideCollected(snapshot,signal,config,host.target());
-            notify(`임베딩 완료 · ${result.complete}구간`); return result;
+            notify(result.total?`임베딩 완료 · ${result.complete}구간`:'임베딩 대상 없음 · 코어·비활성 항목은 제외돼'); return result;
         }, 'index'),
         state: () => ({ busy: !!active, status, lastRecall }),
         dashboard:controllerDashboard,
@@ -309,11 +309,11 @@ export function createLoreController(host) {
             const snapshot = structuredClone(host.context()), config = settings();
             if (!snapshot.key) return { records: [], ranges: [], next: 0, embedded: 0, pending: 0 };
             const rows = await records(snapshot); let embedded = 0, pending = 0;
-            for (const row of rows.filter(r => !isCore(r.entry))) {
-                let complete = true;
-                for (const chunk of await chunksFor(row, config)) if (!await host.store.get(chunk.cacheKey)) complete = false;
-                if (complete) embedded++; else pending++;
-            }
+            const groups=await Promise.all(rows.filter(r=>!isCore(r.entry)).map(row=>chunksFor(row,config)));
+            const keys=groups.flatMap(chunks=>chunks.map(chunk=>chunk.cacheKey));
+            const present=host.store.hasMany?await host.store.hasMany(keys):await Promise.all(keys.map(async key=>!!await host.store.get(key)));
+            let offset=0;
+            for(const group of groups){const complete=group.length>0&&present.slice(offset,offset+group.length).every(Boolean);offset+=group.length;if(complete)embedded++;else pending++;}
             const book = host.target();
             const data = book ? await host.loadBook(book) : null;
             const ranges = validReceipts(data, snapshot.messages).map(r => r.source);

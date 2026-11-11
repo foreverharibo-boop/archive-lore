@@ -16,6 +16,16 @@ const translationHtml = (translation, label='로어북 매니저 번역') => tra
 const download = (text, filename, type='text/plain;charset=utf-8') => {const url=URL.createObjectURL(new Blob([text],{type})),a=document.createElement('a');a.href=url;a.download=filename;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);};
 const check = (name, label, checked) => `<label class="al-check"><input type="checkbox" name="${name}" ${checked ? 'checked' : ''}><span>${label}</span></label>`;
 
+// Merge repeated refresh requests; never discard a completed render just because another was requested.
+export function coalesceRefresh(render) {
+    let pending=null,again=false;
+    return function refresh(){
+        again=true;if(pending)return pending;
+        pending=Promise.resolve().then(async()=>{do{again=false;await render();}while(again);}).finally(()=>{pending=null;});
+        return pending;
+    };
+}
+
 export function createLoreUI(api) {
     let dialog = null, page = 0, redraw = 0, filter = '', selected=new Set();
     const safe = callback => async event => { try { await callback(event); } catch(error) { api.error(error); } };
@@ -146,14 +156,21 @@ export function createLoreUI(api) {
             }
         }));
     }
-    async function refresh() {
+    const refresh=coalesceRefresh(async()=>{
+        try{await render();}catch(error){if(dialog?.isConnected)dialog.querySelector('[data-status]').textContent=`목록 확인 실패 · ${error.message}`;throw error;}
+    });
+    async function render() {
         if (!dialog?.isConnected) return;
         const state = api.controller.state();
         dialog.querySelector('[data-status]').textContent = state.status;
         for (const element of dialog.querySelectorAll('[data-job]')) element.disabled = state.busy;
         dialog.querySelector('[data-action="stop"]').disabled = !state.busy;
         if (state.busy) return;
+        const node=dialog,key=api.context().key;
+        node.querySelector('[data-chat]').textContent=api.context().name || '채팅방을 열어 줘';
+        if(!node.querySelector('[data-counts]').textContent)node.querySelector('[data-counts]').textContent='기억·임베딩 상태 불러오는 중…';
         const generation = ++redraw, view = await api.controller.dashboard();
+        if(dialog!==node||key!==api.context().key)return;
         if (!dialog?.isConnected || generation !== redraw) return;
         const context = api.context();
         dialog.querySelector('[data-chat]').textContent = context.name || '채팅방을 열어 줘';

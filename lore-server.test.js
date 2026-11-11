@@ -15,7 +15,7 @@ test('vector keys do not change between browser and server crypto environments; 
     assert.deepEqual(await store.get(key),[1,2]);assert.equal(calls.length,2);assert.equal(calls[1].route,'/vectors/put');await store.get(key);assert.equal(calls.length,2);
 });
 test('missing plugin and structured server errors remain visible',async()=>{
-    const missing=createServerClient({headers:()=>({}),request:async()=>({status:404})});await assert.rejects(missing('/status'),/플러그인이 없어/);
+    const missing=createServerClient({headers:()=>({}),request:async()=>({status:404})});await assert.rejects(missing('/status'),/플러그인을 설치/);
     const error=createServerClient({headers:()=>({}),request:async()=>({status:400,ok:false,json:async()=>({error:'specific failure'})})});await assert.rejects(error('/jobs'),/specific failure/);
 });
 test('changing chat while a completed server result is in flight never returns stale injection',async()=>{
@@ -36,4 +36,28 @@ test('Vertex vector cache isolates project and location without changing AI Stud
     assert.notEqual(key,await embeddingKey({...config,embeddingVertexProjectId:'two'},'id','content'));
     assert.notEqual(key,await embeddingKey({...config,embeddingVertexRegion:'us-central1'},'id','content'));
     assert.equal(await embeddingKey({...config,embeddingProvider:'gemini'},'id','content'),'embedding-v2:'+JSON.stringify(['n','gemini','','gemini-embedding-001','id','content']));
+});
+
+test('105 missing vectors are checked in two batches, and newly saved server vectors are not hidden by a negative cache',async()=>{
+    let ready=false;const calls=[];
+    const store=serverVectorStore({enabled:()=>true,local:{get:async()=>null},call:async(route,body)=>{calls.push(route);assert.equal(route,'/vectors/has');return {present:body.keys.map(()=>ready)};}});
+    const keys=Array.from({length:105},(_,i)=>'key'+i);
+    assert.deepEqual(await store.hasMany(keys),keys.map(()=>false));assert.equal(calls.length,2);
+    ready=true;assert.deepEqual(await store.hasMany(keys),keys.map(()=>true));assert.equal(calls.length,4);
+});
+test('older server falls back with at most eight concurrent vector requests',async()=>{
+    let active=0,peak=0;const store=serverVectorStore({enabled:()=>true,local:{get:async()=>null},call:async(route)=>{
+        if(route==='/vectors/has')throw Object.assign(Error('old plugin'),{status:404});
+        peak=Math.max(peak,++active);await new Promise(r=>setTimeout(r,1));active--;return {vector:null};
+    }});
+    assert.equal((await store.hasMany(Array.from({length:105},(_,i)=>String(i)))).filter(Boolean).length,0);assert(peak<=8);
+});
+test('dashboard restore does not recursively request another dashboard render',async()=>{
+    let notifications=0;const controller=createServerController({local:{dashboard:async()=>({records:[]})},enabled:()=>true,context:()=>({key:'chat'}),call:async()=>[],changed:()=>notifications++});
+    await controller.dashboard();assert.equal(notifications,0);
+});
+test('overlapping refreshes finish the current render and perform only one trailing refresh',async()=>{
+    const {coalesceRefresh}=await import('./lore-ui.js');let release,count=0,concurrent=0,peak=0;
+    const gate=new Promise(r=>release=r);const refresh=coalesceRefresh(async()=>{count++;peak=Math.max(peak,++concurrent);if(count===1)await gate;concurrent--;});
+    const first=refresh();await Promise.resolve();const burst=Array.from({length:105},()=>refresh());release();await Promise.all([first,...burst]);assert.equal(count,2);assert.equal(peak,1);
 });

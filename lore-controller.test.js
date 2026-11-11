@@ -184,3 +184,11 @@ test('failed maintenance save keeps draft retryable; chat switch during last rea
     const load=g.host.loadBook;g.host.loadBook=async()=>{g.key='other';return load();};
     await assert.rejects(g.controller.applyMaintenance(second),/채팅방/);assert(!g.calls.includes('save'));
 });
+
+test('105 imported entries changed from core to recallable are visible as pending without generating or rewriting memories',async()=>{
+    const f=fixture();f.book={entries:Object.fromEntries(Array.from({length:105},(_,i)=>[i,{uid:i,content:'Imported memory '+i,constant:true}]))};
+    let batches=0;f.host.store.hasMany=async keys=>{batches++;return keys.map(()=>false);};
+    let view=await f.controller.dashboard();assert.equal(view.records.length,105);assert.equal(view.pending,0);
+    for(const entry of Object.values(f.book.entries))entry.constant=false;
+    const before=JSON.stringify(f.book);view=await f.controller.dashboard();assert.equal(view.pending,105);assert.equal(view.embedded,0);assert.equal(view.records.length,105);assert.equal(batches,2);assert.equal(JSON.stringify(f.book),before);assert.deepEqual(f.calls,[]);
+});

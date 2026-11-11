@@ -6,7 +6,7 @@
     "js": "archive-lore.js",
     "css": "lore-style.css",
     "author": "foreverharibo-boop; based on Memory Books by aikohanasaki",
-    "version": "0.3.0",
+    "version": "0.3.1",
     "license": "AGPL-3.0",
     "homePage": "https://github.com/foreverharibo-boop/archive-lore",
     "auto_update": true,

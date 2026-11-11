@@ -44,7 +44,18 @@ export function embeddingRequest(settings, text, query = false) {
     if (!key) throw new Error('확장 설정에 임베딩 API 키를 입력해 줘.');
     const model = String(settings.embeddingModel || '').replace(/^models\//, '').trim();
     if (!model) throw new Error('임베딩 모델을 입력해 줘.');
-    if (settings.embeddingProvider === 'vertex') throw new Error('Vertex AI Express는 현재 임베딩 모델 지원 목록에 없어. Google AI Studio 임베딩 키로 바꿔 줘. 기존 Vertex 키는 그대로 보관돼.');
+    if (settings.embeddingProvider === 'vertex') {
+        const project = String(settings.embeddingVertexProjectId || '').trim();
+        const location = String(settings.embeddingVertexRegion || 'global').trim() || 'global';
+        if (!project) throw new Error('Vertex 임베딩에 사용할 Google Cloud 프로젝트 ID를 입력해 줘.');
+        if (!/^[a-z0-9][a-z0-9-]*$/.test(project)) throw new Error('Google Cloud 프로젝트 ID 형식을 확인해 줘.');
+        if (!/^[a-z0-9-]+$/.test(location)) throw new Error('Vertex 리전을 확인해 줘.');
+        const url = new URL(`https://${location === 'global' ? '' : location + '-'}aiplatform.googleapis.com`);
+        url.pathname = `/v1/projects/${encodeURIComponent(project)}/locations/${location}/publishers/google/models/${encodeURIComponent(model)}:predict`;
+        return { url: url.href, headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
+            body: { instances: [{ content: text, task_type: query ? 'RETRIEVAL_QUERY' : 'RETRIEVAL_DOCUMENT' }],
+                parameters: { autoTruncate: false, outputDimensionality: 768 } } };
+    }
     if (settings.embeddingProvider === 'gemini') return {
         url: `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:embedContent`,
         headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
@@ -86,7 +97,7 @@ export async function embed(settings, text, query, signal, request = fetch) {
 }
 export async function embeddingKey(settings, id, chunk) {
     return 'embedding-v2:' + JSON.stringify([settings.cacheNamespace, settings.embeddingProvider,
-        settings.embeddingProvider === 'openai' ? settings.embeddingUrl : '', settings.embeddingModel, id, chunk]);
+        settings.embeddingProvider === 'openai' ? settings.embeddingUrl : settings.embeddingProvider === 'vertex' ? JSON.stringify([String(settings.embeddingVertexProjectId || '').trim(), String(settings.embeddingVertexRegion || 'global').trim() || 'global', 768]) : '', settings.embeddingModel, id, chunk]);
 }
 export function createVectorStore(factory = indexedDB) {
     let opening;

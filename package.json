@@ -10,7 +10,8 @@
     "test:archive-lore:server-browser": "node tests/archive-lore-server-browser.mjs",
     "build:fork": "node build-fork.mjs",
     "test:fork": "node --test *.test.js",
-    "test:fork:browser": "node tests/archive-lore-fork-layout.mjs"
+    "test:fork:browser": "node tests/archive-lore-fork-layout.mjs",
+    "test:fork:help": "node tests/archive-lore-help.mjs"
   },
   "dependencies": {
     "dirty-json": "^0.9.2"

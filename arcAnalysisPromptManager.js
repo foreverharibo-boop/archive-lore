@@ -1,3 +1,4 @@
+import { migrateUneditedDefaults } from './lore-native-defaults.js';
 // Copyright (C) 2024–2026 Aiko Hanasaki
 // SPDX-License-Identifier: AGPL-3.0-only
 
@@ -199,6 +200,10 @@ async function loadOverrides(settings = null) {
     await saveOverrides(data);
   }
 
+    if (globalThis.archiveLoreFork) {
+        const migrated = migrateUneditedDefaults(data, getBuiltInArcPrompts(true), getBuiltInArcPrompts(false));
+        if (migrated) { await saveOverrides(migrated); data = migrated; }
+    }
   cachedOverrides = data;
   return cachedOverrides;
 }

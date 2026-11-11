@@ -11,11 +11,12 @@ const fixture=`<!doctype html><meta charset="utf-8"><meta name="viewport" conten
 import {settingsTemplate} from '/templates.js';
 import {FEATURE_GROUPS,organizeMemoryBooks,restoreFeatureButtons} from '/lore-fork-layout.js';
 import {createConnectionPicker} from '/lore-native-connection.js';
-window.collectionSettings={defaultProfile:0,profiles:[{name:'기본 수집',connection:{model:'old'}}]};
+import {createHomeContext} from '/lore-native-home.js';
+window.collectionSettings={defaultProfile:0,profiles:[{name:'기본 수집',connection:{model:'old'}},{name:'다른 수집',connection:{model:'other'}}]};
 const root=document.querySelector('#content');root.innerHTML=settingsTemplate({profiles:[{name:'기본 수집',isDefault:true}],selectedProfile:{connection:{api:'현재 프로필',model:'연결 모델'},effectivePrompt:'Preserve established facts.'},currentLorebookName:'기존 기억',highestMemoryProcessed:2105,hasHighestMemoryProcessed:true});
 window.clicks=[];
 function populate(){for(const [, ,features] of FEATURE_GROUPS)for(const [id] of features)if(id.startsWith('stmb-')){const b=document.createElement('div');b.id=id;b.textContent=id;b.onclick=()=>clicks.push(id);root.querySelector('#stmb-prompt-manager-buttons').append(b);}}
-window.paint=()=>{restoreFeatureButtons(root);root.querySelector('#stmb-prompt-manager-buttons').replaceChildren();populate();const actions=Object.fromEntries(FEATURE_GROUPS.flatMap(g=>g[2]).filter(f=>f[0].startsWith('al-')).map(f=>[f[0],()=>clicks.push(f[0])]));actions['al-connection-panel']=()=>createConnectionPicker({settings:collectionSettings,profiles:[{id:'saved',name:'저장된 제미나이'}],service:{getProfile:id=>({id,model:'stored-model'}),validateProfile:()=>({selected:'openai',source:'makersuite'}),sendRequest(){}},save:()=>window.savedConnection=true});actions['al-migrate']=async()=> '이관 완료';organizeMemoryBooks(root,actions,root);};paint();window.ready=true;
+window.paint=()=>{restoreFeatureButtons(root);root.querySelector('#stmb-prompt-manager-buttons').replaceChildren();populate();const actions=Object.fromEntries(FEATURE_GROUPS.flatMap(g=>g[2]).filter(f=>f[0].startsWith('al-')).map(f=>[f[0],()=>clicks.push(f[0])]));actions['al-context-panel']=()=>createHomeContext({settings:collectionSettings,markers:{highestMemoryProcessed:2105},length:2120,book:'현재 연결된 테스트 로어북 이름',books:['현재 연결된 테스트 로어북 이름'],changeBook:()=>clicks.push('book'),changeProfile:index=>{collectionSettings.defaultProfile=index;paint();},editProfile:()=>clicks.push('edit-profile'),newProfile:()=>clicks.push('new-profile'),connection:createConnectionPicker({settings:collectionSettings,profiles:[{id:'saved',name:'저장된 제미나이'}],service:{getProfile:id=>({id,model:'stored-model'}),validateProfile:()=>({selected:'openai',source:'makersuite'}),sendRequest(){}},save:()=>window.savedConnection=true,compact:true})});actions['al-migrate']=async()=> '이관 완료';organizeMemoryBooks(root,actions,root);};paint();window.ready=true;
 </script>`;
 const server=http.createServer(async(req,res)=>{try{
     const pathname=new URL(req.url,'http://local').pathname;
@@ -33,7 +34,12 @@ try{
         await page.setViewportSize({width,height:900});await page.goto('http://127.0.0.1:'+server.address().port);await page.waitForFunction(()=>window.ready);
         assert.equal(await page.locator('.al-home-tabs button').count(),3);
         assert.equal(await page.locator('.al-home-pane:not([hidden]) .al-feature-card').count(),3);
-        assert(await page.getByRole('button',{name:'기존 기억 가져오기',exact:true}).isVisible());
+        assert(await page.getByRole('button',{name:'지금 수집',exact:true}).isVisible());
+        assert(await page.getByText('다음 수집 #2106–#2119 · 14개').isVisible());
+        assert(await page.getByText('현재 연결된 테스트 로어북 이름',{exact:true}).isVisible());
+        await page.locator('#al-quick-profile').selectOption('1');
+        assert.equal(await page.evaluate(()=>collectionSettings.defaultProfile),1);
+        await page.locator('#al-quick-profile').selectOption('0');
         await page.getByRole('button',{name:'저장된 기억',exact:true}).click();
         assert.equal(await page.locator('.al-feature-card').count(),17);
         assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
@@ -50,7 +56,7 @@ try{
         assert.equal(await page.evaluate(()=>collectionSettings.profiles[0].archiveLoreConnectionProfileId),'saved');
         assert.equal(await page.evaluate(()=>collectionSettings.profiles[0].connection.model),'old');
         assert(await page.evaluate(()=>savedConnection));
-        await page.locator('[data-home-tab=collect]').click();
+        await page.locator('.al-migration-details summary').click();
         await page.getByRole('button',{name:'기존 기억 가져오기',exact:true}).click();await page.getByRole('status').filter({hasText:'이관 완료'}).waitFor();
         await page.evaluate(()=>document.fonts.ready);
         assert(await page.locator('.al-feature-button').evaluateAll(items=>items.every(el=>el.getBoundingClientRect().right<=el.parentElement.getBoundingClientRect().right)));
@@ -67,8 +73,19 @@ try{
         })));
         assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
         await page.locator('#tool-fixture').evaluate(el=>el.remove());
+        await page.locator('[data-home-tab=collect]').click();
         await page.screenshot({path:'/tmp/archive-lore-fork-'+width+'.png',fullPage:true});
     }
+    const sideSource=await fs.readFile(root+'templatesSidePrompts.js','utf8');
+    const sideMarker='export const sidePromptsTableTemplate = Handlebars.compile(`';
+    const sideStart=sideSource.indexOf(sideMarker)+sideMarker.length;
+    const sideTemplate=Handlebars.compile(sideSource.slice(sideStart,sideSource.indexOf('`);',sideStart)));
+    await page.setViewportSize({width:320,height:900});
+    await page.locator('#content').evaluate((el,html)=>{el.innerHTML='<div id="stmb-sp-list">'+html+'</div>';},sideTemplate({items:[{key:'relationship',name:'Relationship Turning Points',enabled:true,badges:['메모리 후','수동']}]}));
+    assert(await page.locator('.stmb-sp-action-edit').isVisible());
+    assert(await page.locator('.stmb-sp-action-delete').isVisible());
+    assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+    assert(await page.locator('.stmb-sp-action-delete').evaluate(el=>el.getBoundingClientRect().right<=innerWidth));
     // Render the real native profile template, not a replacement UI.
     Handlebars.registerHelper('eq',(a,b)=>a===b);
     const source=await fs.readFile(root+'profileManager.js','utf8');

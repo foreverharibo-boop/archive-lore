@@ -9,6 +9,7 @@ import { SlashCommandArgument, ARGUMENT_TYPE } from '../../../slash-commands/Sla
 import { migrateLegacyChat, migrationSideTemplates } from './lore-migration.js';
 import { embeddingKey } from './lore-api.js';
 import { embeddingChunks, entryId } from './lore-core.js';
+import { nextCollectionRange } from './lore-native-progress.js';
 import { shouldIndexBookUpdate } from './lore-automation.js';
 
 globalThis.archiveLoreFork=true;
@@ -34,12 +35,12 @@ async function openMigration(){
 }
 
 async function openRange(){
-    const c=getContext(),start=(c.chatMetadata.STMemoryBooks?.highestMemoryProcessed ?? -1)+1,end=c.chat.length-1;
+    const c=getContext(),{start,end}=nextCollectionRange(c.chatMetadata.STMemoryBooks,c.chat.length);
     const node=document.createElement('div');node.className='al-search-tools';node.innerHTML='<h3>범위 지정 수집</h3><p>실리태번 메시지 번호로 범위를 지정합니다. 한 번 수집은 하나의 기억으로, 나눠 수집은 여러 기억으로 저장합니다.</p>';
     const fields={};for(const [key,label,value] of [['start','시작 번호',start],['end','끝 번호',end],['interval','나눠 수집할 메시지 수',20]]){const l=document.createElement('label');l.textContent=label;const input=document.createElement('input');input.type='number';input.className='text_pole';input.min=key==='interval'?'1':'0';input.value=value;l.append(input);node.append(l);fields[key]=input;}
     const status=document.createElement('p');status.setAttribute('role','status');
     const actions=document.createElement('div');actions.className='al-range-actions';node.append(actions);
-    for(const [label,batch] of [['한 번에 수집',false],['나눠서 수집',true]]){const b=document.createElement('button');b.type='button';b.className='menu_button';b.textContent=label;b.onclick=async()=>{const values=Object.fromEntries(Object.entries(fields).map(([k,v])=>[k,Number(v.value)]));if(Object.values(values).some(n=>!Number.isInteger(n))||values.start<0||values.end<values.start||values.end>=c.chat.length||values.interval<1){status.textContent='시작·끝 번호와 분할 개수를 확인해 주세요.';return;}b.disabled=true;try{if(getContext().chat!==c.chat)throw Error('채팅이 변경되었습니다. 다시 열어 주세요.');if(batch)await native.catchup(values);else await native.collectRange(values.start,values.end);status.textContent='작업이 끝났습니다. 수집 위치와 메모리북 알림을 확인해 주세요.';}catch(e){status.textContent=e.message;}finally{b.disabled=false;}};actions.append(b);}
+    for(const [label,batch] of [['한 번에 수집',false],['나눠서 수집',true]]){const b=document.createElement('button');b.type='button';b.className='menu_button';b.textContent=label;b.onclick=async()=>{const values=Object.fromEntries(Object.entries(fields).map(([k,v])=>[k,Number(v.value)]));if(Object.values(values).some(n=>!Number.isInteger(n))||values.start<0||values.end<values.start||values.end>=c.chat.length||values.interval<1){status.textContent='시작·끝 번호와 분할 개수를 확인해 주세요.';return;}b.disabled=true;try{if(getContext().chat!==c.chat)throw Error('채팅이 변경되었습니다. 다시 열어 주세요.');if(batch)await native.catchup(values);else {const ok=await native.collectRange(values.start,values.end);if(!ok){status.textContent='수집이 완료되지 않았습니다. 취소 여부와 메모리북 알림을 확인해 주세요.';return;}}const last=getContext().chatMetadata.STMemoryBooks?.highestMemoryProcessed;status.textContent=Number.isInteger(last)?`저장된 수집 위치: #${last} · 다음 수집은 #${last+1}부터 시작합니다.`:'저장된 수집 위치가 없습니다. 메모리북 알림을 확인해 주세요.';await native.refresh();}catch(e){status.textContent=e.message;}finally{b.disabled=false;}};actions.append(b);}
     node.append(status);await new Popup(node,POPUP_TYPE.TEXT,'',{wide:true,okButton:false,cancelButton:'닫기'}).show();
 }
 

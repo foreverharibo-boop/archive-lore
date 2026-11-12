@@ -191,11 +191,29 @@ test('compact review keeps every source sentence and identity without sending so
 test('revision-three defaults migrate without overwriting customized prompts or changing stored embeddings',async()=>{
     const {PREVIOUS_QUESTIONS,PREVIOUS_SELECT}=await import('./lore-prompts.js');
     const migrated=normalizeSettings({promptRevision:3,prompts:{questions:PREVIOUS_QUESTIONS,select:PREVIOUS_SELECT}});
-    assert.equal(migrated.promptRevision,4);assert.equal(migrated.prompts.questions,DEFAULT_PROMPTS.questions);
+    assert.equal(migrated.promptRevision,5);assert.equal(migrated.prompts.questions,DEFAULT_PROMPTS.questions);
     assert.equal(migrated.prompts.select,DEFAULT_PROMPTS.select);
     assert.match(migrated.prompts.questions,/English/);assert.match(migrated.prompts.select,/original conditions/);
     const custom=normalizeSettings({promptRevision:3,prompts:{questions:'My custom questions',select:'My custom selector'}});
     assert.equal(custom.prompts.questions,'My custom questions');assert.equal(custom.prompts.select,'My custom selector');
+});
+
+test('revision-four selector upgrades without mutating saved settings, custom prompts or retrieval limits',async()=>{
+    const {PREVIOUS_EVENT_SELECT}=await import('./lore-prompts.js');
+    const saved={promptRevision:4,mode:'questions',injectionTokens:3000,candidateCount:16,
+        prompts:{collect:'Personal detailed summary',questions:'Personal questions',select:PREVIOUS_EVENT_SELECT},
+        embeddingModel:'gemini-embedding-001',selectionFocus:['affection','meaning']};
+    const before=structuredClone(saved),migrated=normalizeSettings(saved);
+    assert.deepEqual(saved,before);
+    assert.equal(migrated.promptRevision,5);
+    assert.equal(migrated.prompts.select,DEFAULT_PROMPTS.select);
+    assert.equal(migrated.prompts.collect,saved.prompts.collect);
+    assert.equal(migrated.prompts.questions,saved.prompts.questions);
+    for(const key of ['mode','injectionTokens','candidateCount','embeddingModel','selectionFocus'])assert.deepEqual(migrated[key],saved[key]);
+    assert.deepEqual(normalizeSettings(migrated),migrated);
+    const custom=PREVIOUS_EVENT_SELECT+'\nMy additional selection rule.';
+    assert.equal(normalizeSettings({...saved,prompts:{...saved.prompts,select:custom}}).prompts.select,custom);
+    assert.equal(normalizeSettings({}).prompts.select,DEFAULT_PROMPTS.select);
 });
 
 test('aspect lane reserves missing event coverage while preserving direct-request candidates',()=>{

@@ -166,7 +166,7 @@ Collection, side-update, question-generation and selection prompts are editable.
 Both modes use the configured independent embedding service and indexed content:
 
 1. **대화로 검색**: code formats recent dialogue → embeds its chunks → vector search → AI selects original text unit IDs.
-2. **질문으로 검색**: AI produces up to six questions from recent dialogue → embeds those questions → vector search → AI selects original text unit IDs.
+2. **질문으로 검색**: AI produces one to six questions from recent dialogue → embeds those questions → vector search → AI selects original text unit IDs.
 
 The default selector treats past/present comparisons, including casual questions about going alone versus together, as recollection requests. The referenced historical event, its recorded feelings/reasons and essential outcome can be direct evidence alongside present plans. Relevant retrieval questions serve as a coverage checklist; supported partial answers remain useful even when another part is unknown. Each batch assesses its own evidence without assuming another batch will supply it. Revision 5 migrates only the exact previous default selector; custom prompts, personal summary prompts, embeddings, retrieval limits and request counts are unchanged. This is model guidance, not a guarantee that every relevant memory will be selected.
 
@@ -3252,10 +3252,10 @@ separate from side-record collection categories.
 planner, search ranking, selector request and recalled-record formatting. They
 still allow relevant emotional facts; no response guidance is added.
 
-With choices enabled, question mode uses its existing planner call (maximum six
+With choices enabled, question mode uses its existing planner call (one to six
 questions): a direct factual question followed by queries for the chosen aspects
 of the same request. Dialogue mode adds one context-bound supplementary search;
-a single-question plan also receives this fallback. An empty plan stays empty.
+a single-question plan also receives this supplementary query. Question mode requires at least one nonblank question, including for ordinary actions and scene transitions. Questions may explore useful related experiences, recorded feelings, preferences and agreements without requiring that the next reply be impossible without them. The planner must not assume a past event exists. Empty or otherwise invalid plans are retried once; a second invalid response reports an error instead of silently skipping retrieval. No dialogue-search fallback is used. The selector may still return no relevant facts.
 Supplementary query embeddings can add latency; no extra AI completion is added.
 At most a third of candidate slots are reserved for aspect search; the remaining
 slots retain direct-request coverage. Saved documents and embeddings are unchanged.

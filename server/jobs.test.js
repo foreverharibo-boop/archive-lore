@@ -275,3 +275,22 @@ test('server question mode repairs an empty JSON object in the same job and reco
     assert.match(f.calls[1].messages[0].content,/previous response/);
     assert.deepEqual(json(f.book),{entries:{}});
 });
+
+test('server retries an empty plan and selects cached evidence without reembedding documents',async t=>{
+    const f=fixture(t),input=f.input();input.settings.mode='questions';
+    atomic(f.book,{entries:{0:{uid:0,content:'They visited the hospital together.',key:[],disable:false}}});
+    const indexed=await f.service.submit(f.user,'index',input,randomUUID());assert.equal((await done(f.service,f.user,indexed.id)).status,'completed');
+    f.replies.push('{"questions":[]}','{"questions":["What happened during their hospital visit?"]}',payload=>{
+        const data=JSON.parse(payload.messages.at(-1).content);
+        return JSON.stringify({selections:[{id:data.memories[0].id,priority:3,reason:'Their recorded shared visit.'}]});
+    });
+    const job=await f.service.submit(f.user,'recall',input,randomUUID()),result=await done(f.service,f.user,job.id);
+    assert.equal(result.status,'completed',result.message);assert.equal(f.calls.length,3);
+    assert.deepEqual(result.result.lastRecall.questions,['What happened during their hospital visit?']);
+    assert.match(result.result.text,/hospital together/);
+});
+test('server exposes repeated empty question plans as errors instead of completed zero-memory recalls',async t=>{
+    const f=fixture(t),input=f.input();input.settings.mode='questions';f.replies.push('{"questions":[]}','{"questions":[]}');
+    const job=await f.service.submit(f.user,'recall',input,randomUUID()),result=await done(f.service,f.user,job.id);
+    assert.equal(result.status,'error');assert.match(result.message,/유효한 질문을 1~6개/);assert.equal(f.calls.length,2);
+});

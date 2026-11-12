@@ -14,7 +14,7 @@ import { fitFocusedInjection } from './lore-focus-injection.js';
 import { withAbort } from './lore-cancellation.js';
 import { mapOrdered } from './lore-parallel.js';
 
-const QUESTION_SCHEMA = '\nReturn ONLY JSON: {"questions":["question"]}. The questions key is required, with zero to six strings of at most 2000 characters each. If no past information is needed, return exactly {"questions":[]}. Never return {} or omit questions.';
+const QUESTION_SCHEMA = '\nReturn ONLY JSON: {"questions":["question"]}. The questions key is required, with one to six nonblank strings of at most 2000 characters each. Always generate at least one context-grounded retrieval question, including for ordinary scene actions. When no factual answer is missing, ask what recorded experience, feeling, preference or agreement could inform this scene without assuming such a record exists. Never return an empty questions array, {} or omit questions.';
 
 const COLLECTION_SCHEMA = `Return ONLY JSON:
 {"entries":[{"title":"short English title","date":"story date/range or empty","time":"story time or empty","location":"place or empty","content":"English narrative paragraphs only, no title/metadata headings","keywords":["English keyword"],"supersedes":null}],
@@ -266,17 +266,17 @@ export function createLoreController(host) {
                     // Only retry a received but malformed plan, never transport errors
                     // or cancellations. Keep the retry in this same search job.
                     const response=await askTracked(config.searchProfile || config.profile,
-                        system+(attempt?'\nYour previous response did not match the required JSON format. Re-evaluate the supplied dialogue and return the required questions object, including an explicit empty array when appropriate.':''),
+                        system+(attempt?'\nYour previous response did not match the required JSON format. Re-evaluate the supplied dialogue and return the required questions object, with one to six nonblank questions. An empty list is invalid; explore potentially useful past context for this scene without inventing an event.':''),
                         data,signal,1200,'questionMs');
                     try{
                         const raw=parseJson(response);
-                        if(!Array.isArray(raw?.questions) || raw.questions.length>6 || raw.questions.some(q=>typeof q!=='string' || q.length>2000))
+                        if(!Array.isArray(raw?.questions) || raw.questions.length<1 || raw.questions.length>6 || raw.questions.some(q=>typeof q!=='string' || !q.trim() || q.length>2000))
                             throw Error('검색 질문 형식이 올바르지 않아.');
-                        questions=raw.questions.filter(q=>q.trim());break;
+                        questions=raw.questions.map(q=>q.trim());break;
                     }catch(error){
                         signal.throwIfAborted();
                         await log('question.invalid',{attempt:attempt+1,message:error.message,response});
-                        if(attempt===1)throw Error('검색 AI가 질문 목록을 올바르게 반환하지 않았어. 한 번 재시도했지만 실패했어. 검색 연결 프로필이나 질문 프롬프트를 확인해 줘.');
+                        if(attempt===1)throw Error('검색 AI가 유효한 질문을 1~6개 반환하지 않았어. 한 번 재시도했지만 실패했어. 검색 연결 프로필이나 질문 프롬프트를 확인해 줘.');
                         notify('검색 질문 형식 오류 · 한 번 다시 생성하는 중');
                     }
                 }
@@ -288,10 +288,7 @@ export function createLoreController(host) {
             const retrievalPolicy=emphasisQueries.length?'focus-aspects-v1':config.mode==='embedding'?'cosine-similarity':config.mode==='questions'?'event-anchors-v3':'latest-user-reserved-v1';
             await log('search.queries',{mode:config.mode,emphasisQueries,selectionFocus:config.selectionFocus,queries:config.mode==='questions'?questions:config.mode==='embedding'?[recent.text]:[focus.latestUser,focus.context],latestUser:focus.latestUser,context:focus.context,policy:retrievalPolicy});
             const chunks = [], cacheStatus=[]; let pending = 0;
-            // A planner that needs no past facts should not launch fallback searches and selectors.
-            const needsRecall=config.mode!=='questions'||questions.length>0;
-            if(!needsRecall)await log('retrieval.empty',{reason:'planner requested no past facts'});
-            for (const row of needsRecall ? rows.filter(r => !isCore(r.entry)) : []) for (const chunk of await chunksFor(row, config)) {
+            for (const row of rows.filter(r => !isCore(r.entry))) for (const chunk of await chunksFor(row, config)) {
                 const vector = await host.store.get(chunk.cacheKey);
                 cacheStatus.push({entryId:chunk.id,chunk:chunk.index,hit:!!vector,text:chunk.text,dimensions:vector?.length});
                 if (vector) chunks.push({ ...chunk, vector }); else pending++;

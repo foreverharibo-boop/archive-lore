@@ -191,7 +191,7 @@ test('compact review keeps every source sentence and identity without sending so
 test('revision-three defaults migrate without overwriting customized prompts or changing stored embeddings',async()=>{
     const {PREVIOUS_QUESTIONS,PREVIOUS_SELECT}=await import('./lore-prompts.js');
     const migrated=normalizeSettings({promptRevision:3,prompts:{questions:PREVIOUS_QUESTIONS,select:PREVIOUS_SELECT}});
-    assert.equal(migrated.promptRevision,6);assert.equal(migrated.prompts.questions,DEFAULT_PROMPTS.questions);
+    assert.equal(migrated.promptRevision,7);assert.equal(migrated.prompts.questions,DEFAULT_PROMPTS.questions);
     assert.equal(migrated.prompts.select,DEFAULT_PROMPTS.select);
     assert.match(migrated.prompts.questions,/English/);assert.match(migrated.prompts.select,/original conditions/);
     const custom=normalizeSettings({promptRevision:3,prompts:{questions:'My custom questions',select:'My custom selector'}});
@@ -205,7 +205,7 @@ test('revision-four selector upgrades without mutating saved settings, custom pr
         embeddingModel:'gemini-embedding-001',selectionFocus:['affection','meaning']};
     const before=structuredClone(saved),migrated=normalizeSettings(saved);
     assert.deepEqual(saved,before);
-    assert.equal(migrated.promptRevision,6);
+    assert.equal(migrated.promptRevision,7);
     assert.equal(migrated.prompts.select,DEFAULT_PROMPTS.select);
     assert.equal(migrated.prompts.collect,saved.prompts.collect);
     assert.equal(migrated.prompts.questions,saved.prompts.questions);
@@ -232,7 +232,7 @@ test('revision-six migration upgrades exact defaults once and preserves custom p
         prompts:{questions:PREVIOUS_ENGLISH_QUESTIONS,select:PREVIOUS_COMPARISON_SELECT,collect:'My private summary'}};
     const before=structuredClone(saved),migrated=normalizeSettings(saved);
     assert.deepEqual(saved,before);
-    assert.equal(migrated.promptRevision,6);assert.equal(migrated.candidateCount,24);
+    assert.equal(migrated.promptRevision,7);assert.equal(migrated.candidateCount,24);
     assert.equal(migrated.prompts.questions,DEFAULT_PROMPTS.questions);assert.equal(migrated.prompts.select,DEFAULT_PROMPTS.select);
     assert.equal(migrated.prompts.collect,'My private summary');assert.equal(migrated.injectionTokens,4500);assert.equal(migrated.selectionConcurrency,2);
     assert.deepEqual(normalizeSettings(migrated),migrated);
@@ -246,4 +246,21 @@ test('revision-six migration upgrades exact defaults once and preserves custom p
     const {readFile}=await import('node:fs/promises');
     const preset=JSON.parse(await readFile(new URL('./prompts/archive-lore-defaults.json',import.meta.url),'utf8'));
     assert.equal(preset.prompts.questions,DEFAULT_PROMPTS.questions);assert.equal(preset.prompts.select,DEFAULT_PROMPTS.select);
+});
+
+test('revision-seven question defaults migrate while custom prompts, selector and retrieval settings stay unchanged',async()=>{
+    const {PREVIOUS_BACKGROUND_QUESTIONS,QUESTIONS_PROMPT}=await import('./lore-prompts.js');
+    const saved={promptRevision:6,prompts:{questions:PREVIOUS_BACKGROUND_QUESTIONS,select:'Custom selector',collect:'Custom summary'},candidateCount:16,injectionTokens:3500};
+    const before=structuredClone(saved),migrated=normalizeSettings(saved);
+    assert.deepEqual(saved,before);assert.equal(migrated.promptRevision,7);
+    assert.equal(migrated.prompts.questions,QUESTIONS_PROMPT);assert.equal(migrated.prompts.select,'Custom selector');assert.equal(migrated.prompts.collect,'Custom summary');
+    assert.equal(migrated.candidateCount,16);assert.equal(migrated.injectionTokens,3500);
+    assert.equal(normalizeSettings({...saved,prompts:{questions:'Personal questions'}}).prompts.questions,'Personal questions');
+    assert.deepEqual(normalizeSettings(migrated),migrated);
+    const {focusQuestionPrompt}=await import('./lore-selection-focus.js');
+    assert.match(QUESTIONS_PROMPT,/Always produce at least one/);assert.match(QUESTIONS_PROMPT,/need not be indispensable/);
+    assert.doesNotMatch(QUESTIONS_PROMPT+focusQuestionPrompt(['affection']),/empty.*valid|If needed/);
+    const {readFile}=await import('node:fs/promises');
+    const shipped=JSON.parse(await readFile(new URL('./prompts/archive-lore-defaults.json',import.meta.url),'utf8'));
+    assert.equal(shipped.prompts.questions,QUESTIONS_PROMPT);
 });

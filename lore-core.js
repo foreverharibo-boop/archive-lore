@@ -3,7 +3,7 @@
 import { normalizeSides } from './lore-side-config.js';
 import { normalizeSelectionFocus } from './lore-selection-focus.js';
 import { fingerprintChatMessage } from './chatSelection.js';
-import { COLLECT_PROMPT, SIDE_PROMPT, QUESTIONS_PROMPT, SELECT_PROMPT, LEGACY_QUESTIONS, LEGACY_SELECT, PREVIOUS_QUESTIONS, PREVIOUS_SELECT, PREVIOUS_EVENT_SELECT, PREVIOUS_ENGLISH_QUESTIONS, PREVIOUS_COMPARISON_SELECT } from './lore-prompts.js';
+import { COLLECT_PROMPT, SIDE_PROMPT, QUESTIONS_PROMPT, SELECT_PROMPT, LEGACY_QUESTIONS, LEGACY_SELECT, PREVIOUS_QUESTIONS, PREVIOUS_SELECT, PREVIOUS_EVENT_SELECT, PREVIOUS_ENGLISH_QUESTIONS, PREVIOUS_COMPARISON_SELECT, PREVIOUS_BACKGROUND_QUESTIONS } from './lore-prompts.js';
 import { LEGACY_COLLECT, LEGACY_SIDE } from './lore-prompts-v1.js';
 export { SIDE_PROMPT } from './lore-prompts.js';
 import { dateDay, relationshipLabel, relationshipPhase, formatRelationship } from './lore-relationship.js';
@@ -47,7 +47,10 @@ export function normalizeSettings(value = {}) {
         // One-time upgrade of the old default; other saved counts stay intact.
         if (value.candidateCount === 16) value.candidateCount = 24;
     }
-    return { ...DEFAULTS, ...value, promptRevision: 6,
+    if ((value.promptRevision || 0) < 7) {
+        if (value.prompts.questions === PREVIOUS_BACKGROUND_QUESTIONS) value.prompts.questions = QUESTIONS_PROMPT;
+    }
+    return { ...DEFAULTS, ...value, promptRevision: 7,
         enabled: value.enabled === true,
         autoEmbed: value.autoEmbed !== false,
         serverEnabled: value.serverEnabled === true,

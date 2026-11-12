@@ -359,15 +359,16 @@ test('dashboard counts whole entries, leaving partially embedded long entries pe
     f.book.entries[0].content='Changed fact.';view=await f.controller.dashboard();assert.equal(view.embedded,1);assert.equal(view.pending,1);
 });
 
-test('an empty question plan returns core without vector lookups, query embeddings or selector calls',async()=>{
-    const f=fixture();f.config={mode:'questions'};
-    f.book={entries:{0:{uid:0,content:'Current relationship',constant:true},1:{uid:1,content:'Past event'}}};
-    f.replies.push('{"questions":[]}');
-    f.host.store.get=()=>assert.fail('no vector lookup for an empty plan');
-    f.host.embed=()=>assert.fail('no embedding for an empty plan');
+for(const selectionFocus of [[],['affection']])test(`empty question plan retries then searches cached records with normal selection: ${selectionFocus}`,async()=>{
+    const f=fixture();f.config={mode:'questions',selectionFocus,injectionTokens:500};
+    f.book={entries:{0:{uid:0,content:'Current relationship',constant:true},1:{uid:1,content:'She thanked him for staying at the hospital.'}}};
+    await f.controller.index();f.calls.length=0;
+    f.replies.push('{"questions":[]}','{"questions":["What feelings did she express about their hospital visit?"]}',data=>JSON.stringify({selections:[{id:data.memories[0].id,priority:3,reason:'Recorded gratitude informs their next shared visit.'}]}));
     const result=await f.controller.recall();
-    assert.equal(result.core,'Current relationship');assert.equal(result.text,'');
-    assert.equal(f.calls.filter(c=>typeof c==='object').length,1);
+    assert.equal(result.core,'Current relationship');assert.match(result.text,/thanked him/);assert(result.tokens<=500);
+    assert.equal(f.calls.filter(c=>typeof c==='object').length,3);assert(f.calls.includes('query'));assert(!f.calls.includes('document'));
+    assert.equal(f.controller.state().lastRecall.questions.length,1);
+    assert.equal(f.controller.state().lastRecall.candidateTotal,1);
 });
 
 test('English event anchors reach the selector when all vector lanes prefer unrelated scenes',async()=>{
@@ -413,12 +414,15 @@ test('same request carries different category evidence and response direction, t
     f.config={selectionFocus:[]};asks.length=0;queries.length=0;const cleared=await f.controller.recall();
     assert.deepEqual(cleared,baseline);assert.deepEqual(asks,baselineRequests);assert.deepEqual(queries,baselineQueries);
 });
-test('checked aspects cannot turn an empty question plan into retrieval or guidance',async()=>{
+test('mandatory question search still allows the selector to reject every candidate without guidance',async()=>{
     const f=fixture();f.config={mode:'questions',selectionFocus:['affection']};
     f.book={entries:{0:{uid:0,content:'They visited the hospital.'}}};await f.controller.index();
-    f.replies.push('{"questions":[]}');const result=await f.controller.recall();
-    assert.equal(result.text,'');assert(!result.guidance);assert.equal(f.calls.filter(c=>c==='query').length,0);
+    f.replies.push('{"questions":["What feelings were recorded during their hospital visit?"]}','{"selections":[]}');
+    const result=await f.controller.recall();
+    assert.equal(result.text,'');assert(!result.guidance);assert(f.calls.filter(c=>c==='query').length>0);
+    assert.equal(f.controller.state().lastRecall.candidateTotal,1);
 });
+
 test('changing categories during a noncooperative local selector rejects its stale result',async()=>{
     const f=fixture();f.config={selectionFocus:['affection']};f.book={entries:{0:{uid:0,content:'She thanked him.'}}};await f.controller.index();
     f.host.ask=async()=>{f.config={selectionFocus:['details']};return '{"selections":[{"id":"u0","priority":3,"reason":"gratitude"}]}';};
@@ -452,7 +456,7 @@ for(const selectionFocus of [[],['affection','meaning']])test(`six-question reca
     let planners=0,selectors=0;
     f.host.ask=async(_profile,system,data,_signal,tokens)=>{
         if(system.includes('"questions":')){
-            planners++;assert.match(system,/zero to six/);assert.doesNotMatch(system,/at most four/);assert.equal(tokens,1200);
+            planners++;assert.match(system,/one to six/);assert.doesNotMatch(system,/at most four/);assert.equal(tokens,1200);
             return JSON.stringify({questions});
         }
         selectors++;assert.equal(tokens,3000);assert.deepEqual(data.questions,questions);
@@ -468,7 +472,7 @@ for(const selectionFocus of [[],['affection','meaning']])test(`six-question reca
     assert(result.text.includes('thanked him'));assert(result.tokens<=500);
 });
 
-for(const response of ['{}','null','[]','not JSON','{"questions":"Where?"}','{"questions":["1","2","3","4","5","6","7"]}'])test(`malformed question plan retries only the planner once: ${response}`,async()=>{
+for(const response of ['{"questions":[]}','{"questions":[" " ]}','{"questions":["Valid?",""]}','{}','null','[]','not JSON','{"questions":"Where?"}','{"questions":["1","2","3","4","5","6","7"]}'])test(`malformed question plan retries only the planner once: ${response}`,async()=>{
     const f=fixture();f.config={mode:'questions',searchProfile:'search-profile'};
     f.book={entries:{0:{uid:0,content:'They visited the hospital.'}}};await f.controller.index();f.calls.length=0;
     const requests=[];f.host.ask=async(profile,system,data)=>{
@@ -479,19 +483,20 @@ for(const response of ['{}','null','[]','not JSON','{"questions":"Where?"}','{"q
     };
     await f.controller.recall();
     assert.equal(requests.length,3);assert.equal(requests[0].profile,'search-profile');
-    assert.match(requests[0].system,/return exactly \{"questions":\[\]\}/);
+    assert.match(requests[0].system,/Never return an empty questions array/);
     assert.match(requests[1].system,/previous response/);
     assert.deepEqual(requests[1].data,requests[0].data);
     assert.deepEqual(f.controller.state().lastRecall.questions,['Which hospital did they visit?']);
     assert.equal(f.calls.filter(c=>c==='document').length,0);
 });
-test('two empty objects stop with a clear error; only an explicit empty questions array skips retrieval',async()=>{
-    const f=fixture();f.config={mode:'questions'};f.replies.push('{}','{}');
-    await assert.rejects(f.controller.recall(),/한 번 재시도했지만 실패/);
+for(const response of ['{}','{"questions":[]}','{"questions":[" "]}'])test(`repeated invalid or empty plans fail clearly without silently injecting zero: ${response}`,async()=>{
+    const f=fixture();f.config={mode:'questions'};f.replies.push(response,response);
+    f.host.store.get=()=>assert.fail('no search before a valid question');
+    f.host.embed=()=>assert.fail('no embedding before a valid question');
+    await assert.rejects(f.controller.recall(),/유효한 질문을 1~6개.*한 번 재시도했지만 실패/);
     assert.equal(f.calls.length,2);assert.equal(f.controller.state().lastRecall,null);
-    f.calls.length=0;f.replies.push('{}','{"questions":[]}');await f.controller.recall();
-    assert.equal(f.calls.length,2);assert.deepEqual(f.controller.state().lastRecall.questions,[]);
 });
+
 test('question provider errors are not retried and cancellation during the retry discards late output',async()=>{
     const f=fixture();f.config={mode:'questions'};let calls=0;
     f.host.ask=async()=>{calls++;throw Error('provider timeout');};

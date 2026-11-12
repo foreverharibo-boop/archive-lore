@@ -191,7 +191,7 @@ test('compact review keeps every source sentence and identity without sending so
 test('revision-three defaults migrate without overwriting customized prompts or changing stored embeddings',async()=>{
     const {PREVIOUS_QUESTIONS,PREVIOUS_SELECT}=await import('./lore-prompts.js');
     const migrated=normalizeSettings({promptRevision:3,prompts:{questions:PREVIOUS_QUESTIONS,select:PREVIOUS_SELECT}});
-    assert.equal(migrated.promptRevision,5);assert.equal(migrated.prompts.questions,DEFAULT_PROMPTS.questions);
+    assert.equal(migrated.promptRevision,6);assert.equal(migrated.prompts.questions,DEFAULT_PROMPTS.questions);
     assert.equal(migrated.prompts.select,DEFAULT_PROMPTS.select);
     assert.match(migrated.prompts.questions,/English/);assert.match(migrated.prompts.select,/original conditions/);
     const custom=normalizeSettings({promptRevision:3,prompts:{questions:'My custom questions',select:'My custom selector'}});
@@ -200,12 +200,12 @@ test('revision-three defaults migrate without overwriting customized prompts or 
 
 test('revision-four selector upgrades without mutating saved settings, custom prompts or retrieval limits',async()=>{
     const {PREVIOUS_EVENT_SELECT}=await import('./lore-prompts.js');
-    const saved={promptRevision:4,mode:'questions',injectionTokens:3000,candidateCount:16,
+    const saved={promptRevision:4,mode:'questions',injectionTokens:3000,candidateCount:20,
         prompts:{collect:'Personal detailed summary',questions:'Personal questions',select:PREVIOUS_EVENT_SELECT},
         embeddingModel:'gemini-embedding-001',selectionFocus:['affection','meaning']};
     const before=structuredClone(saved),migrated=normalizeSettings(saved);
     assert.deepEqual(saved,before);
-    assert.equal(migrated.promptRevision,5);
+    assert.equal(migrated.promptRevision,6);
     assert.equal(migrated.prompts.select,DEFAULT_PROMPTS.select);
     assert.equal(migrated.prompts.collect,saved.prompts.collect);
     assert.equal(migrated.prompts.questions,saved.prompts.questions);
@@ -224,4 +224,26 @@ test('aspect lane reserves missing event coverage while preserving direct-reques
     assert.equal(focused.length,12);assert(focused.some(c=>c.id==='event-29'));
     assert.deepEqual(focused.slice(0,8).map(c=>c.id),baseline.slice(0,8).map(c=>c.id));
     assert.equal(new Set(focused.map(c=>c.id)).size,12);
+});
+
+test('revision-six migration upgrades exact defaults once and preserves custom prompts and chosen limits',async()=>{
+    const {PREVIOUS_ENGLISH_QUESTIONS,PREVIOUS_COMPARISON_SELECT}=await import('./lore-prompts.js');
+    const saved={promptRevision:5,candidateCount:16,injectionTokens:4500,selectionConcurrency:2,
+        prompts:{questions:PREVIOUS_ENGLISH_QUESTIONS,select:PREVIOUS_COMPARISON_SELECT,collect:'My private summary'}};
+    const before=structuredClone(saved),migrated=normalizeSettings(saved);
+    assert.deepEqual(saved,before);
+    assert.equal(migrated.promptRevision,6);assert.equal(migrated.candidateCount,24);
+    assert.equal(migrated.prompts.questions,DEFAULT_PROMPTS.questions);assert.equal(migrated.prompts.select,DEFAULT_PROMPTS.select);
+    assert.equal(migrated.prompts.collect,'My private summary');assert.equal(migrated.injectionTokens,4500);assert.equal(migrated.selectionConcurrency,2);
+    assert.deepEqual(normalizeSettings(migrated),migrated);
+    assert.equal(normalizeSettings({...migrated,candidateCount:16}).candidateCount,16);
+    for(const candidateCount of [1,20,32,40])assert.equal(normalizeSettings({...saved,candidateCount}).candidateCount,candidateCount);
+    assert.equal(normalizeSettings().candidateCount,24);
+    for(const key of ['questions','select']){
+        const custom=saved.prompts[key]+'\nPersonal rule.';
+        assert.equal(normalizeSettings({...saved,prompts:{...saved.prompts,[key]:custom}}).prompts[key],custom);
+    }
+    const {readFile}=await import('node:fs/promises');
+    const preset=JSON.parse(await readFile(new URL('./prompts/archive-lore-defaults.json',import.meta.url),'utf8'));
+    assert.equal(preset.prompts.questions,DEFAULT_PROMPTS.questions);assert.equal(preset.prompts.select,DEFAULT_PROMPTS.select);
 });

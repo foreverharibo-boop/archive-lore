@@ -14,7 +14,7 @@ import { fitFocusedInjection } from './lore-focus-injection.js';
 import { withAbort } from './lore-cancellation.js';
 import { mapOrdered } from './lore-parallel.js';
 
-const QUESTION_SCHEMA = '\nReturn ONLY JSON: {"questions":["question"]}. The questions key is required, with zero to four strings of at most 2000 characters each. If no past information is needed, return exactly {"questions":[]}. Never return {} or omit questions.';
+const QUESTION_SCHEMA = '\nReturn ONLY JSON: {"questions":["question"]}. The questions key is required, with zero to six strings of at most 2000 characters each. If no past information is needed, return exactly {"questions":[]}. Never return {} or omit questions.';
 
 const COLLECTION_SCHEMA = `Return ONLY JSON:
 {"entries":[{"title":"short English title","date":"story date/range or empty","time":"story time or empty","location":"place or empty","content":"English narrative paragraphs only, no title/metadata headings","keywords":["English keyword"],"supersedes":null}],
@@ -270,7 +270,7 @@ export function createLoreController(host) {
                         data,signal,1200,'questionMs');
                     try{
                         const raw=parseJson(response);
-                        if(!Array.isArray(raw?.questions) || raw.questions.length>4 || raw.questions.some(q=>typeof q!=='string' || q.length>2000))
+                        if(!Array.isArray(raw?.questions) || raw.questions.length>6 || raw.questions.some(q=>typeof q!=='string' || q.length>2000))
                             throw Error('검색 질문 형식이 올바르지 않아.');
                         questions=raw.questions.filter(q=>q.trim());break;
                     }catch(error){
@@ -333,7 +333,7 @@ export function createLoreController(host) {
                         let response, accepted;
                         for (let attempt=0;attempt<2;attempt++) {
                             response = await askTracked(config.searchProfile || config.profile,
-                                config.prompts.select + '\nReturn ONLY JSON: {"selections":[{"id":"u0","priority":3,"reason":"specific missing fact needed now","contextIds":[]}]}. Use priority 3 for direct facts, 2 for indispensable supporting context. Omit everything else. At most 24 selections in usefulness order. For no needed facts return {"selections":[]}. For each fact include contextIds (up to 8 IDs from the same entry) for sentences required to identify the owner, speaker, referent, conditions, negation, or a contrasting counterpart. Read nearby sentences before selecting. If two people have similar objects, include the distinguishing facts for each relevant owner; never assume their properties match. Before responding check that your excerpts do not change attribution or omit a qualification. Omit a fact if the supplied context cannot disambiguate it. These dependent sentences are retained together or omitted together; do not invent connective text.' + selectionFocusPrompt(config.selectionFocus),
+                                config.prompts.select + '\nReturn ONLY JSON: {"selections":[{"id":"u0","priority":3,"reason":"specific missing fact needed now","contextIds":[]}]}. Use priority 3 for facts relevant under the selection instructions, 2 for indispensable supporting context. Omit everything else. At most 24 selections in usefulness order. For no needed facts return {"selections":[]}. For each fact include contextIds (up to 8 IDs from the same entry) for sentences required to identify the owner, speaker, referent, conditions, negation, or a contrasting counterpart. Read nearby sentences before selecting. If two people have similar objects, include the distinguishing facts for each relevant owner; never assume their properties match. Before responding check that your excerpts do not change attribution or omit a qualification. Omit a fact if the supplied context cannot disambiguate it. These dependent sentences are retained together or omitted together; do not invent connective text.' + selectionFocusPrompt(config.selectionFocus),
                                 { latestUser:focus.latestUser, dialogue: recent.text, questions, memories: selectorMemories(batch),
                                     batch:index+1,batchCount:batches.length,maxSelections:24,injectionBudgetTokens:config.injectionTokens,
                                     ...(config.selectionFocus.length?{selectionFocus:config.selectionFocus}:{}) }, signal, 3000);

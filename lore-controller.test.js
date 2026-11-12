@@ -444,7 +444,31 @@ test('parallel selector preserves every batch prompt and the final memory order'
     assert.deepEqual([...parallel.result.selected],[...serial.result.selected]);assert.equal(parallel.result.tokens,serial.result.tokens);
 });
 
-for(const response of ['{}','null','[]','not JSON','{"questions":"Where?"}','{"questions":["1","2","3","4","5"]}'])test(`malformed question plan retries only the planner once: ${response}`,async()=>{
+for(const selectionFocus of [[],['affection','meaning']])test(`six-question recall keeps one planner call, cached embeddings and the injection cap: ${selectionFocus}`,async()=>{
+    const f=fixture();f.config={mode:'questions',selectionFocus,injectionTokens:500};
+    f.book={entries:Object.fromEntries(Array.from({length:30},(_,i)=>[i,{uid:i,comment:`Visit ${i}`,content:`During visit ${i}, she thanked him for staying at the hospital.`}]))};
+    await f.controller.index();f.calls.length=0;
+    const questions=Array.from({length:6},(_,i)=>`What happened during hospital visit ${i}?`);
+    let planners=0,selectors=0;
+    f.host.ask=async(_profile,system,data,_signal,tokens)=>{
+        if(system.includes('"questions":')){
+            planners++;assert.match(system,/zero to six/);assert.doesNotMatch(system,/at most four/);assert.equal(tokens,1200);
+            return JSON.stringify({questions});
+        }
+        selectors++;assert.equal(tokens,3000);assert.deepEqual(data.questions,questions);
+        assert.equal(data.injectionBudgetTokens,500);
+        const fact=data.memories[0];
+        return JSON.stringify({selections:[{id:fact.id,priority:3,reason:'Recorded hospital gratitude informs the current shared hospital visit.'}]});
+    };
+    const result=await f.controller.recall();
+    assert.equal(planners,1);assert.equal(selectors,1);
+    assert.equal(f.controller.state().lastRecall.candidateTotal,24);
+    assert.deepEqual(f.controller.state().lastRecall.questions,questions);
+    assert.equal(f.calls.filter(c=>c==='document').length,0);
+    assert(result.text.includes('thanked him'));assert(result.tokens<=500);
+});
+
+for(const response of ['{}','null','[]','not JSON','{"questions":"Where?"}','{"questions":["1","2","3","4","5","6","7"]}'])test(`malformed question plan retries only the planner once: ${response}`,async()=>{
     const f=fixture();f.config={mode:'questions',searchProfile:'search-profile'};
     f.book={entries:{0:{uid:0,content:'They visited the hospital.'}}};await f.controller.index();f.calls.length=0;
     const requests=[];f.host.ask=async(profile,system,data)=>{

@@ -3,7 +3,7 @@
 import { normalizeSides } from './lore-side-config.js';
 import { normalizeSelectionFocus } from './lore-selection-focus.js';
 import { fingerprintChatMessage } from './chatSelection.js';
-import { COLLECT_PROMPT, SIDE_PROMPT, QUESTIONS_PROMPT, SELECT_PROMPT, LEGACY_QUESTIONS, LEGACY_SELECT, PREVIOUS_QUESTIONS, PREVIOUS_SELECT, PREVIOUS_EVENT_SELECT } from './lore-prompts.js';
+import { COLLECT_PROMPT, SIDE_PROMPT, QUESTIONS_PROMPT, SELECT_PROMPT, LEGACY_QUESTIONS, LEGACY_SELECT, PREVIOUS_QUESTIONS, PREVIOUS_SELECT, PREVIOUS_EVENT_SELECT, PREVIOUS_ENGLISH_QUESTIONS, PREVIOUS_COMPARISON_SELECT } from './lore-prompts.js';
 import { LEGACY_COLLECT, LEGACY_SIDE } from './lore-prompts-v1.js';
 export { SIDE_PROMPT } from './lore-prompts.js';
 import { dateDay, relationshipLabel, relationshipPhase, formatRelationship } from './lore-relationship.js';
@@ -18,7 +18,7 @@ export const DEFAULTS = Object.freeze({
     enabled: false, profile: '', searchProfile: '', embeddingProvider: 'gemini',
     embeddingUrl: 'https://api.openai.com/v1', embeddingModel: 'gemini-embedding-001', embeddingKey: '',
     mode: 'dialogue', recentCount: 10, injectionTokens: 3000, batchSize: 20,
-    keywordActivation: false, candidateCount: 16, selectionFocus: Object.freeze([]), autoEmbed: true, prompts: DEFAULT_PROMPTS,
+    keywordActivation: false, candidateCount: 24, selectionFocus: Object.freeze([]), autoEmbed: true, prompts: DEFAULT_PROMPTS,
 });
 export function integer(value, fallback, min, max) {
     const number = Number(value);
@@ -41,7 +41,13 @@ export function normalizeSettings(value = {}) {
     if ((value.promptRevision || 0) < 5) {
         if (value.prompts.select === PREVIOUS_EVENT_SELECT) value.prompts.select = SELECT_PROMPT;
     }
-    return { ...DEFAULTS, ...value, promptRevision: 5,
+    if ((value.promptRevision || 0) < 6) {
+        if (value.prompts.questions === PREVIOUS_ENGLISH_QUESTIONS) value.prompts.questions = QUESTIONS_PROMPT;
+        if (value.prompts.select === PREVIOUS_COMPARISON_SELECT) value.prompts.select = SELECT_PROMPT;
+        // One-time upgrade of the old default; other saved counts stay intact.
+        if (value.candidateCount === 16) value.candidateCount = 24;
+    }
+    return { ...DEFAULTS, ...value, promptRevision: 6,
         enabled: value.enabled === true,
         autoEmbed: value.autoEmbed !== false,
         serverEnabled: value.serverEnabled === true,
@@ -61,7 +67,7 @@ export function normalizeSettings(value = {}) {
         recentCount: integer(value.recentCount ?? 10, 10, 1, 200),
         injectionTokens: integer(value.injectionTokens ?? 3000, 3000, 256, 32000),
         batchSize: integer(value.batchSize ?? 20, 20, 1, 100),
-        candidateCount: integer(value.candidateCount ?? 16, 16, 1, 40),
+        candidateCount: integer(value.candidateCount ?? 24, 24, 1, 40),
         selectionFocus: normalizeSelectionFocus(value.selectionFocus),
         prompts: Object.fromEntries(Object.entries(DEFAULT_PROMPTS).map(([key, fallback]) =>
             [key, typeof value.prompts?.[key] === 'string' && value.prompts[key].trim() ? value.prompts[key] : fallback])),

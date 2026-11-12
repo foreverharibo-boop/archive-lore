@@ -194,4 +194,4 @@ dialog.al-collection-completion {box-sizing:border-box;width:300px!important;max
 .al-injection-view pre {white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word;font:inherit;margin:8px 0;}
 .al-injection-view details {margin:8px 0;}
 
-.al-saved-records > details > summary {text-align:right;}
+.al-saved-records > details > summary {text-align:left;}

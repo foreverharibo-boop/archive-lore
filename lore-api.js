@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { embeddingIdentity } from './lore-vector-identity.js';
 import { getSelectedConnectionProfile, prepareConnectionProfileRequest } from './connectionProfileRequest.js';
+import { observer, errorInfo } from './lore-telemetry.js';
 
 export function makeId() {
     const values = crypto.getRandomValues(new Uint8Array(16));
@@ -28,17 +29,39 @@ export function completionText(result) {
     }
     throw new Error('AI가 사용할 수 있는 응답을 반환하지 않았어.');
 }
-export async function ask(context, profileId, system, data, signal, maxTokens = 4096) {
+export function resolveConnection(context, profileId) {
     const selected = profileId || context.extensionSettings?.connectionManager?.selectedProfile;
-    if (!selected) throw new Error('확장 설정에서 연결 프로필을 선택해 줘.');
+    if (!selected) throw Object.assign(new Error('확장 설정에서 연결 프로필을 선택해 줘.'), {category:'profile',stage:'profile.resolve'});
     const isolated = { ...context, extensionSettings: { ...context.extensionSettings,
         connectionManager: { ...context.extensionSettings?.connectionManager, selectedProfile: selected } } };
-    const connection = getSelectedConnectionProfile(isolated);
-    const body = { model: connection.profile.model, temperature: .2, max_tokens: maxTokens, stream: false,
-        messages: [{ role: 'system', content: system }, { role: 'user', content: JSON.stringify(data) }] };
-    const timeout = AbortSignal.timeout(180000);
-    const combined = signal ? AbortSignal.any([signal, timeout]) : timeout;
-    return completionText(await prepareConnectionProfileRequest(connection, body, combined)());
+    try { return getSelectedConnectionProfile(isolated); }
+    catch(error) { error.category='profile';error.stage='profile.resolve';throw error; }
+}
+export function connectionInfo(context, profileId, connection) {
+    return { requestedProfile:profileId || 'current', currentProfile:context.extensionSettings?.connectionManager?.selectedProfile,
+        resolvedProfile:connection.profileId, name:connection.profile.name, source:connection.source,
+        model:connection.profile.model, preset:connection.profile.preset, profile:connection.profile,
+        transport:'SillyTavern.ConnectionManagerRequestService', endpoint:'/api/backends/chat-completions/generate',
+        upstreamHttpMetadata:'not exposed by ConnectionManagerRequestService' };
+}
+export async function ask(context, profileId, system, data, signal, maxTokens = 4096, observe) {
+    const log=observer(observe),started=Date.now();let combined=signal,stage='profile.resolve';
+    try {
+        await log('profile.requested',{requestedProfile:profileId || 'current',currentProfile:context.extensionSettings?.connectionManager?.selectedProfile});
+        const connection = resolveConnection(context,profileId);
+        await log('profile.resolved',connectionInfo(context,profileId,connection));
+        const body = { model: connection.profile.model, temperature: .2, max_tokens: maxTokens, stream: false,
+            messages: [{ role: 'system', content: system }, { role: 'user', content: JSON.stringify(data) }] };
+        const timeout = AbortSignal.timeout(180000);
+        combined = signal ? AbortSignal.any([signal, timeout]) : timeout;
+        stage='ai.transport';combined.throwIfAborted();
+        await log('ai.transport.request',{body,timeoutMs:180000});
+        const result=await prepareConnectionProfileRequest(connection, body, combined,prepared=>log('ai.transport.prepared',prepared))();
+        await log('ai.transport.response',{response:result,elapsedMs:Date.now()-started});
+        stage='ai.extract';combined.throwIfAborted();
+        try { return completionText(result); }
+        catch(error) { error.category='response-format';error.stage=stage;throw error; }
+    } catch(error) { await log('ai.transport.error',{...errorInfo(error,combined),stage,elapsedMs:Date.now()-started});throw error; }
 }
 export function embeddingRequest(settings, text, query = false) {
     const key = (settings.embeddingKeys?.[settings.embeddingProvider] ?? settings.embeddingKey ?? '').trim();
@@ -71,30 +94,46 @@ export function embeddingRequest(settings, text, query = false) {
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
         body: { model, input: text, encoding_format: 'float' } };
 }
-export async function embed(settings, text, query, signal, request = fetch) {
-    const spec = embeddingRequest(settings, text, query);
-    const combined = signal ? AbortSignal.any([signal, AbortSignal.timeout(60000)]) : AbortSignal.timeout(60000);
-    let response;
+export async function embed(settings, text, query, signal, request = fetch, observe) {
+    const log=observer(observe,[settings.embeddingKey,...Object.values(settings.embeddingKeys||{})]),started=Date.now();let combined=signal,stage='embedding.configure';
     try {
-        response = await request(spec.url, { method: 'POST', headers: spec.headers, body: JSON.stringify(spec.body),
-            signal: combined, credentials: 'omit', redirect: 'error' });
-    } catch (error) {
-        if (signal?.aborted) throw error;
-        throw new Error(combined.aborted ? '임베딩 요청 시간이 초과됐어. 연결 확인 후 다시 시도해 줘.' : '임베딩 연결 실패: 네트워크 또는 브라우저 CORS 제한일 수 있어. 서버 플러그인을 연결해서 다시 시도해 줘.');
-    }
-    if (!response.ok) {
-        const details = typeof response.text === 'function' ? await response.text() : '';
-        let message;try{const parsed=JSON.parse(details);message=parsed.error?.message || parsed.message;}catch{}
-        const key=settings.embeddingKeys?.[settings.embeddingProvider] || settings.embeddingKey;
-        message=String(message || '키·모델·사용 한도를 확인해 줘.').split(key || '__no_key__').join('[REDACTED]').slice(0,600);
-        throw Object.assign(new Error(`임베딩 API 오류 (${response.status}): ${message}`), { details:message });
-    }
-    const data = await response.json();
-    const vector = settings.embeddingProvider === 'vertex' ? data?.predictions?.[0]?.embeddings?.values
-        : settings.embeddingProvider === 'gemini' ? data?.embedding?.values : data?.data?.[0]?.embedding;
-    if (!Array.isArray(vector) || !vector.length || !vector.every(Number.isFinite) || vector.every(x => x === 0))
-        throw new Error('임베딩 API가 유효한 벡터를 반환하지 않았어.');
-    return vector;
+        const spec = embeddingRequest(settings, text, query);
+        combined = signal ? AbortSignal.any([signal, AbortSignal.timeout(60000)]) : AbortSignal.timeout(60000);
+        stage='embedding.transport';combined.throwIfAborted();
+        await log('embedding.transport.request',{...spec,query,timeoutMs:60000});
+        let response;
+        try {
+            response = await request(spec.url, { method: 'POST', headers: spec.headers, body: JSON.stringify(spec.body),
+                signal: combined, credentials: 'omit', redirect: 'error' });
+        } catch (error) {
+            if (signal?.aborted) throw error;
+            throw Object.assign(new Error(combined.aborted ? '임베딩 요청 시간이 초과됐어. 연결 확인 후 다시 시도해 줘.' : '임베딩 연결 실패: 네트워크 또는 브라우저 CORS 제한일 수 있어. 서버 플러그인을 연결해서 다시 시도해 줘.',{cause:error}),{category:combined.aborted?'timeout':'network'});
+        }
+        await log('embedding.transport.headers',{status:response.status,statusText:response.statusText,url:response.url || spec.url,
+            headers:response.headers?.entries?Object.fromEntries(response.headers.entries()):undefined,elapsedMs:Date.now()-started});
+        if (!response.ok) {
+            const details = typeof response.text === 'function' ? await response.text() : '';
+            await log('embedding.transport.response',{status:response.status,response:details});
+            let message;try{const parsed=JSON.parse(details);message=parsed.error?.message || parsed.message;}catch{}
+            const key=settings.embeddingKeys?.[settings.embeddingProvider] || settings.embeddingKey;
+            message=String(message || '키·모델·사용 한도를 확인해 줘.').split(key || '__no_key__').join('[REDACTED]').slice(0,600);
+            throw Object.assign(new Error(`임베딩 API 오류 (${response.status}): ${message}`), { details:message,status:response.status });
+        }
+        stage='embedding.decode';
+        let data;
+        if(typeof response.text==='function') {
+            const raw=await response.text();
+            try { data=JSON.parse(raw); }
+            catch(error) { await log('embedding.transport.response',{response:raw});error.category='response-format';throw error; }
+        } else data=await response.json();
+        await log('embedding.transport.response',{response:data,elapsedMs:Date.now()-started});
+        combined.throwIfAborted();stage='embedding.validate';
+        const vector = settings.embeddingProvider === 'vertex' ? data?.predictions?.[0]?.embeddings?.values
+            : settings.embeddingProvider === 'gemini' ? data?.embedding?.values : data?.data?.[0]?.embedding;
+        if (!Array.isArray(vector) || !vector.length || !vector.every(Number.isFinite) || vector.every(x => x === 0))
+            throw Object.assign(new Error('임베딩 API가 유효한 벡터를 반환하지 않았어.'),{category:'response-format'});
+        return vector;
+    } catch(error) { await log('embedding.transport.error',{...errorInfo(error,combined),stage,elapsedMs:Date.now()-started});throw error; }
 }
 export async function embeddingKey(settings, id, chunk) {
     return 'embedding-v2:' + JSON.stringify([settings.cacheNamespace, settings.embeddingProvider,

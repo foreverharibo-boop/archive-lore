@@ -3,22 +3,9 @@
 import { makeId } from './lore-api.js';
 import { expiredHistory,DIAGNOSTIC_BYTES,diagnosticSummary } from './lore-retention.js';
 
-export function redact(value, secrets = []) {
-    const hidden = secrets.filter(s => typeof s === 'string' && s.length > 3);
-    const clean = text => hidden.reduce((s, key) => s.split(key).join('[REDACTED]'), String(text))
-        .replace(/(Bearer\s+)[^\s"'<>]+/gi, '$1[REDACTED]')
-        .replace(/([?&](?:key|api_key|token)=)[^&\s"']+/gi, '$1[REDACTED]')
-        .replace(/AIza[\w-]{20,}/g, '[REDACTED]');
-    const walk = data => {
-        if (typeof data === 'string') return clean(data);
-        if (data instanceof Set) return [...data].map(walk);
-        if (Array.isArray(data)) return data.map(walk);
-        if (data && typeof data === 'object') return Object.fromEntries(Object.entries(data).map(([key, item]) =>
-            [key, /(?:api.?key|authorization|password|secret|embeddingKey|embeddingKeys|cacheKey)/i.test(key) ? '[REDACTED]' : walk(item)]));
-        return data;
-    };
-    return walk(value);
-}
+import { redact, environmentInfo } from './lore-telemetry.js';
+export { redact } from './lore-telemetry.js';
+
 export function createDiagnosticStore(factory = indexedDB) {
     let opening;
     const db = () => opening ||= new Promise((resolve, reject) => {
@@ -91,12 +78,12 @@ export function createDiagnostics({ store, secrets = () => [], warning = () => {
                 const summary=()=>redact(diagnosticSummary(data),secrets());
                 if(!isDetailed)return summary();
                 const clean=redact(data,secrets()),bytes=JSON.stringify(clean).length*2;
-                if(contentBytes+bytes>2*1024*1024){run.detailTruncated=true;return summary();}
+                if(contentBytes+bytes>8*1024*1024){run.detailTruncated=true;run.detailBytesOmitted=(run.detailBytesOmitted||0)+bytes;return summary();}
                 contentBytes+=bytes;return clean;
             };
-            const run = { schemaVersion:1, extensionVersion:'0.4.1', ...redact(meta, secrets()), id: makeId(), started: new Date().toISOString(), status: 'running', detail:isDetailed?'full':'timing', events: [] };
+            const run = { schemaVersion:2, extensionVersion:'0.4.1', environment:environmentInfo(), ...redact(meta, secrets()), id: makeId(), started: new Date().toISOString(), status: 'running', detail:isDetailed?'full':'timing', events: [] };
             const append=(stage,data)=>{
-                if(run.events.length>=500){run.events.splice(100,1);run.eventsOmitted=(run.eventsOmitted||0)+1;}
+                if(run.events.length>=2000){run.events.splice(100,1);run.eventsOmitted=(run.eventsOmitted||0)+1;}
                 run.events.push({at:new Date().toISOString(),elapsedMs:Date.now()-Date.parse(run.started),stage,data:eventData(data)});
                 run.diagnosticBytes=JSON.stringify(run).length*2;
             };
@@ -123,7 +110,7 @@ export function createDiagnostics({ store, secrets = () => [], warning = () => {
             const runs = (await this.list(chatKey)).filter(r => mode === 'all' || r.mode === mode);
             const counts = Object.fromEntries(['dialogue','questions','embedding'].map(m => [m,runs.filter(r=>r.kind==='generation' && r.mode===m).length]));
             return 'ARCHIVE LORE · TURN DIAGNOSTICS\n' + JSON.stringify({ exported:new Date().toISOString(), chatKey, filter:mode, generationAttempts:counts, runs:runs.length },null,2)
-                + '\n\nTiming/error diagnostics are the default. Dialogue/API/prompt bodies appear only in opt-in full traces; detailTruncated marks the per-run size limit. History keeps up to 20 recent runs for up to 3 days, with a byte limit. Installed prompts are not proof of the final host request or model compliance. Preview/collection/index operations are separate from RP generation attempts. No hidden model reasoning is requested.\n\n'
+                + '\n\nTiming/error diagnostics are the default. Dialogue/API/prompt bodies appear only in opt-in full traces; detailTruncated/detailBytesOmitted mark the 8 MiB per-run body limit; eventsOmitted marks the 2000-event limit. Secrets and provider reasoning are removed. HTTP status/headers are recorded only where the host exposes them; a profile snapshot is not proof of the final upstream URL. History keeps up to 20 recent runs for up to 3 days, with a byte limit. Installed prompts are not proof of the final host request or model compliance. Preview/collection/index operations are separate from RP generation attempts. No hidden model reasoning is requested.\n\n'
                 + runs.map((run,i) => `===== ${i+1} · ${run.kind} · ${run.mode} · ${run.status} =====\n${JSON.stringify(redact(run,secrets()),null,2)}`).join('\n\n');
         },
     };

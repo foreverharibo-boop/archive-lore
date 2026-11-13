@@ -15,7 +15,7 @@ export function expiredHistory(rows,{now=Date.now(),maxAge=HISTORY_AGE_MS,maxCou
 export function diagnosticSummary(data,depth=0) {
     if(!data||typeof data!=='object'||depth>4)return {};
     const result={};
-    const strings=new Set(['message','reason','mode','status','kind','stage','id','model','source','serverStarted','serverFinished','visibility','wakeReason']);
+    const strings=new Set(['message','reason','mode','status','kind','stage','id','model','source','serverStarted','serverFinished','visibility','wakeReason','category','name','code','stage','requestId','phase','resolvedProfile','requestedProfile','currentProfile','transport','endpoint','runtime']);
     for(const [key,value] of Object.entries(data)) {
         if(typeof value==='number'||typeof value==='boolean'||value===null)result[key]=value;
         else if(typeof value==='string'){

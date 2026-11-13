@@ -48,7 +48,7 @@ test('authenticated startup status resets old data before jobs load; later initi
         const handlers=new Map();registerRoutes({post:(url,fn)=>handlers.set(url,fn)},service);
         const res={status:()=>res,json:data=>{res.data=data;return res;}};
         await handlers.get('/status')({user,body:{}},res);
-        assert.equal(res.data.version,'0.3.16');assert.deepEqual(fs.readdirSync(path.join(root,'jobs')),[]);
+        assert.equal(res.data.version,'0.3.17');assert.deepEqual(fs.readdirSync(path.join(root,'jobs')),[]);
         assert.equal(service.list(user).length,0);
         const id=randomUUID(),job={id,kind:'recall',status:'completed',input:{context:{key:'chat'},books:[]},created:new Date().toISOString()};
         atomic(path.join(root,'jobs',id+'.json'),job);

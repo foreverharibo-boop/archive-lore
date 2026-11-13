@@ -14,7 +14,9 @@ import { SlashCommandArgument, ARGUMENT_TYPE } from '../../../slash-commands/Sla
 import { generateLorebookName } from './autocreate.js';
 import { NS, normalizeSettings, applyNativePolicy, materializeEntry, isCore, entryAvailable, SIDE_PROMPT, sideSnapshot, sourceRange } from './lore-core.js';
 import { dateDay, relationshipPhase, relationshipLabel, formatRelationship } from './lore-relationship.js';
-import { ask, embed, createVectorStore, makeId } from './lore-api.js';
+import { ask, embed, createVectorStore, makeId, resolveConnection, connectionInfo, completionText } from './lore-api.js';
+import { testSearchConnection } from './lore-connection-test.js';
+import { errorInfo, observer, redact } from './lore-telemetry.js';
 import { createLoreController } from './lore-controller.js';
 import { createDiagnostics, createDiagnosticStore } from './lore-diagnostics.js';
 import { linkedTranslation } from './lore-translations.js';
@@ -123,7 +125,7 @@ function error(error) {
 const diagnosticStore=createDiagnosticStore();
 const diagnostics = createDiagnostics({store:diagnosticStore,
     detailed:()=>settings()?.diagnosticsDetailed===true,
-    secrets:()=>[settings()?.embeddingKey,...Object.values(settings()?.embeddingKeys || {})],
+    secrets:()=>[settings()?.embeddingKey,...Object.values(settings()?.embeddingKeys || {}),...proxies.map(p=>p.password)],
     warning:message=>toastr.warning(message,'Archive Lore'),
 });
 let pendingGeneration = null, generationEpoch = 0, generationStopped = false;
@@ -144,8 +146,8 @@ const localController = createLoreController({
         if(chatContext().messages.slice(range.start,range.end+1).some(m=>!m.is_system))throw Error('기억은 저장했지만 자동 숨기기에 실패했어. 수집 버튼으로 재시도해 줘.');
     },
     newEntry:data=>{const entry=createWorldInfoEntry('',data);if(!entry)throw new Error('새 기억 항목을 만들 수 없어.');return entry;},
-    store:vectorStore, embed:(config,text,query,signal)=>config.serverEnabled?serverCall('/embedding',{settings:config,text,query},{signal}).then(r=>r.vector):embed(config,text,query,signal),
-    ask:(profile,system,data,signal,tokens)=>ask(getContext(),profile,system,data,signal,tokens),
+    store:vectorStore, embed:(config,text,query,signal,observe)=>config.serverEnabled?serverCall('/embedding',{settings:config,text,query},{signal}).then(r=>r.vector):embed(config,text,query,signal,undefined,observe),
+    ask:(profile,system,data,signal,tokens,observe)=>ask(getContext(),profile,system,data,signal,tokens,observe),
     countTokens:text=>getContext().getTokenCountAsync(text,0),
     changed:()=>{notifySearchViews();void ui?.refresh().catch(error);if(autoPending&&!controller.state().busy&&!generationInFlight&&!writing)scheduleAutomatic();},
 });
@@ -205,8 +207,45 @@ const backgroundRecall=createBackgroundRecall({
 });
 const diagnosticView={
     async list(key){const local=await diagnostics.list(key);return settings()?.serverEnabled?[...local,...await serverCall('/logs/list',{chatKey:key})].sort((a,b)=>a.started.localeCompare(b.started)):local;},
-    async export(key,mode){const original=await diagnostics.export(key,mode);if(!settings()?.serverEnabled)return original;const server=await serverCall('/logs/export',{chatKey:key,mode},{blob:true});return new Blob([original,'\n\n===== SERVER JOB DIAGNOSTICS =====\n',server],{type:'text/plain;charset=utf-8'});},
+    async export(key,mode){const original=await diagnostics.export(key,mode);if(!settings()?.serverEnabled)return original;
+        try {const server=await serverCall('/logs/export',{chatKey:key,mode},{blob:true});return new Blob([original,'\n\n===== SERVER JOB DIAGNOSTICS =====\n',server],{type:'text/plain;charset=utf-8'});}
+        catch(error){return original+'\n\n===== SERVER DIAGNOSTIC EXPORT FAILED · BROWSER LOGS PRESERVED =====\n'+JSON.stringify(redact(errorInfo(error)),null,2);}},
 };
+async function replayTransport(captured,log) {
+    for(const event of captured?.events||[])await log(event.stage,{...event.data,...(event.detailOmitted?{detailOmitted:true}:{})});
+    if(captured?.error)throw Object.assign(new Error(captured.error.message),captured.error);
+    return captured?.result;
+}
+async function checkSearchConnection() {
+    const config=normalizeSettings(settings()),context=getContext();
+    return testSearchConnection({settings:config,context:chatContext(),diagnostics,
+        request:async(profile,system,data,signal,tokens,observe)=>{
+            if(!config.serverEnabled)return ask(context,profile,system,data,signal,tokens,observe);
+            const log=observer(observe,proxies.map(p=>p.password));
+            const connection=resolveConnection(context,profile);
+            await log('profile.resolved',{...connectionInfo(context,profile,connection),transport:'server'});
+            const template=await profileTemplate(context,profile,proxies);
+            await log('ai.transport.prepared',{template});
+            const captured=await serverCall('/connection-test',{template,detailed:config.diagnosticsDetailed},{signal});
+            const response=await replayTransport(captured,log);
+            try{return completionText(response);}catch(error){error.category='response-format';error.stage='ai.extract';throw error;}
+        }});
+}
+async function checkEmbeddingConnection() {
+    const config=normalizeSettings(settings()),context=chatContext();
+    const trace=diagnostics.begin({kind:'embedding-test',chatKey:context.key,chatName:context.name,mode:config.mode});
+    const log=observer((stage,data)=>trace.event(stage,data));
+    try {
+        await log('configuration.snapshot',{settings:config});
+        const result=config.serverEnabled?await serverCall('/embedding-test',{settings:config}):
+            {dimensions:(await embed(config,'Archive Lore connection test.',false,undefined,undefined,log)).length,model:config.embeddingModel};
+        if(result.diagnostic)await replayTransport(result.diagnostic,log);
+        await trace.finish('success',{dimensions:result.dimensions,model:result.model});return result;
+    } catch(error) {
+        for(const event of error.diagnostic?.events||[])await log(event.stage,event.data);
+        await trace.finish('error',errorInfo(error));throw error;
+    }
+}
 function scheduleAutomatic() {
     if(globalThis.archiveLoreFork || generationStopped)return;
     autoPending=true;
@@ -288,7 +327,7 @@ async function intercept(_chat,_contextSize,abort,type) {
             pendingGeneration={trace,key:context.key,messageCount:context.messages.length};
             if(!result.deferred)injectionRecorder.stage(result,controller.state().lastRecall);
         }
-    } catch(e){if(epoch===generationEpoch)backgroundRecall.cancel();await trace.finish(e.name==='AbortError'?'stopped':'error',{message:e.message});if(epoch===generationEpoch && chatContext().key===context.key){generationInFlight=false;clearPrompts();abort(true);error(e);}}
+    } catch(e){if(epoch===generationEpoch)backgroundRecall.cancel();await trace.finish(e.name==='AbortError'?'stopped':'error',errorInfo(e));if(epoch===generationEpoch && chatContext().key===context.key){generationInFlight=false;clearPrompts();abort(true);error(e);}}
 }
 function nativePolicy(lists) {
     // Per-chat source exclusions prevent copied books and retained originals firing together.
@@ -317,7 +356,7 @@ function init() {
     ui=createLoreUI({settings,saveSettings,controller,context:chatContext,error,diagnostics:diagnosticView,translate,
         retrievalOnly:!!globalThis.archiveLoreFork,openHome:globalThis.archiveLoreFork?()=>globalThis.archiveLoreMemoryBooks.open():null,
         serverCheck:()=>serverCall('/status'),serverJobs:()=>controller.jobs(),
-        embeddingTest:async()=>{const config=normalizeSettings(settings());return config.serverEnabled?serverCall('/embedding-test',{settings:config}):{dimensions:(await embed(config,'Archive Lore connection test.',false)).length,model:config.embeddingModel};},
+        connectionTest:checkSearchConnection,embeddingTest:checkEmbeddingConnection,
         translation:(book,entry)=>linkedTranslation(extension_settings,book,entry),
         profiles:()=>getContext().extensionSettings?.connectionManager?.profiles || [],
         bookNames:()=>[...world_names],books,target,

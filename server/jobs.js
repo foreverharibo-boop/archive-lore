@@ -13,6 +13,7 @@ import { normalizeSettings,NS,sourceRange,matchesRange,estimateTokens,materializ
 import { embed,completionText } from '../lore-api.js';
 import { consolidationView } from '../lore-maintenance.js';
 import { normalizeCompletionRequest } from '../completionCompatibility.js';
+import { observer } from '../lore-telemetry.js';
 globalThis.crypto ||= webcrypto;
 export function createJobService({sanitize,ask,embedRequest=embed,countTokens}) {
     const users=new Map(),vectorStores=new Map(),exports=new Map();
@@ -94,9 +95,13 @@ export function createJobService({sanitize,ask,embedRequest=embed,countTokens}) 
             saveBook:async(name,data)=>{const live=readChat(s,input).messages;if(input.context.messages.length&&!matchesRange(sourceRange(input.context.messages,0,input.context.messages.length-1),live))throw Error('원본 대화가 수정돼서 저장을 멈췄어.');
                 const file=bookFile(s,name),raw=fs.readFileSync(file,'utf8');if(raw!==expected.get(file))throw Error('로어북이 다른 곳에서 수정됐어. 다시 시도해 줘.');backup(s,job,file,raw);atomic(file,JSON.stringify(data,null,4));expected.set(file,fs.readFileSync(file,'utf8'));},
             newEntry:data=>{const uid=Math.max(-1,...Object.keys(data.entries).map(Number))+1;return data.entries[uid]={...input.entryTemplate,uid,key:[],keysecondary:[],comment:'',content:'',constant:false,vectorized:false,disable:false};},
-            store:s.vectors,embed:embedRequest,
-            ask:async(profile,system,data,signal,tokens)=>{const template=profile===config.searchProfile&&config.searchProfile?input.templates.search:input.templates.collection;
-                return completionText(await ask(s.user,normalizeCompletionRequest({...template,stream:false,temperature:.2,max_tokens:tokens,max_completion_tokens:undefined,max_output_tokens:undefined,max_new_tokens:undefined,json_schema:undefined,messages:[{role:'system',content:system},{role:'user',content:JSON.stringify(data)}]}),signal));},
+            store:s.vectors,embed:(config,text,query,signal,observe)=>embedRequest(config,text,query,signal,undefined,observe),
+            ask:async(profile,system,data,signal,tokens,observe)=>{const template=profile===config.searchProfile&&config.searchProfile?input.templates.search:input.templates.collection;
+                const log=observer(observe,secrets),payload=normalizeCompletionRequest({...template,stream:false,temperature:.2,max_tokens:tokens,max_completion_tokens:undefined,max_output_tokens:undefined,max_new_tokens:undefined,json_schema:undefined,messages:[{role:'system',content:system},{role:'user',content:JSON.stringify(data)}]});
+                await log('profile.resolved',{requestedProfile:profile||'current',transport:'server',model:template.model,source:template.chat_completion_source,template});
+                await log('ai.transport.prepared',{payload});const response=await ask(s.user,payload,signal,log);
+                await log('ai.transport.response',{response});
+                try{return completionText(response);}catch(error){error.category='response-format';error.stage='ai.extract';throw error;}},
             countTokens:async text=>{if(input.options?.replyTokenizer){if(!countTokens)throw Error('서버 토크나이저 연결이 없어.');return countTokens(s.user,input.options.replyTokenizer,text);}return estimateTokens(text);},diagnostics,profileInfo:()=>Object.entries(input.templates||{}).map(([role,p])=>({role,model:p.model,source:p.chat_completion_source})),
             hideRange:async(range)=>{const chat=readChat(s,input),source=sourceRange(chat.messages,range.start,range.end);for(let i=range.start;i<=range.end;i++)chat.lines[chat.offset+i].is_system=true;
                 if(fs.readFileSync(chat.file,'utf8')!==chat.raw)throw Error('채팅 파일이 바뀌어서 숨기기를 멈췄어.');backup(s,job,chat.file,chat.raw);atomic(chat.file,chat.lines.map(l=>JSON.stringify(l)).join('\n')+'\n');job.hidden.push(source);save(s,job);},

@@ -20,7 +20,7 @@ export function getSelectedConnectionProfile(context, translate = (_key, fallbac
 }
 
 /** Preserve connection routing and preset while overriding STMB generation fields. */
-export function prepareConnectionProfileRequest(connection, body, signal) {
+export function prepareConnectionProfileRequest(connection, body, signal, onPrepared) {
     if (!connection) return null;
     const { service, profileId } = connection;
     const overrides = {
@@ -33,11 +33,14 @@ export function prepareConnectionProfileRequest(connection, body, signal) {
         overrides[field] = body[field];
     }
     const compatible = normalizeCompletionRequest({ ...overrides, model: body.model || connection.profile.model }, connection.source);
-    return () => service.sendRequest(
+    return async () => {
+        if(onPrepared) { try { await onPrepared({profileId,source:connection.source,includePreset:true,extractData:false,stream:body.stream,overrides:compatible}); } catch {} }
+        return service.sendRequest(
         profileId,
         body.messages,
         compatible.max_completion_tokens ?? compatible.max_tokens,
         { stream: body.stream, signal, extractData: false, includePreset: true },
         compatible,
-    );
+        );
+    };
 }

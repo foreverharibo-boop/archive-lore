@@ -13,21 +13,23 @@ let unregisterReply;
 export async function exit(){unregisterReply?.();}
 import { embed } from '../lore-api.js';
 import { normalizeSettings } from '../lore-core.js';
+import { captureTransport, probePayload } from './connection-test.js';
 export const info={id:'archive-lore-server',name:'Archive Lore Server',description:'Persistent Archive Lore jobs and server-side embeddings.'};
-export const VERSION='0.3.16';
+export const VERSION='0.3.17';
 export async function init(router) {
     globalThis.crypto ||= webcrypto;
     const require=createRequire(path.join(process.cwd(),'package.json'));
     const sanitize=require('sanitize-filename');
     const {router:backend}=await import(pathToFileURL(path.join(process.cwd(),'src/endpoints/backends/chat-completions.js')).href);
     const {router:tokenizer}=await import(pathToFileURL(path.join(process.cwd(),'src/endpoints/tokenizers.js')).href);
-    const service=createJobService({sanitize,ask:(user,payload,signal)=>invokeBackend(backend,user,payload,signal),
+    const completion=(user,payload,signal,observe)=>invokeBackend(backend,user,payload,signal,undefined,observe);
+    const service=createJobService({sanitize,ask:completion,
         countTokens:(user,model,text)=>tokenizerRequest(tokenizer,user,model,{text})});
     const bridge=createReplyBridge({service,countMessages:(user,model,messages)=>tokenizerRequest(tokenizer,user,model,messages,true)});
     unregisterReply=registerReplyBridge(bridge);
-    registerRoutes(router,service,embed,bridge);
+    registerRoutes(router,service,embed,bridge,completion);
 }
-export function registerRoutes(router,service,embedding=embed,bridge=null) {
+export function registerRoutes(router,service,embedding=embed,bridge=null,completion=null) {
     const route=(url,callback,cancelOnDisconnect=false)=>router.post(url,async(req,res)=>{
         if(!req.user?.profile?.handle||!req.user?.directories?.root)return res.status(401).json({error:'실리태번 로그인이 필요해.'});
         const abort=new AbortController(),closed=()=>{if(!res.writableEnded)abort.abort();};
@@ -40,7 +42,16 @@ export function registerRoutes(router,service,embedding=embed,bridge=null) {
         if(typeof body.text!=='string'||body.text.length>50000)throw Error('임베딩 입력 크기를 확인해 줘.');
         const vector=await embedding(normalizeSettings(body.settings),body.text,!!body.query,signal);return {vector};
     },true);
-    route('/embedding-test',async(_user,body)=>({dimensions:(await embedding(normalizeSettings(body.settings),'Archive Lore connection test.',false)).length,model:'gemini-embedding-001'}));
+    route('/embedding-test',async(_user,body,signal)=>{
+        const config=normalizeSettings(body.settings);
+        const captured=await captureTransport(async log=>({dimensions:(await embedding(config,'Archive Lore connection test.',false,signal,undefined,log)).length,model:config.embeddingModel}),{detailed:config.diagnosticsDetailed,secrets:[config.embeddingKey,...Object.values(config.embeddingKeys)]});
+        // Keep the old success fields for existing clients.
+        return captured.error?{error:captured.error.message,diagnostic:captured}: {...captured.result,diagnostic:captured};
+    },true);
+    route('/connection-test',async(user,body,signal)=>{
+        if(!completion)throw Error('검색 AI 연결 확인을 위해 서버 플러그인을 업데이트해 줘.');
+        return captureTransport(log=>completion(user,probePayload(body.template),signal,log),{detailed:body.detailed===true,secrets:[body.template?.proxy_password]});
+    },true);
     if(bridge){
         route('/reply/prepare',(user,body)=>bridge.prepareInput(user,body));
         route('/reply/cancel',(user,body)=>bridge.cancel(user,body.ticket));

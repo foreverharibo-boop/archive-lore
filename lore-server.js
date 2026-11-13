@@ -26,7 +26,7 @@ export async function profileTemplate(context,profileId,proxies=[]) {
 }
 export function createServerClient({headers,request=fetch}) {
     return async function call(route,body={},options={}) {
-        const timeoutMs=route==='/logs/export'?120000:route.startsWith('/embedding')?70000:route==='/jobs/get'?60000:30000;
+        const timeoutMs=route==='/connection-test'?190000:route==='/logs/export'?120000:route.startsWith('/embedding')?70000:route==='/jobs/get'?60000:30000;
         const signal=options.signal?AbortSignal.any([options.signal,AbortSignal.timeout(timeoutMs)]):AbortSignal.timeout(timeoutMs);
         signal.throwIfAborted();
         let response;
@@ -41,7 +41,7 @@ export function createServerClient({headers,request=fetch}) {
         if(options.blob&&response.ok){const data=await response.blob();signal.throwIfAborted();return data;}
         let data;try{data=await response.json();}catch{throw Error('서버 플러그인 응답을 읽을 수 없어. 서버 버전과 로그인 상태를 확인해 줘.');}
         signal.throwIfAborted();
-        if(!response.ok||data.error)throw Error(data.error || `서버 오류 (${response.status})`);return data;
+        if(!response.ok||data.error)throw Object.assign(Error(data.error || `서버 오류 (${response.status})`),{status:response.status,diagnostic:data.diagnostic,category:data.diagnostic?.error?.category});return data;
     };
 }
 export function serverVectorStore({local,call,enabled}) {

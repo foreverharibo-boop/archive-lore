@@ -43,11 +43,12 @@ export function createLoreUI(api) {
             <nav class="al-tabs al-settings-tabs" aria-label="설정 분류">${[['connection','연결'],['collection','수집·검색'],['prompts','프롬프트'],['server','서버']].map(([id,label])=>button('settings-tab',label,`data-settings-tab="${id}" aria-pressed="${id==='connection'}"`)).join('')}</nav>
             <section data-settings-pane="server" hidden>
             <details><summary>서버 실행</summary>${check('serverEnabled','서버에서 실행 · 플러그인 필요',s.serverEnabled)}${check('relayEnabled',translate('릴레이로 답변까지 서버에서 이어가기','ArchiveLore_BackgroundReply'),s.relayEnabled)}<p class="al-muted al-optional-help">${translate('선택 기능 · 양쪽 서버 플러그인과 릴레이 연결 유지 필요. 일반 1:1 답변에서 사용하며 기존 키워드 발동은 꺼 주세요. 주입 상한만큼 자리를 미리 확보합니다. 검수·채팅 저장은 복귀 후 이어집니다.','ArchiveLore_BackgroundReplyHelp')}</p>${button('server-check','서버 연결 확인')}<span data-server-status role="status"></span></details>
-            <details><summary>진단 기록</summary>${check('diagnosticsDetailed','상세 진단 · 대화·AI 요청 내용 포함',s.diagnosticsDetailed)}<p class="al-muted al-optional-help">기본은 시간·오류만 기록해요. 브라우저 진단·서버 진단·완료 작업은 각각 최근 20개·최대 3일 보관하며, 용량이 크면 더 일찍 정리해요. 오래된 작업의 미적용 초안·복구 사본도 함께 정리해요. 원본 채팅·로어북·임베딩은 삭제하지 않아요.</p></details>
+
             </section><section data-settings-pane="connection"><details open><summary>기억 작성·검색 AI</summary><div class="al-fields">
             ${field('기억 작성 AI 프로필',select('profile', profiles, s.profile))}
             ${field('검색·선별 프로필',select('searchProfile', [['','기억 작성 AI와 동일'],...profiles.slice(1)], s.searchProfile))}
-            </div>${button('profiles','프로필 새로고침')}</details>
+            </div><div class="al-actions">${button('profiles','프로필 새로고침')}${button('connection-test','연결 확인')}</div><div data-connection-status role="status"></div><p class="al-muted al-optional-help">검색·선별에 사용할 연결로 짧은 AI 요청을 1회 전송합니다. 임베딩 연결은 아래에서 따로 확인합니다.</p></details>
+            <details data-debug-settings><summary>디버그 기록</summary>${check('diagnosticsDetailed','디버그 모드 · 전체 처리 과정 기록',s.diagnosticsDetailed)}<p class="al-muted">켜면 대화·기억·프롬프트·응답 본문도 기록됩니다. 공유 전 내용을 확인해 주세요. API 키·비밀번호는 가립니다.</p><p class="al-muted al-optional-help">프로필 결정, 요청·응답, 오류·취소, 검색·선별·주입 과정을 기록합니다. AI 호출은 추가하지 않습니다. 최근 20개·최대 3일·전체 20MiB, 작업당 본문 8MiB·2,000개 이벤트까지 보관하며 생략 여부를 로그에 표시합니다. 끄면 시간·오류 중심으로 기록합니다.</p>${button('debug-export','디버그 로그 내보내기')}</details>
             <details open data-embedding-settings><summary>임베딩 연결</summary><div class="al-fields">
             ${field('임베딩 제공자',select('embeddingProvider',[['gemini','Google AI Studio'],['vertex','Vertex AI Express'],...(s.embeddingProvider==='openai'?[['openai','OpenAI 호환 API (기존 설정)']]:[])],s.embeddingProvider))}
             ${s.embeddingProvider==='openai'?field('임베딩 모델',input('embeddingModel',s.embeddingModel)):''}
@@ -180,6 +181,16 @@ export function createLoreUI(api) {
             const target = event.target.closest('[data-action]'); if (!target) return;
             switch (target.dataset.action) {
                 case 'settings-tab':settingsTab(container,target.dataset.settingsTab);break;
+                case 'connection-test':{
+                    const node=container.querySelector('[data-connection-status]');node.textContent='검색 AI 연결 확인 중';target.disabled=true;
+                    try {
+                        const result=await api.connectionTest(),profile=result.profile;
+                        const label=[profile?.name,profile?.source,profile?.model].filter(Boolean).join(' · ');
+                        node.textContent=`${result.formatValid?'연결 성공 · 확인 응답 정상':'AI 응답 수신 · 확인용 JSON 형식 불일치'}${label?' · '+label:''} · ${(result.elapsedMs/1000).toFixed(1)}초`;
+                    } catch(error) {node.textContent=`${error.category==='response-format'?'AI 응답 수신 · 내용 확인 실패':error.category==='profile'?'프로필 확인 실패':'연결 확인 실패'} · ${error.message}`;throw error;}
+                    finally{target.disabled=false;}break;
+                }
+                case 'debug-export':download(await api.diagnostics.export(api.context().key,'all'),`archive-lore-debug-${new Date().toISOString().replace(/[:.]/g,'-')}.txt`);break;
                 case 'server-check':case 'embedding-test':{
                     const node=container.querySelector(target.dataset.action==='server-check'?'[data-server-status]':'[data-embedding-status]');node.textContent='연결 확인 중';target.disabled=true;
                     try{const result=await (target.dataset.action==='server-check'?api.serverCheck():api.embeddingTest());node.textContent=target.dataset.action==='server-check'?`연결됨 · 서버 ${result.version}`:`임베딩 성공 · ${result.dimensions}차원`;}

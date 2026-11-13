@@ -15,6 +15,7 @@ import { fitFocusedInjection } from './lore-focus-injection.js';
 import { withAbort } from './lore-cancellation.js';
 import { mapOrdered } from './lore-parallel.js';
 import { generousRecall } from './lore-generous-recall.js';
+import { errorInfo, observer } from './lore-telemetry.js';
 
 const QUESTION_SCHEMA = '\nReturn ONLY JSON: {"questions":["question"]}. The questions key is required, with one to six nonblank strings of at most 2000 characters each. Always generate at least one context-grounded retrieval question, including for ordinary scene actions. When no factual answer is missing, ask what recorded experience, feeling, preference or agreement could inform this scene without assuming such a record exists. Never return an empty questions array, {} or omit questions.';
 
@@ -36,17 +37,20 @@ export function createLoreController(host) {
     const log = (stage, data) => trace?.event(stage, data);
     const askTracked = async (profile, system, data, signal, tokens, phase = 'selectionMs') => {
         const started = Date.now();
+        const requestId=makeId(),requestTrace=trace;
+        const observe=observer((stage,data)=>requestTrace?.event(stage,{...data,requestId,phase}));
         const batch=Number.isInteger(data?.batch)?{batch:data.batch,batchCount:data.batchCount}:{};
-        await log('ai.request', { profile, system, data, maxOutputTokens:tokens,...batch });
-        try { const response = await withAbort(() => host.ask(profile, system, data, signal, tokens), signal);
-            await log('ai.response', { response, elapsedMs:Date.now()-started,...batch });signal.throwIfAborted();return response;
-        } catch (error) { await log('ai.error', { message:error.message,details:error.details, elapsedMs:Date.now()-started,...batch });throw error; }
+        await observe('ai.request', { profile, system, data, maxOutputTokens:tokens,...batch });
+        try { const response = await withAbort(() => host.ask(profile, system, data, signal, tokens,observe), signal);
+            await observe('ai.response', { response, elapsedMs:Date.now()-started,...batch });signal.throwIfAborted();return response;
+        } catch (error) { await observe('ai.error', { ...errorInfo(error,signal), elapsedMs:Date.now()-started,...batch });throw error; }
         finally { if(timings)timings[phase] += Date.now()-started; }
     };
     const embedTracked = async (config, text, query, signal) => {
-        const started=Date.now();await log('embedding.request', { provider:config.embeddingProvider, model:config.embeddingModel, query, text });
-        try { const vector=await withAbort(() => host.embed(config,text,query,signal), signal);await log('embedding.response', { query, dimensions:vector.length, elapsedMs:Date.now()-started });signal.throwIfAborted();return vector; }
-        catch(error) { await log('embedding.error',{message:error.message,details:error.details});throw error; }
+        const requestId=makeId(),requestTrace=trace,observe=observer((stage,data)=>requestTrace?.event(stage,{...data,requestId}));
+        const started=Date.now();await observe('embedding.request', { provider:config.embeddingProvider, model:config.embeddingModel, query, text });
+        try { const vector=await withAbort(() => host.embed(config,text,query,signal,observe), signal);await observe('embedding.response', { query, dimensions:vector.length, elapsedMs:Date.now()-started });signal.throwIfAborted();return vector; }
+        catch(error) { await observe('embedding.error',errorInfo(error,signal));throw error; }
         finally { if(timings)timings.embeddingMs += Date.now()-started; }
     };
     const notify = value => { status = value; host.changed?.(); };
@@ -63,10 +67,11 @@ export function createLoreController(host) {
         trace=externalTrace || host.diagnostics?.begin({kind,chatKey:context.key,chatName:context.name,mode:config.mode,messageCount:context.messages.length});
         notify(label);
         try {
+            await log('configuration.snapshot',{settings:config,profiles:host.profileInfo?.()});
             await log('settings', {mode:config.mode,recentCount:config.recentCount,injectionTokens:config.injectionTokens,candidateCount:config.candidateCount,selectionFocus:config.selectionFocus,profile:config.profile,searchProfile:config.searchProfile,embeddingProvider:config.embeddingProvider,embeddingModel:config.embeddingModel,books:host.books(),profiles:host.profileInfo?.(),autoCollect:config.autoCollect,autoMode:config.autoMode,autoMessages:config.autoMessages,autoTokens:config.autoTokens,keepMessages:config.keepMessages,enabledSides:enabledSides(config).map(s=>s.id)});
             abort.signal.throwIfAborted();
             const result=await callback(abort.signal);abort.signal.throwIfAborted();await trace?.finish('success');abort.signal.throwIfAborted();return result;
-        } catch (error) { await trace?.finish(abort.signal.aborted?'canceled':'error',{message:error.message});notify(abort.signal.aborted ? '작업 중지됨 · 저장한 기억은 유지돼' : error.message); throw error; }
+        } catch (error) { await trace?.finish(abort.signal.aborted?'canceled':'error',errorInfo(error,abort.signal));notify(abort.signal.aborted ? '작업 중지됨 · 저장한 기억은 유지돼' : error.message); throw error; }
         finally { active = null;trace=null;timings=null;invalidateEmbeddingCounts();host.changed?.(); }
     }
     async function records(snapshot = host.context()) {
@@ -287,7 +292,7 @@ export function createLoreController(host) {
                     }catch(error){
                         signal.throwIfAborted();
                         await log('question.invalid',{attempt:attempt+1,message:error.message,response});
-                        if(attempt===1)throw Error('검색 AI가 유효한 질문을 1~6개 반환하지 않았어. 한 번 재시도했지만 실패했어. 검색 연결 프로필이나 질문 프롬프트를 확인해 줘.');
+                        if(attempt===1)throw Object.assign(Error('검색 AI가 유효한 질문을 1~6개 반환하지 않았어. 한 번 재시도했지만 실패했어. 검색 연결 프로필이나 질문 프롬프트를 확인해 줘.'),{category:'response-format',stage:'question.validate'});
                         notify('검색 질문 형식 오류 · 한 번 다시 생성하는 중');
                     }
                 }
@@ -351,7 +356,7 @@ export function createLoreController(host) {
                             catch(error) {
                                 signal.throwIfAborted();
                                 await log('selection.invalid',{batch:index+1,attempt:attempt+1,message:error.message,response});
-                                if(attempt===1)throw error;
+                                if(attempt===1){error.category='response-format';error.stage='selection.validate';throw error;}
                                 notify('선별 응답 형식 다시 확인 중');
                             }
                         }

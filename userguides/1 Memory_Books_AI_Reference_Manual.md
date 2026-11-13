@@ -3326,10 +3326,10 @@ upgrade/blocked-tab lifecycle; they do not substitute for an Android browser tes
 
 `diagnosticsDetailed` defaults to false. Timing/error traces retain stages,
 numeric counts, timing breakdowns and bounded error messages, but omit dialogue,
-memory text, API bodies and installed prompt text. The Server settings tab has
-an explicit full-diagnostic opt-in. Each trace captures its mode at creation;
-full traces fall back to summary fields after a 2 MiB estimated body budget and
-mark `detailTruncated`. At most 500 events are retained with an omitted counter.
+memory text, API bodies and installed prompt text. The Connection settings tab has
+a debug-mode opt-in and export button. Each trace captures its mode at creation;
+full traces fall back to summary fields after an 8 MiB estimated body budget and
+mark `detailTruncated` and `detailBytesOmitted`. At most 2000 events are retained with an omitted counter.
 
 On writes/access, browser diagnostics and server diagnostics each retain up to
 20 runs for up to 3 days, with a 20 MiB budget per store (browser size is an
@@ -3630,3 +3630,40 @@ All retrieval modes inspect eligible non-core records and their cached embedding
 Every retrieval mode (dialogue, questions, plain embedding) includes the existing common response guidance when recalled source units fit alongside it. Selection emphasis is no longer required. Its aspect-specific sentences remain conditional on checked categories in dialogue/question modes; plain embedding ignores saved categories. This adds no AI or embedding calls and does not alter saved records, planner/selector prompts or source-text formatting. Guidance shares the recall token cap: no evidence means no guidance, and if the guidance would displace all evidence it is omitted in favor of source facts. Core-only injection remains separate.
 
 The browser registers recalled text (`archive-lore-recalled`), core (`archive-lore-core`) and guidance (`archive-lore-guidance`) as separate `IN_CHAT` extension prompt slots, all at depth 1. Registration order is not a guarantee of rendered slot order; host prompt assembly controls placement among slots at the same depth. The optional server/relay uses the same fitting code and its reserved guidance slot. Update both checkouts when using the server and restart SillyTavern.
+
+
+#### Search connection check and full debug traces (server 0.3.17)
+
+The Connection tab places **연결 확인** next to **프로필 새로고침**. It sends one
+small synthetic request through the effective search profile (`searchProfile`,
+then the base `profile`, then ST's selected saved connection profile), using the
+same profile service/preset and provider normalization as normal search. It does
+not change the live profile, search actual memories, save a memory, or test the
+embedding credential. The separate embedding check also produces a diagnostic
+trace. Tests distinguish profile resolution, transport/authentication/HTTP errors,
+timeouts/cancellation and unusable response content. Receiving text in an unexpected
+JSON format is a warning, not proof that the connection is unavailable. A successful
+probe does not guarantee that subsequent long prompts or model JSON outputs succeed.
+Server execution requires the updated server plugin and restart; it never silently
+falls back to the browser when the server test endpoint is unavailable.
+
+**디버그 모드 · 전체 처리 과정 기록** reuses `diagnosticsDetailed` (no second toggle).
+It records the environment, complete normalized configuration, requested/current/
+resolved profile, saved profile/preset/provider/model, normalized request overrides,
+raw provider result before text extraction, exposed HTTP status/headers, error name,
+stack/cause and abort reason, existing dialogue/cache/ranking/selection/budget stages,
+and installed prompt slots. Every AI/embedding request receives a correlation ID;
+late responses remain attached to the original trace. Debugging adds no AI requests,
+retries, per-sentence reasons or global fetch interception. The connection button is
+the only additional search-AI request, and it runs only on click. Browser connection
+services do not expose the final upstream HTTP request/status; saved routing fields
+are labelled as configuration, never claimed as proof of the final provider URL.
+Server traces record the payload handed to ST's authenticated backend and its reply.
+
+Redaction happens at observation and persistence/export, including nested JSON
+error strings, credential headers, URL credentials and known embedding/proxy secrets.
+Provider reasoning is omitted. Dialogue and memory contents remain in full debug
+traces and should be reviewed before sharing. Bounded retention is unchanged (20
+runs, 3 days, 20 MiB per store); the per-run body/event limits above mark omissions.
+Debug mode takes effect for newly started traces. A disconnected server does not
+prevent downloading browser diagnostics; the export records the server export error.

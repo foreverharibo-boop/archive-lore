@@ -1,24 +1,29 @@
 // Archive Lore server © 2026 foreverharibo-boop — AGPL-3.0-only
 import { EventEmitter } from 'node:events';
+import { observer, errorInfo } from '../lore-telemetry.js';
 // Use ST's authenticated provider routing, stored secrets and provider-specific conversion.
 // A detached socket deliberately outlives the browser that submitted a job.
-export function invokeBackend(router,user,payload,signal,timeoutMs=180000) {
+export function invokeBackend(router,user,payload,signal,timeoutMs=180000,observe) {
+    const log=observer(observe,[payload.proxy_password]),started=Date.now();
     return new Promise((resolve,reject)=>{
-        const socket=new EventEmitter(),request=new EventEmitter();let settled=false;
-        const finish=(error,data)=>{if(settled)return;settled=true;clearTimeout(timer);signal?.removeEventListener('abort',abort);error?reject(error):resolve(data);};
-        const abort=()=>{socket.emit('close');finish(new Error('서버 AI 요청이 중지됐어.'));};
-        const timer=setTimeout(()=>{socket.emit('close');finish(new Error('서버 AI 요청 시간이 초과됐어.'));},timeoutMs);
+        const socket=new EventEmitter(),request=new EventEmitter(),headers={};let settled=false;
+        const finish=(error,data)=>{if(settled)return;settled=true;clearTimeout(timer);signal?.removeEventListener('abort',abort);
+            void log(error?'ai.backend.error':'ai.backend.response',{...(error?errorInfo(error,signal):{response:data}),status:code,headers,elapsedMs:Date.now()-started}).then(()=>error?reject(error):resolve(data));};
+        const abort=()=>{socket.emit('close');finish(Object.assign(new Error('서버 AI 요청이 중지됐어.'),{category:'canceled'}));};
+        const timer=setTimeout(()=>{socket.emit('close');finish(Object.assign(new Error('서버 AI 요청 시간이 초과됐어.'),{category:'timeout'}));},timeoutMs);
         let chunks='',code=200;const response=new EventEmitter();
         Object.assign(response,{locals:{},headersSent:false,writableEnded:false,
-            status(n){code=n;return this;},setHeader(){return this;},getHeader(){},removeHeader(){},set(){return this;},type(){return this;},flushHeaders(){},
+            status(n){code=n;return this;},setHeader(name,value){headers[String(name).toLowerCase()]=value;return this;},getHeader(name){return headers[String(name).toLowerCase()];},removeHeader(name){delete headers[String(name).toLowerCase()];},
+            set(name,value){if(name&&typeof name==='object'){for(const [key,item] of Object.entries(name))this.setHeader(key,item);}else this.setHeader(name,value);return this;},type(value){return this.setHeader('content-type',value);},flushHeaders(){},
             write(chunk){chunks+=String(chunk);return true;},
             end(data){if(data!==undefined)chunks+=String(data);this.send(chunks);},
             json(data){return this.send(data);},sendStatus(n){code=n;return this.send({error:String(n)});},
             send(data){this.headersSent=true;this.writableEnded=true;let parsed=data;try{if(typeof data==='string')parsed=JSON.parse(data);}catch{}
-                if(code>=400||parsed?.error)finish(new Error(`수집·검색 AI 오류 (${code}): ${typeof parsed?.error==='string'?parsed.error:parsed?.error?.message || '연결 프로필과 서버 키를 확인해 줘.'}`));else finish(null,parsed);return this;},
+                if(code>=400||parsed?.error)finish(Object.assign(new Error(`수집·검색 AI 오류 (${code}): ${typeof parsed?.error==='string'?parsed.error:parsed?.error?.message || '연결 프로필과 서버 키를 확인해 줘.'}`),{status:code,details:parsed}));else finish(null,parsed);return this;},
         });
         Object.assign(request,{method:'POST',url:'/generate',originalUrl:'/generate',headers:{},query:{},params:{},body:{...structuredClone(payload),stream:false},user,socket,connection:socket,res:response});response.req=request;
         signal?.addEventListener('abort',abort,{once:true});if(signal?.aborted){abort();return;}
+        void log('ai.backend.request',{endpoint:'/api/backends/chat-completions/generate',payload,timeoutMs});
         try{router.handle(request,response,error=>finish(error||new Error('실리태번 Chat Completion 경로를 찾을 수 없어.')));}catch(error){finish(error);}
     });
 }

@@ -30,7 +30,7 @@ test('default diagnostics retain useful timings and redacted errors but omit dia
 test('full traces opt in per run and stop retaining large bodies at the size limit',async()=>{
     const saved=new Map(),d=createDiagnostics({detailed:()=>true,store:{put:async r=>saved.set(r.id,r),list:async()=>[...saved.values()]}});
     const trace=d.begin({chatKey:'chat'});await trace.event('ai.response',{response:'small exact response'});
-    await trace.event('ai.response',{response:'x'.repeat(2*1024*1024),elapsedMs:3});await trace.finish('success');
+    await trace.event('ai.response',{response:'x'.repeat(5*1024*1024),elapsedMs:3});await trace.finish('success');
     const run=saved.get(trace.id);assert.equal(run.detail,'full');assert.equal(run.detailTruncated,true);
     assert.equal(run.events[0].data.response,'small exact response');assert.equal(run.events[1].data.response,undefined);
     assert.equal(run.events[1].data.elapsedMs,3);assert(run.diagnosticBytes<10000);

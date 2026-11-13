@@ -7,6 +7,7 @@ import { reusableVectorStore,legacyEmbeddingBooks } from './vector-store.js';
 import {pruneDiagnostics,pruneJobs,resetLegacyHistory} from './retention.js';
 import { entrySearchAllowed } from '../lore-side-search.js';
 import { createLoreController } from '../lore-controller.js';
+import { compactDiagnosticRun,formatDiagnosticPreview } from '../lore-diagnostic-preview.js';
 import { createDiagnostics } from '../lore-diagnostics.js';
 import { diagnosticFiles,diagnosticStream } from './diagnostics.js';
 import { normalizeSettings,NS,sourceRange,matchesRange,estimateTokens,materializeEntry,entryAvailable,isCore } from '../lore-core.js';
@@ -182,6 +183,11 @@ export function createJobService({sanitize,ask,embedRequest=embed,countTokens}) 
             vectorStore(user);const root=inside(user.directories.root,'archive-lore-server');cleanDiagnostics(root);
             exports.set(root,(exports.get(root)||0)+1);
             try{return await diagnosticFiles(root,key,mode);}finally{exports.set(root,exports.get(root)-1);}
+        },
+        async logPreview(user,key){
+            const rows=(await this.logFiles(user,key)).slice(-3),runs=[];
+            for(const {file} of rows){try{runs.push(compactDiagnosticRun(JSON.parse(await fs.promises.readFile(file,'utf8'))));}catch{}}
+            return {text:formatDiagnosticPreview(runs)};
         },
         async logList(user,key){return (await this.logFiles(user,key)).map(({header})=>({...header,details:'전체 내용은 진단 TXT에 포함돼.'}));},
         async logStream(user,key,mode='all'){

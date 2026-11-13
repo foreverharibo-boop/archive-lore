@@ -96,3 +96,17 @@ test('80 MiB of logs and 80 MiB of completed job inputs fit a 64 MiB Node heap w
     const child=spawnSync(process.execPath,['--max-old-space-size=64','--input-type=module','-e',script],{encoding:'utf8',timeout:30000});
     assert.equal(child.status,0,child.stderr);assert.deepEqual(JSON.parse(child.stdout),{bytes,hash:expected.digest('hex')});
 });
+
+test('server preview reads only recent matching runs and returns bounded text through an authenticated route',async t=>{
+    const f=fixture(t),root=path.join(f.root,'archive-lore-server');fs.mkdirSync(root);resetLegacyHistory(root);
+    const store=privateStore(root,'diagnostics');
+    for(let i=0;i<5;i++){const run=f.row(String(i),'chat-a');run.started=new Date(Date.now()+i).toISOString();run.status='error';run.events=[{stage:'ai.transport.error',data:{message:'permission denied '+i,status:403}},{stage:'response',data:{text:'x'.repeat(100000)}}];await store.put(run.id,run);}
+    await store.put('other',f.row('other','chat-b'));
+    const user={profile:{handle:'owner'},directories:{root:f.root}},service=createJobService({sanitize:s=>s,ask:()=>assert.fail()});
+    const handlers=new Map();registerRoutes({post:(url,fn)=>handlers.set(url,fn)},service);
+    let code=200,body;const res={status:n=>{code=n;return res;},json:v=>{body=v;}};
+    await handlers.get('/logs/preview')({body:{chatKey:'chat-a'}},res);assert.equal(code,401);
+    await handlers.get('/logs/preview')({user,body:{chatKey:'chat-a'}},res);
+    assert(body.text.length<=24000);assert(body.text.includes('permission denied 4'));assert(!body.text.includes('permission denied 0'));assert(!body.text.includes('chat-b'));
+    assert.equal((body.text.match(/===== recall/g)||[]).length,3);
+});

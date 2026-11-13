@@ -3327,7 +3327,7 @@ upgrade/blocked-tab lifecycle; they do not substitute for an Android browser tes
 `diagnosticsDetailed` defaults to false. Timing/error traces retain stages,
 numeric counts, timing breakdowns and bounded error messages, but omit dialogue,
 memory text, API bodies and installed prompt text. The Connection settings tab has
-a debug-mode opt-in and export button. Each trace captures its mode at creation;
+a debug-mode opt-in and bounded copyable preview. Each trace captures its mode at creation; turning the toggle off also stops future detailed bodies for active browser traces;
 full traces fall back to summary fields after an 8 MiB estimated body budget and
 mark `detailTruncated` and `detailBytesOmitted`. At most 2000 events are retained with an omitted counter.
 
@@ -3670,7 +3670,21 @@ prevent viewing browser diagnostics; the text records the server export error.
 
 The connection tab ends with an always-visible debug section and a read-only log
 box. Opening settings, returning to the connection tab, and finishing a connection
-or embedding check refresh the displayed current-chat log (no polling). The Copy
-button copies the displayed text, including server logs when enabled; Blob exports
-are decoded as text. Clipboard-denied / LAN HTTP browsers use selection-based copy
-with a manual selection fallback. This section no longer downloads a file.
+or embedding check refresh the displayed current-chat preview (no polling). The
+Copy button copies only the bounded visible preview: latest 3 runs, key errors /
+profile stages plus recent stages, long strings and arrays omitted, at most 24,000
+characters. Server summaries use /logs/preview with a 5-second deadline; older
+servers show local logs plus an explicit unavailable notice, never fetch the full
+export automatically. With server output, each side is capped at 11,500 characters.
+Clipboard-denied / LAN HTTP browsers use selection-based copy with a manual
+selection fallback. This section no longer downloads a file.
+
+Diagnostic persistence batches dirty runs at most once per second during work and
+flushes at completion / explicit export. Each event is redacted once at append;
+byte accounting is incremental, with no re-redaction/stringification of all prior
+events on every append. Immutable event snapshots prevent later mutations from
+changing queued writes. Abrupt page termination may lose the last unflushed second.
+IndexedDB version 3 adds retention and chat/start-time indexes without deleting v2
+logs. Pruning reads index keys instead of full bodies; previews retrieve only the
+latest 3 runs and compact them immediately. Existing full logs remain available to
+the explicit diagnostic export workflow; preview omissions do not delete records.

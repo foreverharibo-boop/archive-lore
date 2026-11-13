@@ -68,6 +68,7 @@ export function registerRoutes(router,service,embedding=embed,bridge=null,comple
     route('/vectors/get',async(user,body)=>{if(typeof body.key!=='string'||body.key.length>100000)throw Error('잘못된 벡터 키야.');return {vector:await service.vectors(user).get(body.key)};});
     route('/vectors/put',async(user,body)=>{if(typeof body.key!=='string'||body.key.length>100000||!Array.isArray(body.vector)||!body.vector.length||body.vector.length>16384||!body.vector.every(Number.isFinite)||body.vector.every(v=>v===0))throw Error('잘못된 벡터야.');await service.vectors(user).put(body.key,body.vector);return {ok:true};});
     route('/logs/list',(user,body)=>service.logList(user,body.chatKey));
+    route('/logs/preview',(user,body)=>service.logPreview(user,body.chatKey));
     // Keep /logs compatible with older clients, but stream instead of res.json
     // constructing another copy of all diagnostic bodies in the server heap.
     for(const url of ['/logs','/logs/export'])router.post(url,async(req,res)=>{

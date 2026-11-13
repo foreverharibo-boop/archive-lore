@@ -130,7 +130,11 @@ function setup(){
     eventSource.on(event_types.GENERATION_ENDED,()=>{generating=false;queueIndex();});
     eventSource.on(event_types.GENERATION_STOPPED,()=>{generating=false;indexPending=false;clearTimeout(indexTimer);native.stop();});
     eventSource.on(event_types.CHAT_CHANGED,()=>{indexPending=false;clearTimeout(indexTimer);native.collectionUpdated?.();});
-    for(const [name,fn,help] of [['al',()=>native.open(),'아카이브 로어 열기'],['al-injection',openInjection,'직전 주입 내용 열기 · 추가 검색 없음'],['al-embed',()=>search().controller.index(),'남은 기억 임베딩'],['al-recall',()=>search().controller.recall(),'기억 검색 미리보기'],['al-stop',()=>{native.stop();search().controller.cancel();},'수집·검색 작업 중지']])SlashCommandParser.addCommandObject(SlashCommand.fromProps({name,helpString:help,callback:async()=>{await fn();return '';}}));
+    // Opening a view must not keep the quick reply running until the popup closes.
+    for(const [name,fn,help] of [['al',()=>native.open(),'아카이브 로어 열기'],['al-injection',openInjection,'직전 주입 내용 열기 · 추가 검색 없음']])SlashCommandParser.addCommandObject(SlashCommand.fromProps({
+        name,helpString:help,callback:()=>{void Promise.resolve().then(fn).catch(fail);return '';},
+    }));
+    for(const [name,fn,help] of [['al-embed',()=>search().controller.index(),'남은 기억 임베딩'],['al-recall',()=>search().controller.recall(),'기억 검색 미리보기'],['al-stop',()=>{native.stop();search().controller.cancel();},'수집·검색 작업 중지']])SlashCommandParser.addCommandObject(SlashCommand.fromProps({name,helpString:help,callback:async()=>{await fn();return '';}}));
     for(const name of ['al-collect','al-catchup'])SlashCommandParser.addCommandObject(SlashCommand.fromProps({
         name,helpString:name==='al-collect'?'기억 수집. 선택 범위: /al-collect 0-19':'나눠 수집: /al-catchup 0-245 40',
         unnamedArgumentList:[SlashCommandArgument.fromProps({description:'시작-끝 (분할 개수)',typeList:[ARGUMENT_TYPE.STRING],isRequired:false})],
@@ -146,3 +150,4 @@ function setup(){
     }));
 }
 setup();
+

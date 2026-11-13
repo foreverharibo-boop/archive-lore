@@ -102,22 +102,22 @@ test('server recall preserves selection emphasis in persisted jobs, AI requests 
     const logs=await readLogs(f.service,f.user,'test-key');
     assert(logs.some(r=>r.events.some(e=>e.stage==='selection.plan'&&e.data.selectionFocus.join(',')==='affection,meaning')));
 });
-test('server generous recall persists its option, expands candidates and records every decision',async t=>{
+test('server generous recall persists its option and finishes underfilled without another review',async t=>{
     const f=fixture(t);atomic(f.book,{entries:{0:{uid:0,content:'The hospital visit reassured her.'},1:{uid:1,content:'She liked having him beside her at the hospital.'}}});
     const input=f.input();input.settings.generousRecall=true;input.settings.candidateCount=1;
     let job=await f.service.submit(f.user,'index',input,randomUUID());assert.equal((await done(f.service,f.user,job.id)).status,'completed');
-    for(let i=0;i<2;i++)f.replies.push(payload=>{
+    f.replies.push(payload=>{
         const system=payload.messages.find(x=>x.role==='system').content,data=JSON.parse(payload.messages.find(x=>x.role==='user').content);
         assert.match(system,/GENEROUS RELATED MEMORY MODE/);
-        return JSON.stringify({reviews:data.memories.map(m=>({id:m.id,priority:2,reason:'Hospital reassurance informs the current visit.',contextIds:[]}))});
+        return JSON.stringify({selections:data.memories.map(m=>({id:m.id,priority:2,contextIds:[]}))});
     });
     job=await f.service.submit(f.user,'recall',input,randomUUID());const result=await done(f.service,f.user,job.id);
-    assert.equal(result.status,'completed',result.message);assert.equal(f.calls.length,2);
-    assert(result.result.text.includes('reassured'));assert(result.result.text.includes('liked'));assert(result.result.tokens<=3000);
-    assert.equal(result.result.lastRecall.fill.expanded,true);
+    assert.equal(result.status,'completed',result.message);assert.equal(f.calls.length,1);
+    assert(result.result.text.includes('reassured'));assert(!result.result.text.includes('liked'));assert(result.result.tokens<2700);
+    assert.equal(result.result.lastRecall.fill,undefined);
     const saved=json(path.join(f.root,'archive-lore-server','jobs',job.id+'.json'));assert.equal(saved.input.settings.generousRecall,true);
     const logs=await readLogs(f.service,f.user,'test-key');
-    assert(logs.some(r=>r.events.some(e=>e.stage==='selection.validated'&&e.data.reviews?.length)));
+    assert(logs.some(r=>r.events.some(e=>e.stage==='selection.validated'&&e.data.accepted?.length&&!e.data.reviews)));
 });
 test('accepted collection survives without polling; saves book, vector, hide flags and redacted diagnostics on disk',async t=>{
     const f=fixture(t);f.replies.push(memory());const id=randomUUID(),job=await f.service.submit(f.user,'collect',f.input(),id);

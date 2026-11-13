@@ -23,24 +23,36 @@ function fixture() {
 }
 const memory=()=>JSON.stringify({entries:[{title:'병원 약속',content:'두 사람은 병원에 함께 가기로 약속했다.',keywords:['병원']}],sideChanges:[]});
 for(const mode of ['dialogue','questions','embedding'])test(`generous recall includes related background, respects side exclusions and bypasses plain embedding in ${mode}`,async()=>{
-    const f=fixture();f.config={mode,generousRecall:true,candidateCount:1,excludedSidePromptKeys:['private'],selectionFocus:['meaning'],injectionTokens:3000};
+    const f=fixture();f.config={mode,generousRecall:true,candidateCount:2,excludedSidePromptKeys:['private'],selectionFocus:['meaning'],injectionTokens:3000};
     f.book={entries:{0:{uid:0,content:'They had a reassuring hospital visit.'},1:{uid:1,content:'She liked having him beside her at the hospital.'},2:{uid:2,content:'PRIVATE record.',STMB_sidePromptHistory:{templateKey:'private'}}}};
     let selectors=0;
     f.host.ask=async(_p,system,data)=>{
         assert(!JSON.stringify(data).includes('PRIVATE'));
         if(system.includes('"questions":'))return '{"questions":["What helped at the hospital?"]}';
         selectors++;assert.match(system,/GENEROUS RELATED MEMORY MODE/);
-        return JSON.stringify({reviews:data.memories.map(m=>({id:m.id,priority:2,reason:'Related hospital reassurance.',contextIds:[],focusMatches:['meaning']}))});
+        return JSON.stringify({selections:data.memories.map(m=>({id:m.id,priority:2,contextIds:[],focusMatches:['meaning']}))});
     };
     await f.controller.index();const before=structuredClone(f.book),result=await f.controller.recall();
     assert(result.tokens<=3000);assert.deepEqual(f.book,before);assert(!result.text.includes('PRIVATE'));
     if(mode==='embedding'){assert.equal(selectors,0);assert.equal(result.fill,undefined);}
-    else {assert.equal(selectors,2);assert(result.text.includes('reassuring'));assert(result.text.includes('liked'));assert.equal(result.fill.expanded,true);assert(result.guidance);}
+    else {assert.equal(selectors,1);assert(result.text.includes('reassuring'));assert(result.text.includes('liked'));assert.equal(result.fill,undefined);assert(result.guidance);}
 });
 test('changing generous mode during a search rejects its obsolete result',async()=>{
     const f=fixture();f.book={entries:{0:{uid:0,content:'Hospital fact.'}}};await f.controller.index();
     f.replies.push(()=>{f.config={generousRecall:true};return '{"selections":[]}';});
     await assert.rejects(f.controller.recall(),/설정이 바뀌/);assert.equal(f.controller.state().lastRecall,null);
+});
+test('generous mode keeps normal candidate batches and clearing it restores normal requests',async()=>{
+    const f=fixture();f.config={candidateCount:4,injectionTokens:256};
+    f.book={entries:Object.fromEntries(Array.from({length:8},(_,i)=>[i,{uid:i,content:('They visited hospital room '+i+' for a checkup. ').repeat(160)}]))};
+    await f.controller.index();let requests=[];
+    f.host.ask=async(_p,system,data)=>{requests.push({system,data});return '{"selections":[]}';};
+    await f.controller.recall();const normal=requests;assert(normal.length>0);
+    requests=[];f.config={generousRecall:true};const generous=await f.controller.recall();
+    assert.equal(generous.text,'');assert.equal(requests.length,normal.length);
+    assert.deepEqual(requests.map(r=>r.data.memories),normal.map(r=>r.data.memories));
+    requests=[];f.config={generousRecall:false};await f.controller.recall();
+    assert.deepEqual(requests,normal);
 });
 for(const mode of ['dialogue','questions','embedding'])test(`selection focus reaches search, selection and response in ${mode} mode without extra completions`,async()=>{
     const f=fixture();f.config={mode,selectionFocus:['affection','meaning'],prompts:{select:'My custom selector'},injectionTokens:500};

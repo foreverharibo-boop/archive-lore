@@ -14,7 +14,7 @@ import { selectionFocusPrompt, focusQuestionPrompt, focusSearchQuery, orderFocus
 import { fitFocusedInjection } from './lore-focus-injection.js';
 import { withAbort } from './lore-cancellation.js';
 import { mapOrdered } from './lore-parallel.js';
-import { generousRecall, GENEROUS_CANDIDATE_LIMIT } from './lore-generous-recall.js';
+import { generousRecall } from './lore-generous-recall.js';
 
 const QUESTION_SCHEMA = '\nReturn ONLY JSON: {"questions":["question"]}. The questions key is required, with one to six nonblank strings of at most 2000 characters each. Always generate at least one context-grounded retrieval question, including for ordinary scene actions. When no factual answer is missing, ask what recorded experience, feeling, preference or agreement could inform this scene without assuming such a record exists. Never return an empty questions array, {} or omit questions.';
 
@@ -323,7 +323,7 @@ export function createLoreController(host) {
                     await log('injection.budget',{policy:'embedding-chunks',limit:config.injectionTokens,tokens:fitted.tokens,kept:fitted.units,dropped:groups.filter(u=>!fitted.units.some(k=>k.entryId===u.entryId&&k.index===u.index))});
                 } else if (config.generousRecall) {
                     const selectionStarted=Date.now();
-                    const result=await generousRecall({candidates,expandedCandidates:chooseCandidates(ranked,GENEROUS_CANDIDATE_LIMIT,config.mode),
+                    const result=await generousRecall({candidates,
                         chunks,config,latestUser:focus.latestUser,dialogue:recent.text,questions,
                         ask:(system,data,signal,maxTokens)=>askTracked(config.searchProfile || config.profile,system,data,signal,maxTokens),
                         countTokens:host.countTokens,signal,log,notify});

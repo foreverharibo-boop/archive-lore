@@ -71,7 +71,7 @@ for(const mode of ['dialogue','questions','embedding'])test(`selection focus rea
     };
     await f.controller.index();const indexed=f.calls.filter(x=>x==='document').length;
     const result=await f.controller.recall();assert(result.text.includes('thanked him'));assert(result.tokens<=500);
-    assert.equal(!!result.guidance,mode!=='embedding');
+    assert(result.guidance);
     assert.equal(selectors,mode==='embedding'?0:1);assert.equal(planners,mode==='questions'?1:0);
     assert.equal(f.calls.filter(x=>x==='document').length,indexed);
 });
@@ -586,4 +586,15 @@ for(const mode of ['dialogue','questions','embedding'])for(const generousRecall 
     assert.deepEqual(last.questions,[]);assert.equal(last.candidateTotal,0);assert.equal(last.pending,scenario==='unindexed'?1:0);
     assert.equal(last.timings.questionMs,0);assert.equal(last.timings.embeddingMs,0);assert.equal(last.timings.selectionMs,0);
     assert.deepEqual(f.book,before);assert.deepEqual(f.calls,[]);
+});
+
+for(const mode of ['dialogue','questions','embedding'])for(const generousRecall of [false,true])test(`recall attaches common guidance without focus and without extra requests: ${mode}, generous=${generousRecall}`,async()=>{
+    const f=fixture();f.config={mode,generousRecall,selectionFocus:[],injectionTokens:1000};
+    f.book={entries:{0:{uid:0,content:'They visited the hospital together.'}}};await f.controller.index();f.calls.length=0;
+    if(mode==='questions')f.replies.push('{"questions":["What happened at the hospital?"]}');
+    if(mode!=='embedding')f.replies.push(data=>JSON.stringify({selections:[{id:data.memories[0].id,priority:3,reason:'The shared visit.',contextIds:[]}]}));
+    const result=await f.controller.recall();assert.match(result.guidance,/Do not recap retrieved events/);
+    assert(!result.guidance.includes('Let expressed feelings'));assert.match(result.text,/hospital together/);assert(result.tokens<=1000);
+    assert.equal(f.calls.filter(c=>typeof c==='object').length,mode==='embedding'?0:mode==='questions'?2:1);
+    assert.equal(f.calls.filter(c=>c==='document').length,0);
 });

@@ -5,7 +5,6 @@ import {normalizeSelectionFocus,responseFocusGuidance} from './lore-selection-fo
 export async function fitFocusedInjection(units,config,countTokens=estimateTokens) {
     const focus=config.mode==='embedding'?[]:normalizeSelectionFocus(config.selectionFocus);
     const guidance=responseFocusGuidance(focus),budget=config.injectionTokens;
-    if(!guidance)return fitInjection(units,budget,countTokens);
     const guidanceTokens=await countTokens(guidance);
     let fitted=await fitInjection(units,Math.max(0,budget-guidanceTokens),countTokens);
     // Count the combined text as well as the separate prompt slots. Some host

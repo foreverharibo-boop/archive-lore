@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { NS, normalizeSettings, sourceRange, matchesRange, validReceipts, nextStart,
     entryAvailable, isCore, entryId, embeddingChunks, estimateTokens, boundedText, recentDialogue, parseJson, rankChunks,
-    parseCollection, reviewUnits, selectedUnits, fitInjection, materializeEntry,
+    parseCollection, reviewUnits, selectedUnits, materializeEntry,
     sideRecords, parseSideChanges, applySideChanges, sideSnapshot, parseStoryDate, currentStoryDate } from './lore-core.js';
 import { entrySearchAllowed } from './lore-side-search.js';
 import { enabledSides, sideInstructions } from './lore-side-config.js';
@@ -321,7 +321,7 @@ export function createLoreController(host) {
                         const units=reviewUnits([c]);
                         return units.length ? {...units[0],selectionFormat:'embedding',reason:'cosine similarity',score:c.score,requiredContext:units.slice(1)} : null;
                     }).filter(Boolean);
-                    fitted=await fitInjection(groups,config.injectionTokens,host.countTokens);
+                    fitted=await fitFocusedInjection(groups,config,host.countTokens);
                     await log('injection.budget',{policy:'embedding-chunks',limit:config.injectionTokens,tokens:fitted.tokens,kept:fitted.units,dropped:groups.filter(u=>!fitted.units.some(k=>k.entryId===u.entryId&&k.index===u.index))});
                 } else if (config.generousRecall) {
                     const selectionStarted=Date.now();

@@ -2,18 +2,24 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {fitFocusedInjection} from './lore-focus-injection.js';
-import {fitInjection,selectedUnits,normalizeSettings} from './lore-core.js';
+import {selectedUnits,normalizeSettings} from './lore-core.js';
 import {SELECTION_FOCUS,focusQuestionPrompt,focusSearchQuery,responseFocusGuidance,orderFocusedUnits} from './lore-selection-focus.js';
 const count=text=>Math.ceil(text.length/3);
 const anchor={id:'u0',entryId:'visit',index:0,title:'Hospital',text:'On 2027-12-26 they visited the hospital.'};
 const fact={id:'u1',entryId:'visit',index:1,title:'Hospital',text:'She thanked him for staying.',priority:3,selectionFormat:'ranked',requiredContext:[anchor],focusMatches:['affection']};
 const config=patch=>normalizeSettings({injectionTokens:500,selectionFocus:['affection'],...patch});
 
-test('empty choices and plain embedding retain exactly the original fitted object',async()=>{
-    const baseline=await fitInjection([fact],500,count);
-    assert.deepEqual(await fitFocusedInjection([fact],config({selectionFocus:[]}),count),baseline);
-    assert.deepEqual(await fitFocusedInjection([fact],config({mode:'embedding'}),count),baseline);
-    assert.equal(focusQuestionPrompt([]),'');assert.equal(focusSearchQuery([],'hospital'),'');assert.equal(responseFocusGuidance([]),'');
+for(const mode of ['dialogue','questions','embedding'])test(`common response guidance applies without selected aspects: ${mode}`,async()=>{
+    const fitted=await fitFocusedInjection([fact],config({mode,selectionFocus:[]}),count);
+    assert.equal(fitted.guidance,responseFocusGuidance([]));assert.match(fitted.guidance,/Do not recap retrieved events/);
+    assert.match(fitted.guidance,/Mention the relevant memory when the user asks about the past/);
+    assert(fitted.text.includes(fact.text));assert(fitted.text.includes(anchor.text));assert(fitted.tokens<=500);
+    assert.equal(focusQuestionPrompt([]),'');assert.equal(focusSearchQuery([],'hospital'),'');
+    assert.equal(responseFocusGuidance(['unknown']),responseFocusGuidance([]));
+});
+test('plain embedding ignores saved aspects but retains common response guidance',async()=>{
+    const fitted=await fitFocusedInjection([fact],config({mode:'embedding'}),count);
+    assert.equal(fitted.guidance,responseFocusGuidance([]));assert(!fitted.guidance.includes('Let expressed feelings'));
 });
 test('every category supplies distinct planner, supplementary query and response direction',()=>{
     const guides=[];
@@ -35,11 +41,11 @@ test('guidance shares the cap with intact source and its essential event anchor'
     const refitted=await fitFocusedInjection(fitted.units,config(),count);
     assert.deepEqual(refitted,fitted);
 });
-test('small budgets omit guidance instead of sacrificing all evidence; no evidence never gets instructions',async()=>{
-    const fitted=await fitFocusedInjection([fact],{...config(),injectionTokens:110},count);
+for(const selectionFocus of [[],['affection']])test(`small budgets preserve evidence and empty selections omit guidance: ${selectionFocus}`,async()=>{
+    const fitted=await fitFocusedInjection([fact],{...config({selectionFocus}),injectionTokens:110},count);
     assert.equal(fitted.guidance,'');assert.equal(fitted.guidanceOmitted,'budget');assert(fitted.text.includes(fact.text));
     assert(fitted.tokens<=110);
-    const empty=await fitFocusedInjection([],config(),count);
+    const empty=await fitFocusedInjection([],config({selectionFocus}),count);
     assert.equal(empty.guidance,'');assert.equal(empty.tokens,0);assert.equal(empty.guidanceOmitted,'no-memory');
 });
 test('client refitting cannot leave supporting sentences without their omitted root',async()=>{

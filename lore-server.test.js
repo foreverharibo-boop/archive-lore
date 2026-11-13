@@ -210,15 +210,16 @@ test('recall diagnostics distinguish result receipt, synchronization and client 
     assert.deepEqual(events.find(e=>e.stage==='server.recall').data.timings.clientStages,stages);
 });
 
-for(const focus of [[],['affection'],['details']])test(`server client refits separate guidance with the actual tokenizer for ${focus}`,async()=>{
-    const settings={mode:'dialogue',selectionFocus:focus,injectionTokens:500};
+for(const mode of ['dialogue','questions','embedding'])for(const focus of [[],['affection'],['details']])test(`server client refits separate guidance with the actual tokenizer for ${mode}, ${focus}`,async()=>{
+    const settings={mode,selectionFocus:focus,injectionTokens:500};
     const messages=[{is_user:true,mes:'What happened at the hospital?'}];
     const units=[{id:'u0',entryId:'visit',title:'Hospital',text:'She thanked him for staying.',index:0,priority:3}];
     const controller=createServerController({local:{},enabled:()=>true,settings:()=>settings,context:()=>({key:'chat',messages}),
         input:async()=>({settings:structuredClone(settings),context:{messages}}),sync:async()=>{},countTokens:async text=>Math.ceil(text.length/3),
         call:async route=>route==='/jobs/list'?[]:route==='/jobs'?{id:'job',status:'queued'}:{id:'job',kind:'recall',status:'completed',result:{core:'',lastRecall:{units,records:[],timings:{}}}}});
-    const result=await controller.recall();assert(result.text.includes('thanked'));assert.equal(!!result.guidance,!!focus.length);assert(result.tokens<=500);
-    if(focus.length){assert.equal(controller.state().lastRecall.guidance,result.guidance);assert(result.tokens>result.memoryTokens);}
+    const result=await controller.recall();assert(result.text.includes('thanked'));assert.match(result.guidance,/Do not recap retrieved events/);assert(result.tokens<=500);
+    assert.equal(controller.state().lastRecall.guidance,result.guidance);assert(result.tokens>result.memoryTokens);
+    if(mode==='embedding'||!focus.length)assert(!result.guidance.includes('Let expressed feelings'));
 });
 test('server client rejects a result from categories changed after submission',async()=>{
     let settings={selectionFocus:['affection']};const messages=[{is_user:true,mes:'Remember?'}];

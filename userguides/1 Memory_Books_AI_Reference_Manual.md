@@ -3250,7 +3250,7 @@ separate from side-record collection categories.
 `selectionFocus` stores allowlisted, deduplicated IDs (`affection`, `meaning`,
 `boundaries`, `preferences`, `details`). Empty choices preserve the previous
 planner, search ranking, selector request and recalled-record formatting. They
-still allow relevant emotional facts; no response guidance is added.
+still allow relevant emotional facts. Common response guidance remains active even with no aspects selected.
 
 With choices enabled, question mode uses its existing planner call (one to six
 questions): a direct factual question followed by queries for the chosen aspects
@@ -3266,8 +3266,9 @@ attribution, chronology, conditions, refusals and negation. It reports allowlist
 examples. Cross-batch ordering groups matching events within each fact priority.
 No category is mandatory, and relevance to the current request remains primary.
 
-A separate `archive-lore-guidance` prompt uses the chosen aspects as context for
-present actions, dialogue and continuity. It discourages recapping retrieved events,
+A separate `archive-lore-guidance` prompt applies common memory-use instructions
+in every retrieval mode, regardless of selected aspects. In dialogue/question
+mode, checked aspects add specific directions for present actions and dialogue. It discourages recapping retrieved events,
 listing past examples or repeatedly narrating comparisons with the past merely to
 demonstrate recall. It asks the model to mention the relevant memory when the user
 asks about the past or the current conversation needs it, without imposing a length
@@ -3281,8 +3282,9 @@ selected, no guidance is injected; if guidance would crowd out all facts, it is
 omitted. Server results are re-budgeted with the client's tokenizer while retaining
 required context. Changing focus/mode during recall rejects stale results.
 
-Plain embedding mode retains its original behavior and disables focus controls
-without deleting saved choices. Diagnostics record choices, supplementary queries,
+Plain embedding mode retains cosine retrieval without a planner or selector and
+disables focus controls without deleting saved choices. It receives only the common
+response guidance, with the same combined token cap. Diagnostics record choices, supplementary queries,
 selection matches, separate prompt slots and token totals. The recall preview shows
 response guidance separately. All prompt slots are cleared on cancellation/change.
 
@@ -3622,3 +3624,9 @@ Both local and optional server/relay execution share the implementation. Update 
 ### Archive Lore: skip searches without searchable memories
 
 All retrieval modes inspect eligible non-core records and their cached embedding chunks before any question generation or query embedding. Empty books, disabled/blank/excluded entries, or only unindexed memories produce an empty recall without question, selector or embedding API calls. Core injection remains separate and eligible core text is preserved; missing embedding chunks still appear in the pending count. This preflight is shared by browser and optional server/relay execution, with generous recall both on and off. Once searchable chunks exist, question mode still requires at least one question and keeps its existing malformed-response retry. An empty selection never triggers additional retrieval.
+
+### Archive Lore: common response guidance without selection emphasis
+
+Every retrieval mode (dialogue, questions, plain embedding) includes the existing common response guidance when recalled source units fit alongside it. Selection emphasis is no longer required. Its aspect-specific sentences remain conditional on checked categories in dialogue/question modes; plain embedding ignores saved categories. This adds no AI or embedding calls and does not alter saved records, planner/selector prompts or source-text formatting. Guidance shares the recall token cap: no evidence means no guidance, and if the guidance would displace all evidence it is omitted in favor of source facts. Core-only injection remains separate.
+
+The browser registers recalled text (`archive-lore-recalled`), core (`archive-lore-core`) and guidance (`archive-lore-guidance`) as separate `IN_CHAT` extension prompt slots, all at depth 1. Registration order is not a guarantee of rendered slot order; host prompt assembly controls placement among slots at the same depth. The optional server/relay uses the same fitting code and its reserved guidance slot. Update both checkouts when using the server and restart SillyTavern.

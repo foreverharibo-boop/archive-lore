@@ -1,6 +1,7 @@
 // Archive Lore modifications Copyright (C) 2026 foreverharibo-boop
 // Forked from Memory Books, Copyright (C) 2024–2026 Aiko Hanasaki.
 // SPDX-License-Identifier: AGPL-3.0-only
+import { entrySearchAllowed } from './lore-side-search.js';
 import { loreIcon } from './lore-icons.js';
 import { getContext, extension_settings } from '../../../extensions.js';
 import { getRequestHeaders, eventSource, event_types, saveSettingsDebounced, extension_prompt_types } from '../../../../script.js';
@@ -28,7 +29,9 @@ import { translate } from '../../../i18n.js';
 
 const PROMPT = 'archive-lore-recalled', CORE_PROMPT = 'archive-lore-core', GUIDANCE_PROMPT = 'archive-lore-guidance';
 let ui, recalled = new Set(), activeBooks = [], writing = false, generationInFlight=false, autoTimer=null, autoAttempt='', autoPending=false;
-const settings = () => extension_settings[NS];
+// Use the native manager's cache (including edits/imports), not a second module instance.
+await globalThis.archiveLoreMemoryBooks?.sideTemplates?.();
+const settings = () => ({...extension_settings[NS], excludedSidePromptKeys:globalThis.archiveLoreMemoryBooks?.sideSearchExclusions?.() || []});
 function saveSettings(patch = {}) {
     if(Object.hasOwn(patch,'serverEnabled') && controller.state().busy)throw Error('진행 중인 작업이 끝난 뒤 실행 위치를 바꿔 줘.');
     if(Object.hasOwn(patch,'selectionFocus') || Object.hasOwn(patch,'mode'))controller.clearRecall();
@@ -304,7 +307,7 @@ function nativePolicy(lists) {
         const mapped=new Map(consolidationView(list.filter(e=>e.world===book),messages).map(e=>[String(e.uid),e]));
         for(let i=0;i<list.length;i++)if(list[i].world===book)list[i]=mapped.get(String(list[i].uid)) || list[i];
     }
-    for(const list of Object.values(lists))if(Array.isArray(list))for(const entry of list)if(activeBooks.includes(entry.world)&&isCore(entry))entry.disable=true;
+    for(const list of Object.values(lists))if(Array.isArray(list))for(const entry of list)if(activeBooks.includes(entry.world)&&isCore(entry)&&entrySearchAllowed(entry,settings().excludedSidePromptKeys))entry.disable=true;
     applyNativePolicy(lists,{enabled:true,keywordActivation:settings().keywordActivation,books:selectedBooks,messages,selected:recalled});
     if(pendingGeneration?.key===chatContext().key)void pendingGeneration.trace.event('native-world-info.policy',{keywordActivation:settings().keywordActivation,entries:Object.values(lists).filter(Array.isArray).flat().filter(e=>selectedBooks.includes(e.world)).map(e=>({book:e.world,uid:e.uid,disabled:e.disable,core:isCore(e)}))});
 }

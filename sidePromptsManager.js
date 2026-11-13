@@ -1,3 +1,4 @@
+import { excludedSidePromptKeys } from './lore-side-search.js';
 import { migrateArchiveSideTemplates } from './lore-native-side.js';
 import { englishPrompt, migrateUneditedSideDefaults } from './lore-native-defaults.js';
 // Copyright (C) 2024–2026 Aiko Hanasaki
@@ -19,6 +20,17 @@ const SIDE_PROMPTS_FILE = FILE_NAMES.SIDE_PROMPTS_FILE;
  * @type {Object|null}
  */
 let cachedDoc = null;
+let searchExclusions = [];
+export const getSideSearchExclusions = () => [...searchExclusions];
+function updateSearchExclusions(doc) {
+    const next = excludedSidePromptKeys(Object.values(doc?.prompts || {}));
+    const changed = JSON.stringify(next) !== JSON.stringify(searchExclusions);
+    searchExclusions = next;
+    if (changed && globalThis.archiveLoreFork) {
+        globalThis.archiveLoreSearch?.clearPrompts();
+        globalThis.archiveLoreSearch?.controller.clearRecall();
+    }
+}
 
 /**
  * Generate ISO timestamp
@@ -472,6 +484,7 @@ async function saveDoc(doc) {
     }
 
     cachedDoc = doc;
+    updateSearchExclusions(doc);
     console.log(`${MODULE_NAME}: ${translate('Side prompts saved successfully', 'STMemoryBooks_SidePromptsSaved')}`);
 }
 
@@ -533,6 +546,7 @@ export async function loadSidePrompts() {
         if(plain){await saveDoc(plain);data=plain;}
     }
     cachedDoc = data;
+    updateSearchExclusions(data);
     return cachedDoc;
 }
 

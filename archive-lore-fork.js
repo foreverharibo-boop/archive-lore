@@ -51,7 +51,7 @@ function refreshInjectionMenu(){
 
 async function openRange(){
     const c=getContext(),{start,end}=nextCollectionRange(c.chatMetadata.STMemoryBooks,c.chat.length);
-    const node=document.createElement('div');node.className='al-search-tools';node.innerHTML='<h3>범위 지정 수집</h3><p>실리태번 메시지 번호로 범위를 지정합니다. 한 번 수집은 하나의 기억으로, 나눠 수집은 여러 기억으로 저장합니다.</p>';
+    const node=document.createElement('div');node.className='al-search-tools';node.innerHTML='<h3>범위 지정 수집</h3><p class="al-optional-help">실리태번 메시지 번호로 범위를 지정합니다. 한 번 수집은 하나의 기억으로, 나눠 수집은 여러 기억으로 저장합니다.</p>';
     const fields={};for(const [key,label,value] of [['start','시작 번호',start],['end','끝 번호',end],['interval','나눠 수집할 메시지 수',20]]){const l=document.createElement('label');l.textContent=label;const input=document.createElement('input');input.dataset.alHelpKey='range-'+key;input.type='number';input.className='text_pole';input.min=key==='interval'?'1':'0';input.value=value;l.append(input);node.append(l);fields[key]=input;}
     const status=document.createElement('p');status.setAttribute('role','status');
     const actions=document.createElement('div');actions.className='al-range-actions';node.append(actions);
@@ -120,7 +120,7 @@ function setup(){
     });
     native.collectionUpdated=()=>{resultPanel?.refresh();completion.check();};
     const container=document.createElement('div');container.className='extension_container al-fork-settings';
-    container.innerHTML='<div class="inline-drawer"><div class="inline-drawer-toggle inline-drawer-header"><b>Archive Lore</b><div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div></div><div class="inline-drawer-content"><p>메모리북의 수집·관리 기능과 아카이브 검색을 함께 사용합니다.</p><button type="button" class="menu_button" data-home>기능별 메뉴 열기</button><button type="button" class="menu_button" data-search>검색·임베딩 설정</button></div></div>';
+    container.innerHTML='<div class="inline-drawer"><div class="inline-drawer-toggle inline-drawer-header"><b>Archive Lore</b><div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div></div><div class="inline-drawer-content"><p class="al-optional-help">메모리북의 수집·관리 기능과 아카이브 검색을 함께 사용합니다.</p><button type="button" class="menu_button" data-home>기능별 메뉴 열기</button><button type="button" class="menu_button" data-search>검색·임베딩 설정</button></div></div>';
     container.querySelector('[data-home]').textContent='아카이브 로어 열기';
     const drawer=container.querySelector('.inline-drawer-content'),actions=document.createElement('div');actions.className='al-extension-actions';
     for(const button of [...drawer.querySelectorAll('button')])actions.append(button);drawer.append(actions);

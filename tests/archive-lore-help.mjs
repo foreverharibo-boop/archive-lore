@@ -19,6 +19,14 @@ const fixture=`<!doctype html><meta charset="utf-8"><meta name="viewport" conten
 <script src="/handlebars.js"></script><script type="module">
 import {generalSettingsTemplate,automaticMemoriesSettingsTemplate} from '/templates.js';
 import {installSettingsHelp} from '/lore-help.js';
+import {sideSearchControl} from '/lore-side-search.js';
+import {sideWriteModeControl} from '/lore-side-write-mode.js';
+window.mountSide=()=>{
+ window.archiveLoreFork=true;
+ const d=document.createElement('dialog');d.id='side-test';
+ d.innerHTML=sideSearchControl('stmb-sp-edit',{archiveLoreSearchEnabled:false})+sideWriteModeControl('stmb-sp-edit')+'<p role="status">저장됨</p><p class="warning">삭제하시겠습니까?</p>';
+ document.body.append(d);d.show();
+};
 Handlebars.registerHelper('eq',(a,b)=>a===b);
 const locale=await (await fetch('/locales/ko-kr.json')).json();
 window.translate=()=>{for(const e of document.querySelectorAll('[data-i18n]')){const key=e.dataset.i18n.split(';')[0];if(!key.startsWith('[') && locale[key])e.textContent=locale[key];}};
@@ -69,6 +77,20 @@ for(const width of [320,390,1000]){
  assert.equal(await page.locator('#'+customHelp).isVisible(),false);
  await page.locator('#profile-test').screenshot({path:'/tmp/archive-lore-profile-help-'+width+'.png'});
  await page.locator('#profile-test').evaluate(e=>e.remove());
+ // Side editing keeps its choice, labels and status while long static/dynamic help follows the switch.
+ await page.evaluate(()=>mountSide());
+ const side=page.locator('#side-test');
+ await page.waitForFunction(()=>document.querySelector('#stmb-sp-edit-archive-search')?.hasAttribute('aria-describedby'));
+ assert.equal(await side.locator('#stmb-sp-edit-archive-search').isChecked(),false);
+ assert(await side.locator('.al-optional-help').isVisible());
+ await toggle.uncheck();
+ assert.equal(await side.locator('[data-al-help]:visible,.al-optional-help:visible').count(),0);
+ assert(await side.getByText('아카이브 검색에 포함',{exact:true}).isVisible());
+ assert(await side.getByRole('status').isVisible());assert(await side.locator('.warning').isVisible());
+ await side.locator('#stmb-sp-edit-archive-search').check();
+ await toggle.check();assert(await side.locator('.al-optional-help').isVisible());
+ assert(await side.locator('#stmb-sp-edit-archive-search').isChecked());
+ await side.evaluate(e=>e.remove());
  // Dynamic search settings have names, not native IDs. Server/error notices remain visible.
  await page.evaluate(()=>{const d=document.createElement('dialog');d.className='al-settings-dialog';d.id='search-test';d.innerHTML='<div data-settings-body><div class="al-settings"><label>검색 방식<select name="mode"><option>질문으로 검색</option></select></label><label>자동 임베딩<input name="autoEmbed" type="checkbox"></label><div role="alert">연결 오류</div></div></div>';document.body.append(d);d.show();});
  await page.waitForFunction(()=>document.querySelector('[name=autoEmbed]')?.hasAttribute('aria-describedby'));

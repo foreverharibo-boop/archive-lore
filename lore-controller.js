@@ -4,6 +4,7 @@ import { NS, normalizeSettings, sourceRange, matchesRange, validReceipts, nextSt
     entryAvailable, isCore, entryId, embeddingChunks, estimateTokens, boundedText, recentDialogue, parseJson, rankChunks,
     parseCollection, reviewUnits, selectedUnits, fitInjection, materializeEntry,
     sideRecords, parseSideChanges, applySideChanges, sideSnapshot, parseStoryDate, currentStoryDate } from './lore-core.js';
+import { entrySearchAllowed } from './lore-side-search.js';
 import { enabledSides, sideInstructions } from './lore-side-config.js';
 import { automaticReady, collectedHideRanges } from './lore-automation.js';
 import { consolidationView, maintenanceRequest, maintenanceResult } from './lore-maintenance.js';
@@ -248,7 +249,7 @@ export function createLoreController(host) {
             lastRecall=null;
             const started=Date.now();timings={questionMs:0,embeddingMs:0,selectionMs:0};
             const snapshot = structuredClone(host.context()), config = settings();
-            const rows = await records(snapshot);
+            const rows = (await records(snapshot)).filter(r => entrySearchAllowed(r.entry, config.excludedSidePromptKeys));
             const core = rows.filter(r => isCore(r.entry)).map(r => r.entry.content).join('\n\n');
             const messages=recallMessages(snapshot.messages,options.generationType);
             const recent = recentDialogue(messages, config.recentCount);
@@ -358,7 +359,7 @@ export function createLoreController(host) {
             assertCurrent(snapshot, signal);
             if (JSON.stringify(snapshot.messages) !== JSON.stringify(host.context().messages)) throw new Error('검색 중 대화가 바뀌었어. 다시 시도해 줘.');
             const current=settings();
-            if(current.mode!==config.mode || JSON.stringify(current.selectionFocus)!==JSON.stringify(config.selectionFocus))throw new Error('검색 중 기억 선별 설정이 바뀌어서 주입하지 않았어. 다시 시도해 줘.');
+            if(current.mode!==config.mode || JSON.stringify(current.selectionFocus)!==JSON.stringify(config.selectionFocus) || JSON.stringify(current.excludedSidePromptKeys)!==JSON.stringify(config.excludedSidePromptKeys))throw new Error('검색 중 기억 선별 설정이 바뀌어서 주입하지 않았어. 다시 시도해 줘.');
             timings.totalMs=Date.now()-started;timings.otherMs=Math.max(0,timings.totalMs-timings.questionMs-timings.embeddingMs-timings.selectionMs);
             await log('recall.timing',timings);
             assertCurrent(snapshot, signal);

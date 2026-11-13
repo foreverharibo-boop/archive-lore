@@ -507,3 +507,32 @@ test('question provider errors are not retried and cancellation during the retry
     await assert.rejects(pending,{name:'AbortError'});release();await new Promise(r=>setImmediate(r));
     assert.equal(calls,2);assert.equal(f.controller.state().lastRecall,null);
 });
+
+for (const mode of ['dialogue','questions','embedding']) test(`side search exclusions apply before ranking and core injection in ${mode}`,async()=>{
+    const f=fixture();f.config={mode,excludedSidePromptKeys:['private']};
+    f.book={entries:{
+        0:{uid:0,content:'PUBLIC hospital memory.'},
+        1:{uid:1,content:'PRIVATE side record.',STMB_sidePromptHistory:{templateKey:'private'}},
+        2:{uid:2,constant:true,content:'PRIVATE constant side.',STMB_sidePromptRegeneration:{templateKey:'private'}},
+        3:{uid:3,constant:true,content:'PUBLIC core.'},
+    }};
+    const before=structuredClone(f.book);await f.controller.index();
+    if(mode==='questions')f.replies.push(JSON.stringify({questions:['What happened at the hospital?']}));
+    if(mode!=='embedding')f.replies.push(data=>{
+        assert(!JSON.stringify(data).includes('PRIVATE'));
+        return JSON.stringify({selections:[]});
+    });
+    const result=await f.controller.recall();assert.equal(result.core,'PUBLIC core.');
+    assert(!result.text.includes('PRIVATE'));
+    assert(f.controller.state().lastRecall.records.every(r=>[0,3].includes(r.entry.uid)));
+    assert.deepEqual(f.book,before,'retrieval never rewrites native activation or saved content');
+    f.config={excludedSidePromptKeys:[],mode:'embedding'};
+    const included=await f.controller.recall();assert(included.core.includes('PRIVATE constant'));
+    assert(included.text.includes('PRIVATE side'),'re-enabling needs neither regeneration nor re-embedding');
+});
+test('changing side search selection during recall rejects stale injection',async()=>{
+    const f=fixture();f.config={mode:'dialogue'};
+    f.book={entries:{0:{uid:0,content:'A hospital memory.'}}};await f.controller.index();
+    f.replies.push(()=>{f.config={excludedSidePromptKeys:['private']};return JSON.stringify({selections:[]});});
+    await assert.rejects(f.controller.recall(),/설정이 바뀌/);assert.equal(f.controller.state().lastRecall,null);
+});

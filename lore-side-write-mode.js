@@ -37,6 +37,6 @@ export function sideWriteModeControl(prefix, settings = {}) {
             <option value="continue" ${mode === 'continue' ? 'selected' : ''}>이어서 쓰기 (기존 방식)</option>
             <option value="refresh" ${mode === 'refresh' ? 'selected' : ''}>갱신하기 (현재 상태만)</option>
         </select></label>
-        <small class="opacity70p">이어서 쓰기는 기존 기록을 이어받아 새 사실과 변경 사항을 반영합니다. 갱신하기는 완료된 약속·해결된 문제·더는 유효하지 않은 과거를 정리하고 현재 상태만 남깁니다. 완료 여부가 불분명한 약속은 유지합니다. 두 방식 모두 기존 사이드와 이번 대상 대화를 읽습니다.</small>
+        <small class="opacity70p al-optional-help">이어서 쓰기는 기존 기록을 이어받아 새 사실과 변경 사항을 반영합니다. 갱신하기는 완료된 약속·해결된 문제·더는 유효하지 않은 과거를 정리하고 현재 상태만 남깁니다. 완료 여부가 불분명한 약속은 유지합니다. 두 방식 모두 기존 사이드와 이번 대상 대화를 읽습니다.</small>
     </div>`;
 }

@@ -191,7 +191,7 @@ async function openEditContextSetting(parentPopup, key = null) {
         </div>
         <div class="world_entry_form_control">
             <h4>${escapeHtml(translate('Additional Context', 'STMemoryBooks_ContextSettings_AdditionalContext'))}</h4>
-            <small class="opacity70p">${escapeHtml(translate('Include selected lorebook entries as additional reference context. Entries run in the order below.', 'STMemoryBooks_ContextSettings_EntriesDesc'))}</small>
+            <small class="opacity70p al-optional-help">${escapeHtml(translate('Include selected lorebook entries as additional reference context. Entries run in the order below.', 'STMemoryBooks_ContextSettings_EntriesDesc'))}</small>
             <div class="buttons_block gap10px marginTop5">
                 <label for="stmb-context-setting-lorebook" class="flex1">
                     <span>${escapeHtml(translate('Lorebook', 'STMemoryBooks_Profile_AlsoIncludeLorebook'))}</span>
@@ -270,7 +270,7 @@ function renderCurrentChatSelector(settings) {
                 <h4>${escapeHtml(translate('Additional Context for this chat', 'STMemoryBooks_ContextSettings_CurrentChat'))}</h4>
                 <select id="stmb-context-current-chat-select" class="text_pole">${options}</select>
             </label>
-            <small class="opacity70p">${escapeHtml(translate('Choose a context setting, leave unset to be prompted when a migrated profile needs one, or save No Context for this chat.', 'STMemoryBooks_ContextSettings_CurrentChatHelp'))}</small>
+            <small class="opacity70p al-optional-help">${escapeHtml(translate('Choose a context setting, leave unset to be prompted when a migrated profile needs one, or save No Context for this chat.', 'STMemoryBooks_ContextSettings_CurrentChatHelp'))}</small>
         </div>
     `;
 }
@@ -293,7 +293,7 @@ function renderSettingsList(settings) {
     return `
         <div class="world_entry_form_control">
             <h4>${escapeHtml(translate('Context Settings', 'STMemoryBooks_ContextSettings_Title'))}</h4>
-            <small class="opacity70p">${escapeHtml(translate('Context settings define ordered lorebook entries to include as Additional Context for memory creation.', 'STMemoryBooks_ContextSettings_Desc'))}</small>
+            <small class="opacity70p al-optional-help">${escapeHtml(translate('Context settings define ordered lorebook entries to include as Additional Context for memory creation.', 'STMemoryBooks_ContextSettings_Desc'))}</small>
             <div style="max-height: 260px; overflow-y: auto; margin-top: 8px;">
                 <table style="width: 100%; border-collapse: collapse;">
                     <thead>

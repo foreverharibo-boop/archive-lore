@@ -294,3 +294,19 @@ test('server exposes repeated empty question plans as errors instead of complete
     const job=await f.service.submit(f.user,'recall',input,randomUUID()),result=await done(f.service,f.user,job.id);
     assert.equal(result.status,'error');assert.match(result.message,/유효한 질문을 1~6개/);assert.equal(f.calls.length,2);
 });
+
+test('server and relay exclude private side records before core preparation and retrieval',async t=>{
+    const f=fixture(t);atomic(f.book,{entries:{
+        0:{uid:0,constant:true,content:'PUBLIC core.'},
+        1:{uid:1,constant:true,content:'PRIVATE core.',STMB_sidePromptHistory:{templateKey:'private'}},
+        2:{uid:2,content:'PRIVATE search.',STMB_sidePromptRegeneration:{templateKey:'private'}},
+        3:{uid:3,content:'PUBLIC hospital memory.'},
+    }});
+    const input=f.input();Object.assign(input.settings,{mode:'embedding',serverEnabled:true,relayEnabled:true,excludedSidePromptKeys:['private']});
+    assert.equal(f.service.replySnapshot(f.user,input).core,'PUBLIC core.');
+    let job=await f.service.submit(f.user,'index',input,randomUUID());assert.equal((await done(f.service,f.user,job.id)).status,'completed');
+    job=await f.service.submit(f.user,'recall',input,randomUUID());const result=await done(f.service,f.user,job.id);
+    assert.equal(result.status,'completed');assert.equal(result.result.core,'PUBLIC core.');assert(!result.result.text.includes('PRIVATE'));
+    assert.deepEqual(result.result.lastRecall.records.map(r=>r.entry.uid),[0,3]);
+    assert.equal(f.calls.length,0,'embedding mode needs no question or selector requests');
+});

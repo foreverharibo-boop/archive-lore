@@ -1,5 +1,6 @@
 // Archive Lore modifications Copyright (C) 2026 foreverharibo-boop
 // SPDX-License-Identifier: AGPL-3.0-only
+import { normalizeSideSearchExclusions } from './lore-side-search.js';
 import { normalizeSides } from './lore-side-config.js';
 import { normalizeSelectionFocus } from './lore-selection-focus.js';
 import { fingerprintChatMessage } from './chatSelection.js';
@@ -51,6 +52,7 @@ export function normalizeSettings(value = {}) {
         if (value.prompts.questions === PREVIOUS_BACKGROUND_QUESTIONS) value.prompts.questions = QUESTIONS_PROMPT;
     }
     return { ...DEFAULTS, ...value, promptRevision: 7,
+        excludedSidePromptKeys: normalizeSideSearchExclusions(value.excludedSidePromptKeys),
         enabled: value.enabled === true,
         autoEmbed: value.autoEmbed !== false,
         serverEnabled: value.serverEnabled === true,

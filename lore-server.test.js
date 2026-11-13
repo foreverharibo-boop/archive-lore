@@ -265,3 +265,11 @@ test('hot vectors are bounded in browser memory and evictions reload from server
     assert.deepEqual(await store.get('key0'),[0,1]);assert.deepEqual(reads,['key0']);assert.equal(localReads,0);
     store.clear();assert.deepEqual(await store.get('key139'),[139,1]);assert.equal(disk.size,140);
 });
+
+test('server client rejects a result from side search exclusions changed after submission',async()=>{
+    let settings={excludedSidePromptKeys:[]};const messages=[{is_user:true,mes:'Remember?'}];
+    const controller=createServerController({local:{},enabled:()=>true,settings:()=>settings,context:()=>({key:'chat',messages}),
+        input:async()=>({settings:structuredClone(settings),context:{messages}}),sync:async()=>{},countTokens:async()=>1,
+        call:async route=>{if(route==='/jobs/list')return [];if(route==='/jobs')return {id:'job',status:'queued'};settings={excludedSidePromptKeys:['private']};return {id:'job',kind:'recall',status:'completed',result:{lastRecall:{units:[],records:[]}}};}});
+    await assert.rejects(controller.recall(),/설정이 바뀌/);assert.equal(controller.state().lastRecall,null);
+});

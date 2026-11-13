@@ -5,6 +5,7 @@ import { randomUUID, webcrypto } from 'node:crypto';
 import { atomic,inside,json,privateStore,hash } from './storage.js';
 import { reusableVectorStore,legacyEmbeddingBooks } from './vector-store.js';
 import {pruneDiagnostics,pruneJobs,resetLegacyHistory} from './retention.js';
+import { entrySearchAllowed } from '../lore-side-search.js';
 import { createLoreController } from '../lore-controller.js';
 import { createDiagnostics } from '../lore-diagnostics.js';
 import { diagnosticFiles,diagnosticStream } from './diagnostics.js';
@@ -124,9 +125,10 @@ export function createJobService({sanitize,ask,embedRequest=embed,countTokens}) 
                 throw Error('서버 답변 연동 설정을 확인해 줘.');
             const live=readChat(s,input).messages;
             if(live.length!==input.context.messages.length)throw Error('대화가 바뀌어서 서버 답변을 중단했어.');
+            const excludedKeys=normalizeSettings(input.settings).excludedSidePromptKeys;
             const raw=input.books.map(book=>fs.readFileSync(bookFile(s,book),'utf8'));
             const entries=raw.flatMap(text=>consolidationView(Object.values(JSON.parse(text).entries||{}),live))
-                .map(entry=>materializeEntry(entry,live)).filter(entry=>entryAvailable(entry,live));
+                .map(entry=>materializeEntry(entry,live)).filter(entry=>entryAvailable(entry,live) && entrySearchAllowed(entry,excludedKeys));
             return {core:entries.filter(isCore).map(entry=>entry.content).join('\n\n'),
                 fingerprint:hash(JSON.stringify([sourceRange(live,0,live.length-1),raw]))};
         },

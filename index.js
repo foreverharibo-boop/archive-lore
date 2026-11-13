@@ -188,7 +188,7 @@ import {
   showClipReviewSuggestionsPopup,
 } from "./clipReview.js";
 import { CLIP_REVIEW_METADATA_KEY, normalizeMemoryAssistanceMode } from "./clipReviewPolicy.js";
-import { collectSetRuntimeMacros, listSets, listTemplates } from "./sidePromptsManager.js";
+import { collectSetRuntimeMacros, listSets, listTemplates, getSideSearchExclusions } from "./sidePromptsManager.js";
 import {
   normalizeDefaultSidePromptSetKeys,
   normalizeSidePromptSetKey,
@@ -9794,7 +9794,7 @@ async function showSummaryConsolidationPopup(popupOptions = {}) {
       content += `<option value="${escapeHtml(name)}"${selected}>${escapeHtml(name)}</option>`;
     }
     content += "</select>";
-    content += `<small class="opacity70p">${escapeHtml(translate("Choose the Memory Book whose eligible entries should be consolidated. This choice applies only to this run.", "STMemoryBooks_Consolidation_SourceMemoryBookDesc"))}</small>`;
+    content += `<small class="opacity70p al-optional-help">${escapeHtml(translate("Choose the Memory Book whose eligible entries should be consolidated. This choice applies only to this run.", "STMemoryBooks_Consolidation_SourceMemoryBookDesc"))}</small>`;
     content += "</div>";
 
     content += '<div class="world_entry_form_control">';
@@ -9824,13 +9824,13 @@ async function showSummaryConsolidationPopup(popupOptions = {}) {
     content += `<label>${escapeHtml(translate("Token Budget", "STMemoryBooks_Arc_TokenBudget"))} <input id="stmb-arc-token" type="number" min="1000" max="150000" value="${tokenThreshold}" class="text_pole" style="width:120px"/></label>`;
     content += `<label>${escapeHtml(translate("Number of automatic summary attempts", "STMemoryBooks_Arc_MaxPasses"))} <input id="stmb-arc-maxpasses" type="number" min="1" max="50" value="10" class="text_pole" style="width:100px"/></label>`;
     content += `<label><span id="stmb-summary-minassigned-label">${escapeHtml(tr("STMemoryBooks_Arc_MinAssigned", "Saved minimum eligible {{stmbchildtier}} needed before {{stmbtier}} is ready", { stmbchildtier: "memories", stmbtier: "arc" }))}</span> <input id="stmb-arc-minassigned" type="number" min="${MIN_SUMMARY_CHILDREN}" step="1" value="${getDefaultSummaryMinChildren(initialTargetTier)}" class="text_pole" style="width:110px"/></label>`;
-    content += `<small id="stmb-summary-minassigned-note" class="opacity70p">${escapeHtml(translate("Also used for auto-consolidation readiness for this tier.", "STMemoryBooks_Arc_MinAssignedNote"))}</small>`;
+    content += `<small id="stmb-summary-minassigned-note" class="opacity70p al-optional-help">${escapeHtml(translate("Also used for auto-consolidation readiness for this tier.", "STMemoryBooks_Arc_MinAssignedNote"))}</small>`;
     content += "</div>";
 
     // Saved lorebook entry settings for summaries
     content += '<div class="world_entry_form_control">';
     content += `<div><h4 class="stmb-section-title">${escapeHtml(translate("Lorebook Entry Settings", "STMemoryBooks_LorebookEntrySettings"))}</h4></div>`;
-    content += `<small class="opacity70p">${escapeHtml(translate("These settings control how the generated summary is saved into the lorebook.", "STMemoryBooks_ConsolidateArcs_LorebookEntrySettingsDesc"))}</small>`;
+    content += `<small class="opacity70p al-optional-help">${escapeHtml(translate("These settings control how the generated summary is saved into the lorebook.", "STMemoryBooks_ConsolidateArcs_LorebookEntrySettingsDesc"))}</small>`;
     content += '</div>';
 
     content += '<div class="world_entry_form_control">';
@@ -9845,7 +9845,7 @@ async function showSummaryConsolidationPopup(popupOptions = {}) {
 
     content += '<div class="world_entry_form_control">';
     content += `<label for="stmb-summary-entry-position"><strong>${escapeHtml(translate("Insertion Position", "STMemoryBooks_InsertionPosition"))}:</strong></label>`;
-    content += `<small class="opacity70p">${escapeHtml(translate("Choose where consolidated summaries should be inserted in the lorebook.", "STMemoryBooks_ConsolidateArcs_InsertionPositionDesc"))}</small>`;
+    content += `<small class="opacity70p al-optional-help">${escapeHtml(translate("Choose where consolidated summaries should be inserted in the lorebook.", "STMemoryBooks_ConsolidateArcs_InsertionPositionDesc"))}</small>`;
     content += '<select id="stmb-summary-entry-position" class="text_pole">';
     content += `<option value="0"${summaryEntrySettings.position === 0 ? " selected" : ""}>${escapeHtml(translate("↑Char", "STMemoryBooks_CharUp"))}</option>`;
     content += `<option value="1"${summaryEntrySettings.position === 1 ? " selected" : ""}>${escapeHtml(translate("↓Char", "STMemoryBooks_CharDown"))}</option>`;
@@ -9906,7 +9906,7 @@ async function showSummaryConsolidationPopup(popupOptions = {}) {
     content += `<button id="stmb-arc-deselect-all" class="menu_button stmb-nowrap-button">${escapeHtml(translate("Deselect All", "STMemoryBooks_DeselectAll"))}</button>`;
     content += `</div>`;
     content += `<div id="stmb-arc-list" style="max-height:300px; overflow-y:auto; border:1px solid var(--SmartHover2); padding:6px"></div>`;
-    content += `<small id="stmb-summary-tip" class="opacity70p">${escapeHtml(translate("Tip: uncheck entries that should not be included.", "STMemoryBooks_ConsolidateArcs_Tip"))}</small>`;
+    content += `<small id="stmb-summary-tip" class="opacity70p al-optional-help">${escapeHtml(translate("Tip: uncheck entries that should not be included.", "STMemoryBooks_ConsolidateArcs_Tip"))}</small>`;
     content += "</div>";
 
     let popup;
@@ -15142,6 +15142,7 @@ $(document).ready(() => {
 
 // Narrow bridge: the fork uses the original workflows rather than reimplementing them.
 if (globalThis.archiveLoreFork) globalThis.archiveLoreMemoryBooks = {
+  sideTemplates: listTemplates, sideSearchExclusions: getSideSearchExclusions,
   initialize: init, open: showSettingsPopup, settings: initializeSettings, busy: isMemoryProcessing,
   collect: collectNextArchiveLore, collectRange: runSceneMemoryRange, catchup: handleStmbCatchupCommand, undo: undoLastArchiveCollection, stop: stmbStopAllInFlight,
   route: getArchiveLoreBookRoute,

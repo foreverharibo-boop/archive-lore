@@ -1,3 +1,4 @@
+import { sideSearchControl } from './lore-side-search.js';
 import { sideWriteModeControl } from './lore-side-write-mode.js';
 import { getArchiveLoreBookRoute } from './utils.js';
 // Copyright (C) 2024–2026 Aiko Hanasaki
@@ -370,7 +371,7 @@ function buildLorebookTargetBlock({ idPrefix, tpl = null }) {
                     ${options}
                 </select>
             </label>
-            <small class="opacity70p">${escapeHtml(translate('Changing this target will ask whether to save it for this chat only or for this side prompt going forward.', 'STMemoryBooks_SidePromptLorebookHelp'))}</small>
+            <small class="opacity70p al-optional-help">${escapeHtml(translate('Changing this target will ask whether to save it for this chat only or for this side prompt going forward.', 'STMemoryBooks_SidePromptLorebookHelp'))}</small>
         </div>
     `;
 }
@@ -410,7 +411,7 @@ function buildAdditionalContextBlock({ idPrefix, settings = {}, contextSettings 
                         ${buildAdditionalContextOptions(contextSettings, selectedValue)}
                     </select>
                 </label>
-                <small class="opacity70p">${escapeHtml(translate("Follow chat uses this chat's Additional Context. Choosing a named context setting overrides it for this side prompt.", 'STMemoryBooks_SidePromptAdditionalContextHelp'))}</small>
+                <small class="opacity70p al-optional-help">${escapeHtml(translate("Follow chat uses this chat's Additional Context. Choosing a named context setting overrides it for this side prompt.", 'STMemoryBooks_SidePromptAdditionalContextHelp'))}</small>
             </div>
         </div>
     `;
@@ -601,7 +602,7 @@ function renderAfterMemorySetMode(sets) {
                     ${options}
                 </select>
             </label>
-            <small class="opacity70p">${escapeHtml(translate('Inherit uses the matching solo or group default. You can explicitly use individually-enabled side prompts or select a specific set for this chat.', 'STMemoryBooks_SidePromptSetModeHelp'))}</small>
+            <small class="opacity70p al-optional-help">${escapeHtml(translate('Inherit uses the matching solo or group default. You can explicitly use individually-enabled side prompts or select a specific set for this chat.', 'STMemoryBooks_SidePromptSetModeHelp'))}</small>
         </div>
     `;
 }
@@ -624,7 +625,7 @@ function renderSetsList(sets) {
     return `
         <div class="world_entry_form_control">
             <h4>${escapeHtml(translate('Side Prompt Sets', 'STMemoryBooks_SidePromptSets'))}</h4>
-            <small class="opacity70p">${escapeHtml(translate('Sets define which side prompts run instead of individually-enabled after-memory side prompts when a chat selects that set.', 'STMemoryBooks_SidePromptSetsHelp'))}</small>
+            <small class="opacity70p al-optional-help">${escapeHtml(translate('Sets define which side prompts run instead of individually-enabled after-memory side prompts when a chat selects that set.', 'STMemoryBooks_SidePromptSetsHelp'))}</small>
             <div style="max-height: 220px; overflow-y: auto; margin-top: 8px;">
                 <table style="width: 100%; border-collapse: collapse;">
                     <thead>
@@ -760,7 +761,7 @@ async function openEditSet(parentPopup, key = null) {
             </label>
         </div>
         <div class="world_entry_form_control">
-            <small class="opacity70p">${escapeHtml(translate('Each row runs one side prompt. You can use literal macro values or set-level macros like {{npc_1}} for /sideprompt-macroset.', 'STMemoryBooks_SetEditorHelp'))}</small>
+            <small class="opacity70p al-optional-help">${escapeHtml(translate('Each row runs one side prompt. You can use literal macro values or set-level macros like {{npc_1}} for /sideprompt-macroset.', 'STMemoryBooks_SetEditorHelp'))}</small>
         </div>
         <div id="stmb-sp-set-items">${rows}</div>
         <div class="buttons_block justifyCenter gap10px whitespacenowrap">
@@ -925,9 +926,10 @@ async function openEditTemplate(parentPopup, key) {
                     <span>${escapeHtml(translate('Enabled', 'STMemoryBooks_Enabled'))}</span>
                 </label>
             </div>
+            ${sideSearchControl('stmb-sp-edit', s)}
             <div class="world_entry_form_control">
                 <label class="checkbox_label"><input type="checkbox" id="stmb-sp-edit-save-all-versions" ${s.saveAllVersions === true ? 'checked' : ''}> <span>${escapeHtml(translate('Save all versions', 'STMemoryBooks_SaveAllSidePromptVersions'))}</span></label>
-                <small class="opacity70p">${escapeHtml(translate('Requires Enable sideprompt versioning in the Side Prompt Manager. Older versions are kept disabled.', 'STMemoryBooks_SidePromptVersioningTemplateHelp'))}</small>
+                <small class="opacity70p al-optional-help">${escapeHtml(translate('Requires Enable sideprompt versioning in the Side Prompt Manager. Older versions are kept disabled.', 'STMemoryBooks_SidePromptVersioningTemplateHelp'))}</small>
             </div>
             <div class="world_entry_form_control">
                 <h4>${escapeHtml(translate('Triggers:', 'STMemoryBooks_Triggers'))}</h4>
@@ -956,7 +958,7 @@ async function openEditTemplate(parentPopup, key) {
                     <h5>${escapeHtml(translate('Previous memories for context:', 'STMemoryBooks_PreviousMemoriesForContext'))}</h5>
                     <input type="number" id="stmb-sp-edit-prev-mem-count" class="text_pole" min="0" max="7" step="1" value="${prevMemCount}">
                 </label>
-                <small class="opacity70p">${escapeHtml(translate('Number of previous memory entries to include before scene text (0 = none).', 'STMemoryBooks_PreviousMemoriesHelp'))}</small>
+                <small class="opacity70p al-optional-help">${escapeHtml(translate('Number of previous memory entries to include before scene text (0 = none).', 'STMemoryBooks_PreviousMemoriesHelp'))}</small>
             </div>
 
             ${sideWriteModeControl('stmb-sp-edit', s)}
@@ -982,12 +984,12 @@ async function openEditTemplate(parentPopup, key) {
                 <h4 class="stmb-section-title">${escapeHtml(translate('Lorebook Entry Settings', 'STMemoryBooks_LorebookEntrySettings'))}</h4>
                 <label for="stmb-sp-edit-lb-entry-title-override">
                     <h5 style="margin: 8px 0 4px 0;">${escapeHtml(translate('Lorebook Entry Title Override', 'STMemoryBooks_LorebookEntryTitleOverride'))}</h5>
-                    <small class="opacity70p">${escapeHtml(translate('Optional. Standard ST macros and required runtime macros are resolved here, and STMB still appends (STMB SidePrompt).', 'STMemoryBooks_LorebookEntryTitleOverrideHelp'))}</small>
+                    <small class="opacity70p al-optional-help">${escapeHtml(translate('Optional. Standard ST macros and required runtime macros are resolved here, and STMB still appends (STMB SidePrompt).', 'STMemoryBooks_LorebookEntryTitleOverrideHelp'))}</small>
                     <input type="text" id="stmb-sp-edit-lb-entry-title-override" class="text_pole" value="${escapeHtml(lbEntryTitleOverride)}" placeholder="${escapeHtml(translate('Optional title template (e.g., NPC {{npcname}})', 'STMemoryBooks_LorebookEntryTitleOverridePlaceholder'))}">
                 </label>
                 <label for="stmb-sp-edit-lb-entry-keywords">
                     <h5 style="margin: 8px 0 4px 0;">${escapeHtml(translate('Lorebook Entry Keywords', 'STMemoryBooks_LorebookEntryKeywords'))}</h5>
-                    <small class="opacity70p">${escapeHtml(translate('Optional. If filled in, these keywords are applied to the upserted lorebook entry. You may only use macros already present in Prompt or Response Format.', 'STMemoryBooks_LorebookEntryKeywordsHelp'))}</small>
+                    <small class="opacity70p al-optional-help">${escapeHtml(translate('Optional. If filled in, these keywords are applied to the upserted lorebook entry. You may only use macros already present in Prompt or Response Format.', 'STMemoryBooks_LorebookEntryKeywordsHelp'))}</small>
                     <input type="text" id="stmb-sp-edit-lb-entry-keywords" class="text_pole" value="${escapeHtml(lbEntryKeywords)}" placeholder="${escapeHtml(translate('Optional comma-separated keywords', 'STMemoryBooks_LorebookEntryKeywordsPlaceholder'))}" title="${escapeHtml(translate('You can only use ST standard macros or macros already defined in Prompt or Response Format.', 'STMemoryBooks_LorebookEntryKeywordsTooltip'))}">
                 </label>
             </div>
@@ -1170,6 +1172,7 @@ async function openEditTemplate(parentPopup, key) {
             // Overrides in settings
             const settings = { ...(tpl.settings || {}) };
             settings.saveAllVersions = !!dlg.querySelector('#stmb-sp-edit-save-all-versions')?.checked;
+            if (globalThis.archiveLoreFork) settings.archiveLoreSearchEnabled = dlg.querySelector('#stmb-sp-edit-archive-search')?.checked !== false;
             const overrideEnabled2 = !!dlg.querySelector('#stmb-sp-edit-override-enabled')?.checked;
             settings.overrideProfileEnabled = overrideEnabled2;
             if (overrideEnabled2) {
@@ -1275,9 +1278,10 @@ async function openNewTemplate(parentPopup) {
                 <span>${escapeHtml(translate('Enabled', 'STMemoryBooks_Enabled'))}</span>
             </label>
         </div>
+        ${sideSearchControl('stmb-sp-new', {})}
         <div class="world_entry_form_control">
             <label class="checkbox_label"><input type="checkbox" id="stmb-sp-new-save-all-versions"> <span>${escapeHtml(translate('Save all versions', 'STMemoryBooks_SaveAllSidePromptVersions'))}</span></label>
-            <small class="opacity70p">${escapeHtml(translate('Requires Enable sideprompt versioning in the Side Prompt Manager. Older versions are kept disabled.', 'STMemoryBooks_SidePromptVersioningTemplateHelp'))}</small>
+            <small class="opacity70p al-optional-help">${escapeHtml(translate('Requires Enable sideprompt versioning in the Side Prompt Manager. Older versions are kept disabled.', 'STMemoryBooks_SidePromptVersioningTemplateHelp'))}</small>
         </div>
         <div class="world_entry_form_control">
             <h4>${escapeHtml(translate('Triggers:', 'STMemoryBooks_Triggers'))}</h4>
@@ -1321,12 +1325,12 @@ async function openNewTemplate(parentPopup) {
                 <h4 style="margin: 8px 0 4px 0;">${escapeHtml(translate('Lorebook Entry Title Override', 'STMemoryBooks_LorebookEntryTitleOverride'))}</h4>
                 <input type="text" id="stmb-sp-new-lb-entry-title-override" class="text_pole" placeholder="${escapeHtml(translate('Optional title template (e.g., NPC {{npcname}})', 'STMemoryBooks_LorebookEntryTitleOverridePlaceholder'))}">
             </label>
-            <small class="opacity70p">${escapeHtml(translate('Optional. Standard ST macros and required runtime macros are resolved here, and STMB still appends (STMB SidePrompt).', 'STMemoryBooks_LorebookEntryTitleOverrideHelp'))}</small>
+            <small class="opacity70p al-optional-help">${escapeHtml(translate('Optional. Standard ST macros and required runtime macros are resolved here, and STMB still appends (STMB SidePrompt).', 'STMemoryBooks_LorebookEntryTitleOverrideHelp'))}</small>
             <label for="stmb-sp-new-lb-entry-keywords">
                 <h4 style="margin: 8px 0 4px 0;">${escapeHtml(translate('Lorebook Entry Keywords', 'STMemoryBooks_LorebookEntryKeywords'))}</h4>
                 <input type="text" id="stmb-sp-new-lb-entry-keywords" class="text_pole" placeholder="${escapeHtml(translate('Optional comma-separated keywords', 'STMemoryBooks_LorebookEntryKeywordsPlaceholder'))}" title="${escapeHtml(translate('You can only use ST standard macros or macros already defined in Prompt or Response Format.', 'STMemoryBooks_LorebookEntryKeywordsTooltip'))}">
             </label>
-            <small class="opacity70p">${escapeHtml(translate('Optional. If filled in, these keywords are applied to the upserted lorebook entry. You may only use macros already present in Prompt or Response Format.', 'STMemoryBooks_LorebookEntryKeywordsHelp'))}</small>
+            <small class="opacity70p al-optional-help">${escapeHtml(translate('Optional. If filled in, these keywords are applied to the upserted lorebook entry. You may only use macros already present in Prompt or Response Format.', 'STMemoryBooks_LorebookEntryKeywordsHelp'))}</small>
             <div class="flex-container" style="gap:12px; flex-wrap: wrap;">
                 <label>
                     <h4 style="margin: 0 0 4px 0;">${escapeHtml(translate('Activation Mode', 'STMemoryBooks_ActivationMode'))}:</h4>
@@ -1393,7 +1397,7 @@ async function openNewTemplate(parentPopup) {
                 <h4>${escapeHtml(translate('Previous memories for context:', 'STMemoryBooks_PreviousMemoriesForContext'))}</h4>
 <input type="number" id="stmb-sp-new-prev-mem-count" class="text_pole" min="0" max="7" step="1" value="0">
             </label>
-            <small class="opacity70p">${escapeHtml(translate('Number of previous memory entries to include before scene text (0 = none).', 'STMemoryBooks_PreviousMemoriesHelp'))}</small>
+            <small class="opacity70p al-optional-help">${escapeHtml(translate('Number of previous memory entries to include before scene text (0 = none).', 'STMemoryBooks_PreviousMemoriesHelp'))}</small>
         </div>
 
         ${sideWriteModeControl('stmb-sp-new')}
@@ -1521,6 +1525,7 @@ async function openNewTemplate(parentPopup) {
         // Settings - overrides
         const settings = {};
         settings.saveAllVersions = !!dlg.querySelector('#stmb-sp-new-save-all-versions')?.checked;
+        if (globalThis.archiveLoreFork) settings.archiveLoreSearchEnabled = dlg.querySelector('#stmb-sp-new-archive-search')?.checked !== false;
         const overrideEnabled = !!dlg.querySelector('#stmb-sp-new-override-enabled')?.checked;
         settings.overrideProfileEnabled = overrideEnabled;
         if (overrideEnabled) {
@@ -1647,7 +1652,7 @@ export async function showSidePromptsPopup() {
 
         content += '<div id="stmb-sp-set-controls"></div>';
 
-        content += `<div class="world_entry_form_control"><label class="checkbox_label"><input type="checkbox" id="stmb-sp-versioning-enabled" ${extension_settings?.STMemoryBooks?.moduleSettings?.sidePromptVersioningEnabled === true ? 'checked' : ''}> <span>${escapeHtml(translate('Enable sideprompt versioning', 'STMemoryBooks_EnableSidePromptVersioning'))}</span></label><small class="opacity70p">${escapeHtml(translate('Check this box to enable individual sideprompt versioning settings. If this box is unchecked, no new versions will be created; existing version history is retained and the latest output is updated.', 'STMemoryBooks_SidePromptVersioningHelp'))}</small></div>`;
+        content += `<div class="world_entry_form_control"><label class="checkbox_label"><input type="checkbox" id="stmb-sp-versioning-enabled" ${extension_settings?.STMemoryBooks?.moduleSettings?.sidePromptVersioningEnabled === true ? 'checked' : ''}> <span>${escapeHtml(translate('Enable sideprompt versioning', 'STMemoryBooks_EnableSidePromptVersioning'))}</span></label><small class="opacity70p al-optional-help">${escapeHtml(translate('Check this box to enable individual sideprompt versioning settings. If this box is unchecked, no new versions will be created; existing version history is retained and the latest output is updated.', 'STMemoryBooks_SidePromptVersioningHelp'))}</small></div>`;
 
         // Search/filter box
         content += '<div class="world_entry_form_control">';
@@ -1658,7 +1663,7 @@ export async function showSidePromptsPopup() {
         content += '<div class="world_entry_form_control">';
         content += `<label for="stmb-sp-max-concurrent"><h4>${escapeHtml(translate('How many concurrent prompts to run at once', 'STMemoryBooks_SidePrompts_MaxConcurrentLabel'))}</h4></label>`;
         content += '<input type="number" id="stmb-sp-max-concurrent" class="text_pole" min="1" max="10" step="1" value="2">';
-        content += `<small class="opacity70p">${escapeHtml(translate('Range 1–10. Defaults to 2.', 'STMemoryBooks_SidePrompts_MaxConcurrentHelp'))}</small>`;
+        content += `<small class="opacity70p al-optional-help">${escapeHtml(translate('Range 1–10. Defaults to 2.', 'STMemoryBooks_SidePrompts_MaxConcurrentHelp'))}</small>`;
         content += '</div>';
 
         // List container

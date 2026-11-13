@@ -3595,3 +3595,14 @@ change. This does not fix browser background suspension or delayed job polling.
 ### Collection result failure details
 
 Archive Lore collection receipts now retain and display failed side prompt names and error messages for direct and queued runs. Older receipts without details explicitly state that the details are unavailable. The completion popup uses a 300px width constrained to the viewport, with compact adjacent action buttons aligned to the right. Saved-memory list titles are right-aligned; original and translated body text retain their existing layout.
+
+
+### Archive Lore: side prompt search inclusion and optional help
+
+Each side prompt's New/Edit dialog has **아카이브 검색에 포함** (Include in Archive search), checked by default. Unchecking it excludes records identified with that template's stable key from Archive's dialogue, question, and embedding retrieval, including Archive's constant-record injection. Existing keyed records and all their versions follow the setting immediately; template renames and macro-expanded titles do not change their identity. Re-enabling does not require regeneration or re-embedding. Records without template provenance are not guessed from their display title.
+
+Generation triggers, updating, reading, and native SillyTavern lorebook settings remain independent. Native lorebook activation can still supply a record according to the user's lorebook/global activation settings. This is an Archive search preference, not a guarantee that the content cannot appear elsewhere in the prompt. The preference is saved with the side template and survives normal export/import. Search settings changed during a running recall invalidate that result.
+
+The optional server and relay paths use the same exclusions; update the server plugin checkout and restart SillyTavern as well when using those paths. Public browser-only users need only update the extension.
+
+Turning off **자세한 설명 표시** also hides static guidance for side write modes, versioning, sets, title/keyword overrides, additional context, collection ranges, server/relay execution, and diagnostic retention. Setting labels, controls, saved content, progress/errors, and destructive-action confirmations remain visible.

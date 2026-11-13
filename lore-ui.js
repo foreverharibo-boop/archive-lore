@@ -18,7 +18,7 @@ const options = (items, value) => items.map(([id,label]) => `<option value="${es
 const select = (name, items, value) => `<select class="text_pole" name="${name}">${options(items, value)}</select>`;
 const translationHtml = (translation, label='로어북 매니저 번역') => translation ? `<details class="al-translation"><summary>${escape(label)} · ${escape(translation.language)}${translation.stale?' · 원문 변경됨 (이전 번역)':''}</summary><pre>${escape(translation.text)}</pre></details>` : '';
 const download = (text, filename, type='text/plain;charset=utf-8') => {const url=URL.createObjectURL(new Blob([text],{type})),a=document.createElement('a');a.href=url;a.download=filename;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);};
-const check = (name, label, checked) => `<label class="al-check"><input type="checkbox" name="${name}" ${checked ? 'checked' : ''}><span>${label}</span></label>`;
+const check = (name, label, checked, extra = '') => `<label class="al-check"><input type="checkbox" name="${name}" ${checked ? 'checked' : ''} ${extra}><span>${label}</span></label>`;
 
 // Merge repeated refresh requests; never discard a completed render just because another was requested.
 export function coalesceRefresh(render) {
@@ -62,7 +62,8 @@ export function createLoreUI(api) {
             ${field('한 번에 수집할 메시지',input('batchSize',s.batchSize,'number','min="1" max="100"'))}
             ${field(translate('동시에 검토할 AI 묶음 (1~2)','ArchiveLore_SelectionConcurrency'),input('selectionConcurrency',s.selectionConcurrency,'number','min="1" max="2"'))}
             ${field('검색 후보 구간',input('candidateCount',s.candidateCount,'number','min="1" max="40"'))}
-            </div>${check('keywordActivation','기존 키워드 발동도 허용',s.keywordActivation)}
+            </div>${check('generousRecall',translate('관련 기억을 넉넉하게 주입','ArchiveLore_GenerousRecall'),s.generousRecall,s.mode==='embedding'?'disabled':'')}
+            ${check('keywordActivation','기존 키워드 발동도 허용',s.keywordActivation)}
             ${check('sideEnabled','사이드 기록 변화 자동 반영',s.sideEnabled !== false)}</details>
             <details data-selection-focus><summary>기억 선별 중점</summary>
             <fieldset class="al-selection-focus" aria-label="기억 선별 중점" ${s.mode==='embedding'?'disabled':''}>
@@ -169,6 +170,7 @@ export function createLoreUI(api) {
                     api.saveSettings({ [element.name]: value });
                     if(element.name==='mode'){
                         container.querySelector('.al-selection-focus').disabled=value==='embedding';
+                        container.querySelector('[name="generousRecall"]').disabled=value==='embedding';
                         container.querySelector('[data-selection-focus-status]').textContent=value==='embedding'?'일반 임베딩에서는 AI 선별을 사용하지 않아 적용되지 않습니다.':'여러 개 선택 가능 · 선택하지 않으면 기존 자동 선별';
                     }
                 }

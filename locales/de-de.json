@@ -1,4 +1,5 @@
 {
+  "ArchiveLore_GenerousRecall": "Mehr relevante Erinnerungen einfügen",
   "ArchiveLore_BackgroundReply": "Antworten über Relay auf dem Server fortsetzen",
   "ArchiveLore_BackgroundReplyHelp": "Optional: Beide Server-Plugins und Relay müssen aktiv sein. Für normale Einzelchats; Schlüsselwortaktivierung ausschalten. Das Speicherlimit wird vorab reserviert. Prüfung und Chat-Speicherung erfolgen nach der Rückkehr.",
   "ArchiveLore_SelectionConcurrency": "Gleichzeitige KI-Prüfgruppen (1–2)",

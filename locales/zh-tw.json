@@ -1,4 +1,5 @@
 {
+  "ArchiveLore_GenerousRecall": "注入更多相關記憶",
   "ArchiveLore_BackgroundReply": "透過 Relay 在伺服器上繼續產生回覆",
   "ArchiveLore_BackgroundReplyHelp": "選用功能：需要兩個伺服器外掛並開啟 Relay 連線維持。適用於一般一對一聊天，請關閉關鍵字觸發。預先保留記憶注入上限。審核及聊天儲存會在返回後繼續。",
   "ArchiveLore_SelectionConcurrency": "同時審核的 AI 批次數（1–2）",

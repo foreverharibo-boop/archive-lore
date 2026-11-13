@@ -19,7 +19,7 @@ export const DEFAULTS = Object.freeze({
     enabled: false, profile: '', searchProfile: '', embeddingProvider: 'gemini',
     embeddingUrl: 'https://api.openai.com/v1', embeddingModel: 'gemini-embedding-001', embeddingKey: '',
     mode: 'dialogue', recentCount: 10, injectionTokens: 3000, batchSize: 20,
-    keywordActivation: false, candidateCount: 24, selectionFocus: Object.freeze([]), autoEmbed: true, prompts: DEFAULT_PROMPTS,
+    keywordActivation: false, candidateCount: 24, selectionFocus: Object.freeze([]), generousRecall: false, autoEmbed: true, prompts: DEFAULT_PROMPTS,
 });
 export function integer(value, fallback, min, max) {
     const number = Number(value);
@@ -55,6 +55,7 @@ export function normalizeSettings(value = {}) {
         excludedSidePromptKeys: normalizeSideSearchExclusions(value.excludedSidePromptKeys),
         enabled: value.enabled === true,
         autoEmbed: value.autoEmbed !== false,
+        generousRecall: value.generousRecall === true,
         serverEnabled: value.serverEnabled === true,
         relayEnabled: value.relayEnabled === true,
         selectionConcurrency: integer(value.selectionConcurrency ?? 1,1,1,2),

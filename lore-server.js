@@ -186,7 +186,7 @@ export function createServerController({local,enabled,settings,context,input,cal
                         const messages=payload.context.messages;if(messages.length!==context().messages.length || (messages.length&&!matchesRange(sourceRange(messages,0,messages.length-1),context().messages)))throw Error('검색 중 대화가 바뀌어서 주입하지 않았어. 다시 시도해 줘.');
                         clientStages.validationMs=Date.now()-validationStarted;
                         const config=normalizeSettings(settings()),requested=normalizeSettings(payload.settings||config);
-                        if(config.mode!==requested.mode || JSON.stringify(config.selectionFocus)!==JSON.stringify(requested.selectionFocus) || JSON.stringify(config.excludedSidePromptKeys)!==JSON.stringify(requested.excludedSidePromptKeys))throw Error('검색 중 기억 선별 설정이 바뀌어서 주입하지 않았어. 다시 시도해 줘.');
+                        if(config.mode!==requested.mode || config.generousRecall!==requested.generousRecall || JSON.stringify(config.selectionFocus)!==JSON.stringify(requested.selectionFocus) || JSON.stringify(config.excludedSidePromptKeys)!==JSON.stringify(requested.excludedSidePromptKeys))throw Error('검색 중 기억 선별 설정이 바뀌어서 주입하지 않았어. 다시 시도해 줘.');
                         const fitted=await measured('fitMs',()=>fitFocusedInjection(result.lastRecall.units,config,countTokens));
                         check();
                         lastRecall={...result.lastRecall,...fitted,timings:{...result.lastRecall.timings,clientTotalMs:Date.now()-started,clientStages:{...clientStages}},records:result.lastRecall.records.filter(r=>r.entry.constant || fitted.units.some(u=>u.entryId===r.id))};result={...result,...fitted,selected:new Set(fitted.units.map(u=>u.entryId))};

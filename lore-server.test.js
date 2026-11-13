@@ -273,3 +273,11 @@ test('server client rejects a result from side search exclusions changed after s
         call:async route=>{if(route==='/jobs/list')return [];if(route==='/jobs')return {id:'job',status:'queued'};settings={excludedSidePromptKeys:['private']};return {id:'job',kind:'recall',status:'completed',result:{lastRecall:{units:[],records:[]}}};}});
     await assert.rejects(controller.recall(),/설정이 바뀌/);assert.equal(controller.state().lastRecall,null);
 });
+
+test('server client rejects a result after generous recall is toggled',async()=>{
+    let settings={generousRecall:false};const messages=[{is_user:true,mes:'Remember?'}];
+    const controller=createServerController({local:{},enabled:()=>true,settings:()=>settings,context:()=>({key:'chat',messages}),
+        input:async()=>({settings:structuredClone(settings),context:{messages}}),sync:async()=>{},countTokens:async()=>1,
+        call:async route=>{if(route==='/jobs/list')return [];if(route==='/jobs')return {id:'job',status:'queued'};settings={generousRecall:true};return {id:'job',kind:'recall',status:'completed',result:{lastRecall:{units:[],records:[]}}};}});
+    await assert.rejects(controller.recall(),/설정이 바뀌/);assert.equal(controller.state().lastRecall,null);
+});

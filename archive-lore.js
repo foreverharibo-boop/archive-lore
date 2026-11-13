@@ -34,7 +34,7 @@ await globalThis.archiveLoreMemoryBooks?.sideTemplates?.();
 const settings = () => ({...extension_settings[NS], excludedSidePromptKeys:globalThis.archiveLoreMemoryBooks?.sideSearchExclusions?.() || []});
 function saveSettings(patch = {}) {
     if(Object.hasOwn(patch,'serverEnabled') && controller.state().busy)throw Error('진행 중인 작업이 끝난 뒤 실행 위치를 바꿔 줘.');
-    if(Object.hasOwn(patch,'selectionFocus') || Object.hasOwn(patch,'mode'))controller.clearRecall();
+    if(Object.hasOwn(patch,'selectionFocus') || Object.hasOwn(patch,'mode') || Object.hasOwn(patch,'generousRecall'))controller.clearRecall();
     extension_settings[NS] = normalizeSettings({ ...extension_settings[NS], ...patch });
     extension_settings[NS].cacheNamespace ||= makeId();
     saveSettingsDebounced(); clearPrompts();controller.invalidateEmbeddingCounts();
@@ -265,7 +265,7 @@ async function intercept(_chat,_contextSize,abort,type) {
     injectionRecorder.invalidate();
     clearPrompts();
     generationInFlight=true;
-    const context=chatContext(),searchChoice=JSON.stringify([settings().mode,settings().selectionFocus]);
+    const context=chatContext(),searchChoice=JSON.stringify([settings().mode,settings().selectionFocus,settings().generousRecall]);
     const trace=diagnostics.begin({kind:'generation',chatKey:context.key,chatName:context.name,mode:settings().mode,generationType:type,messageCount:context.messages.length});
     if(!settings().enabled || !context.key || !books().length || ['quiet','impersonate'].includes(type)) {
         if(!['quiet','impersonate'].includes(type))injectionRecorder.stage({},null);
@@ -277,7 +277,7 @@ async function intercept(_chat,_contextSize,abort,type) {
         if(writing)throw new Error('기억 저장이 끝난 뒤 다시 전송해 줘.');
         const result=await backgroundRecall.prepare(type,trace) || await controller.recall({kind:'generation',generationType:type,trace});
         if(epoch!==generationEpoch || generationStopped || chatContext().key!==context.key)throw new DOMException('생성이 중지되어 검색 결과를 주입하지 않았어.','AbortError');
-        if(searchChoice!==JSON.stringify([settings().mode,settings().selectionFocus]))throw Error('검색 중 기억 선별 설정이 바뀌어서 주입하지 않았어. 다시 시도해 줘.');
+        if(searchChoice!==JSON.stringify([settings().mode,settings().selectionFocus,settings().generousRecall]))throw Error('검색 중 기억 선별 설정이 바뀌어서 주입하지 않았어. 다시 시도해 줘.');
         activeBooks=result.books;recalled=result.selected;
         getContext().setExtensionPrompt(PROMPT,result.text,extension_prompt_types.IN_CHAT,1,false);
         getContext().setExtensionPrompt(CORE_PROMPT,result.core,extension_prompt_types.IN_CHAT,1,false);

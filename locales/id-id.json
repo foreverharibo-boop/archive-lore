@@ -1,4 +1,5 @@
 {
+  "ArchiveLore_GenerousRecall": "Sertakan lebih banyak ingatan terkait",
   "ArchiveLore_BackgroundReply": "Lanjutkan balasan di server melalui Relay",
   "ArchiveLore_BackgroundReplyHelp": "Opsional: memerlukan kedua plugin server dan Relay aktif. Untuk obrolan satu lawan satu; nonaktifkan pemicu kata kunci. Batas memori dicadangkan. Pemeriksaan dan penyimpanan obrolan dilanjutkan saat kembali.",
   "ArchiveLore_SelectionConcurrency": "Kelompok pemeriksaan AI bersamaan (1–2)",

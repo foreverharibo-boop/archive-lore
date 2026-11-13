@@ -1,4 +1,5 @@
 {
+  "ArchiveLore_GenerousRecall": "注入更多相关记忆",
   "ArchiveLore_BackgroundReply": "通过 Relay 在服务器上继续生成回复",
   "ArchiveLore_BackgroundReplyHelp": "可选功能：需要两个服务器插件并开启 Relay 连接保持。适用于普通一对一聊天，请关闭关键词触发。提前预留记忆注入上限。审核和聊天保存将在返回后继续。",
   "ArchiveLore_SelectionConcurrency": "同时审核的 AI 批次数（1–2）",

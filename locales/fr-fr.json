@@ -1,4 +1,5 @@
 {
+  "ArchiveLore_GenerousRecall": "Inclure davantage de souvenirs pertinents",
   "ArchiveLore_BackgroundReply": "Poursuivre les réponses sur le serveur via Relay",
   "ArchiveLore_BackgroundReplyHelp": "Facultatif : nécessite les deux plugins serveur et Relay actif. Pour les discussions individuelles ; désactivez les mots-clés. Le budget mémoire est réservé. La vérification et la sauvegarde reprennent au retour.",
   "ArchiveLore_SelectionConcurrency": "Lots de sélection IA simultanés (1–2)",

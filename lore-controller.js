@@ -14,6 +14,7 @@ import { selectionFocusPrompt, focusQuestionPrompt, focusSearchQuery, orderFocus
 import { fitFocusedInjection } from './lore-focus-injection.js';
 import { withAbort } from './lore-cancellation.js';
 import { mapOrdered } from './lore-parallel.js';
+import { generousRecall, GENEROUS_CANDIDATE_LIMIT } from './lore-generous-recall.js';
 
 const QUESTION_SCHEMA = '\nReturn ONLY JSON: {"questions":["question"]}. The questions key is required, with one to six nonblank strings of at most 2000 characters each. Always generate at least one context-grounded retrieval question, including for ordinary scene actions. When no factual answer is missing, ask what recorded experience, feeling, preference or agreement could inform this scene without assuming such a record exists. Never return an empty questions array, {} or omit questions.';
 
@@ -320,6 +321,15 @@ export function createLoreController(host) {
                     }).filter(Boolean);
                     fitted=await fitInjection(groups,config.injectionTokens,host.countTokens);
                     await log('injection.budget',{policy:'embedding-chunks',limit:config.injectionTokens,tokens:fitted.tokens,kept:fitted.units,dropped:groups.filter(u=>!fitted.units.some(k=>k.entryId===u.entryId&&k.index===u.index))});
+                } else if (config.generousRecall) {
+                    const selectionStarted=Date.now();
+                    const result=await generousRecall({candidates,expandedCandidates:chooseCandidates(ranked,GENEROUS_CANDIDATE_LIMIT,config.mode),
+                        chunks,config,latestUser:focus.latestUser,dialogue:recent.text,questions,
+                        ask:(system,data,signal,maxTokens)=>askTracked(config.searchProfile || config.profile,system,data,signal,maxTokens),
+                        countTokens:host.countTokens,signal,log,notify});
+                    fitted=result;candidateTotal=result.candidateTotal;
+                    timings.selectionRequestMs=timings.selectionMs;
+                    timings.selectionMs=Date.now()-selectionStarted;
                 } else {
                     const offered = reviewUnits(reviewCandidates(candidates,chunks)), selected = [];
                     const batches = reviewBatches(offered);
@@ -359,7 +369,7 @@ export function createLoreController(host) {
             assertCurrent(snapshot, signal);
             if (JSON.stringify(snapshot.messages) !== JSON.stringify(host.context().messages)) throw new Error('검색 중 대화가 바뀌었어. 다시 시도해 줘.');
             const current=settings();
-            if(current.mode!==config.mode || JSON.stringify(current.selectionFocus)!==JSON.stringify(config.selectionFocus) || JSON.stringify(current.excludedSidePromptKeys)!==JSON.stringify(config.excludedSidePromptKeys))throw new Error('검색 중 기억 선별 설정이 바뀌어서 주입하지 않았어. 다시 시도해 줘.');
+            if(current.mode!==config.mode || current.generousRecall!==config.generousRecall || JSON.stringify(current.selectionFocus)!==JSON.stringify(config.selectionFocus) || JSON.stringify(current.excludedSidePromptKeys)!==JSON.stringify(config.excludedSidePromptKeys))throw new Error('검색 중 기억 선별 설정이 바뀌어서 주입하지 않았어. 다시 시도해 줘.');
             timings.totalMs=Date.now()-started;timings.otherMs=Math.max(0,timings.totalMs-timings.questionMs-timings.embeddingMs-timings.selectionMs);
             await log('recall.timing',timings);
             assertCurrent(snapshot, signal);

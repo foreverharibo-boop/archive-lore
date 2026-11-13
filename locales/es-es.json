@@ -1,4 +1,5 @@
 {
+  "ArchiveLore_GenerousRecall": "Incluir más recuerdos relacionados",
   "ArchiveLore_BackgroundReply": "Continuar las respuestas en el servidor mediante Relay",
   "ArchiveLore_BackgroundReplyHelp": "Opcional: requiere ambos plugins del servidor y Relay activo. Para chats individuales; desactiva la activación por palabras clave. Se reserva el límite de memoria. La revisión y el guardado continúan al volver.",
   "ArchiveLore_SelectionConcurrency": "Lotes de revisión de IA simultáneos (1–2)",

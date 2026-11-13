@@ -258,8 +258,17 @@ export function createLoreController(host) {
             await log('dialogue.context', {requested:config.recentCount,generationType:options.generationType,excludedTail:snapshot.messages.length-messages.length, recent, sourceMessages:messages.map((m,index)=>({index,name:m.name,is_user:m.is_user,is_system:m.is_system,text:m.mes})).filter(m=>!m.is_system&&String(m.text||'').trim()).slice(-config.recentCount)});
             await log('core.records',{records:rows.filter(r=>isCore(r.entry)),text:core});
             if (!recent.text) { lastRecall={text:'',core,units:[],questions:[],pending:0,candidateTotal:0,tokens:0,mode:config.mode,records:rows.filter(r=>isCore(r.entry))};await log('retrieval.empty',{reason:'no dialogue'});return { text: '', core, selected: new Set(), books: host.books() }; }
+            const chunks = [], cacheStatus=[]; let pending = 0;
+            for (const row of rows.filter(r => !isCore(r.entry))) for (const chunk of await chunksFor(row, config)) {
+                const vector = await host.store.get(chunk.cacheKey);
+                cacheStatus.push({entryId:chunk.id,chunk:chunk.index,hit:!!vector,text:chunk.text,dimensions:vector?.length});
+                if (vector) chunks.push({ ...chunk, vector }); else pending++;
+            }
+            await log('retrieval.cache',{chunks:cacheStatus});
+            assertCurrent(snapshot, signal);
+            if (!chunks.length) await log('retrieval.empty',{reason:pending?'no indexed memories':'no searchable memories',pending});
             let questions = [];
-            if (config.mode === 'questions') {
+            if (chunks.length && config.mode === 'questions') {
                 notify('최근 대화에서 검색 질문 만드는 중');
                 const system=config.prompts.questions + focusQuestionPrompt(config.selectionFocus) + QUESTION_SCHEMA;
                 const data={latestUser:focus.latestUser,dialogue:recent.text,...(config.selectionFocus.length?{selectionFocus:config.selectionFocus}:{})};
@@ -289,13 +298,6 @@ export function createLoreController(host) {
             const directQuestions=emphasisQueries.length&&config.mode==='questions'?questions.slice(0,1):questions;
             const retrievalPolicy=emphasisQueries.length?'focus-aspects-v1':config.mode==='embedding'?'cosine-similarity':config.mode==='questions'?'event-anchors-v3':'latest-user-reserved-v1';
             await log('search.queries',{mode:config.mode,emphasisQueries,selectionFocus:config.selectionFocus,queries:config.mode==='questions'?questions:config.mode==='embedding'?[recent.text]:[focus.latestUser,focus.context],latestUser:focus.latestUser,context:focus.context,policy:retrievalPolicy});
-            const chunks = [], cacheStatus=[]; let pending = 0;
-            for (const row of rows.filter(r => !isCore(r.entry))) for (const chunk of await chunksFor(row, config)) {
-                const vector = await host.store.get(chunk.cacheKey);
-                cacheStatus.push({entryId:chunk.id,chunk:chunk.index,hit:!!vector,text:chunk.text,dimensions:vector?.length});
-                if (vector) chunks.push({ ...chunk, vector }); else pending++;
-            }
-            await log('retrieval.cache',{chunks:cacheStatus});
             let fitted = { text: '', units: [], tokens: 0 }, candidateTotal = 0;
             if (chunks.length && focus.latestUser) {
                 const queryCache = new Map();

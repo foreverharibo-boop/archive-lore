@@ -285,12 +285,14 @@ test('renamed book recovers a pre-update server embedding and recalls without re
 
 test('server question mode repairs an empty JSON object in the same job and records the valid questions',async t=>{
     const f=fixture(t),input=f.input();input.settings.mode='questions';
-    f.replies.push('{}','{"questions":["Which hospital did they visit?"]}');
+    atomic(f.book,{entries:{0:{uid:0,content:'They visited the hospital.'}}});
+    const before=json(f.book),indexed=await f.service.submit(f.user,'index',input,randomUUID());assert.equal((await done(f.service,f.user,indexed.id)).status,'completed');
+    f.replies.push('{}','{"questions":["Which hospital did they visit?"]}','{"selections":[]}');
     const job=await f.service.submit(f.user,'recall',input,randomUUID()),result=await done(f.service,f.user,job.id);
-    assert.equal(result.status,'completed',result.message);assert.equal(f.calls.length,2);
+    assert.equal(result.status,'completed',result.message);assert.equal(f.calls.length,3);
     assert.deepEqual(result.result.lastRecall.questions,['Which hospital did they visit?']);
     assert.match(f.calls[1].messages[0].content,/previous response/);
-    assert.deepEqual(json(f.book),{entries:{}});
+    assert.deepEqual(json(f.book),before);
 });
 
 test('server retries an empty plan and selects cached evidence without reembedding documents',async t=>{
@@ -308,6 +310,8 @@ test('server retries an empty plan and selects cached evidence without reembeddi
 });
 test('server exposes repeated empty question plans as errors instead of completed zero-memory recalls',async t=>{
     const f=fixture(t),input=f.input();input.settings.mode='questions';f.replies.push('{"questions":[]}','{"questions":[]}');
+    atomic(f.book,{entries:{0:{uid:0,content:'They visited the hospital.'}}});
+    const indexed=await f.service.submit(f.user,'index',input,randomUUID());assert.equal((await done(f.service,f.user,indexed.id)).status,'completed');
     const job=await f.service.submit(f.user,'recall',input,randomUUID()),result=await done(f.service,f.user,job.id);
     assert.equal(result.status,'error');assert.match(result.message,/유효한 질문을 1~6개/);assert.equal(f.calls.length,2);
 });
@@ -326,4 +330,14 @@ test('server and relay exclude private side records before core preparation and 
     assert.equal(result.status,'completed');assert.equal(result.result.core,'PUBLIC core.');assert(!result.result.text.includes('PRIVATE'));
     assert.deepEqual(result.result.lastRecall.records.map(r=>r.entry.uid),[0,3]);
     assert.equal(f.calls.length,0,'embedding mode needs no question or selector requests');
+});
+
+for(const mode of ['dialogue','questions'])for(const scenario of ['empty','core','unindexed'])test(`server skips provider calls without searchable memories: ${mode}, ${scenario}`,async t=>{
+    const f=fixture(t),input=f.input();input.settings.mode=mode;input.settings.generousRecall=true;
+    if(scenario!=='empty')atomic(f.book,{entries:{0:{uid:0,constant:scenario==='core',content:'Retained memory.'}}});
+    const service=createJobService({...f.dependencies,ask:()=>assert.fail('no completion expected'),embedRequest:()=>assert.fail('no embedding expected')});
+    const job=await service.submit(f.user,'recall',input,randomUUID()),result=await done(service,f.user,job.id);
+    assert.equal(result.status,'completed',result.message);assert.equal(result.result.text,'');assert.deepEqual(result.result.selected,[]);
+    assert.equal(result.result.core,scenario==='core'?'Retained memory.':'');assert.deepEqual(result.result.lastRecall.questions,[]);
+    assert.equal(result.result.lastRecall.pending,scenario==='unindexed'?1:0);
 });

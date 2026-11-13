@@ -523,7 +523,7 @@ for(const response of ['{"questions":[]}','{"questions":[" " ]}','{"questions":[
 });
 for(const response of ['{}','{"questions":[]}','{"questions":[" "]}'])test(`repeated invalid or empty plans fail clearly without silently injecting zero: ${response}`,async()=>{
     const f=fixture();f.config={mode:'questions'};f.replies.push(response,response);
-    f.host.store.get=()=>assert.fail('no search before a valid question');
+    f.book={entries:{0:{uid:0,content:'They visited the hospital.'}}};await f.controller.index();f.calls.length=0;
     f.host.embed=()=>assert.fail('no embedding before a valid question');
     await assert.rejects(f.controller.recall(),/유효한 질문을 1~6개.*한 번 재시도했지만 실패/);
     assert.equal(f.calls.length,2);assert.equal(f.controller.state().lastRecall,null);
@@ -531,6 +531,7 @@ for(const response of ['{}','{"questions":[]}','{"questions":[" "]}'])test(`repe
 
 test('question provider errors are not retried and cancellation during the retry discards late output',async()=>{
     const f=fixture();f.config={mode:'questions'};let calls=0;
+    f.book={entries:{0:{uid:0,content:'They visited the hospital.'}}};await f.controller.index();
     f.host.ask=async()=>{calls++;throw Error('provider timeout');};
     await assert.rejects(f.controller.recall(),/provider timeout/);assert.equal(calls,1);
     let entered,release;const started=new Promise(r=>entered=r),gate=new Promise(r=>release=r);calls=0;
@@ -567,4 +568,22 @@ test('changing side search selection during recall rejects stale injection',asyn
     f.book={entries:{0:{uid:0,content:'A hospital memory.'}}};await f.controller.index();
     f.replies.push(()=>{f.config={excludedSidePromptKeys:['private']};return JSON.stringify({selections:[]});});
     await assert.rejects(f.controller.recall(),/설정이 바뀌/);assert.equal(f.controller.state().lastRecall,null);
+});
+
+for(const mode of ['dialogue','questions','embedding'])for(const generousRecall of [false,true])for(const scenario of ['empty','core','excluded','unindexed'])test(`no searchable memories skip all provider calls: ${mode}, generous=${generousRecall}, ${scenario}`,async()=>{
+    const f=fixture();f.config={mode,generousRecall,excludedSidePromptKeys:['private'],selectionFocus:['meaning']};
+    if(scenario==='core')f.book={entries:{0:{uid:0,constant:true,content:'Always retained core.'}}};
+    if(scenario==='excluded'){
+        f.book={entries:{0:{uid:0,content:'Private memory.',STMB_sidePromptHistory:{templateKey:'private'}},1:{uid:1,content:'Disabled memory.',disable:true},2:{uid:2,content:'   '}}};
+        await f.controller.index();f.calls.length=0;
+    }
+    if(scenario==='unindexed')f.book={entries:{0:{uid:0,content:'A real memory awaiting indexing.'}}};
+    const before=structuredClone(f.book);
+    f.host.ask=()=>assert.fail('no question or selection call without searchable memories');
+    f.host.embed=()=>assert.fail('no query or document embedding without searchable memories');
+    const result=await f.controller.recall(),last=f.controller.state().lastRecall;
+    assert.equal(result.text,'');assert.equal(result.selected.size,0);assert.equal(result.core,scenario==='core'?'Always retained core.':'');
+    assert.deepEqual(last.questions,[]);assert.equal(last.candidateTotal,0);assert.equal(last.pending,scenario==='unindexed'?1:0);
+    assert.equal(last.timings.questionMs,0);assert.equal(last.timings.embeddingMs,0);assert.equal(last.timings.selectionMs,0);
+    assert.deepEqual(f.book,before);assert.deepEqual(f.calls,[]);
 });

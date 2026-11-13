@@ -3666,4 +3666,11 @@ Provider reasoning is omitted. Dialogue and memory contents remain in full debug
 traces and should be reviewed before sharing. Bounded retention is unchanged (20
 runs, 3 days, 20 MiB per store); the per-run body/event limits above mark omissions.
 Debug mode takes effect for newly started traces. A disconnected server does not
-prevent downloading browser diagnostics; the export records the server export error.
+prevent viewing browser diagnostics; the text records the server export error.
+
+The connection tab ends with an always-visible debug section and a read-only log
+box. Opening settings, returning to the connection tab, and finishing a connection
+or embedding check refresh the displayed current-chat log (no polling). The Copy
+button copies the displayed text, including server logs when enabled; Blob exports
+are decoded as text. Clipboard-denied / LAN HTTP browsers use selection-based copy
+with a manual selection fallback. This section no longer downloads a file.

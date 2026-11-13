@@ -48,7 +48,6 @@ export function createLoreUI(api) {
             ${field('기억 작성 AI 프로필',select('profile', profiles, s.profile))}
             ${field('검색·선별 프로필',select('searchProfile', [['','기억 작성 AI와 동일'],...profiles.slice(1)], s.searchProfile))}
             </div><div class="al-actions">${button('profiles','프로필 새로고침')}${button('connection-test','연결 확인')}</div><div data-connection-status role="status"></div><p class="al-muted al-optional-help">검색·선별에 사용할 연결로 짧은 AI 요청을 1회 전송합니다. 임베딩 연결은 아래에서 따로 확인합니다.</p></details>
-            <details data-debug-settings><summary>디버그 기록</summary>${check('diagnosticsDetailed','디버그 모드 · 전체 처리 과정 기록',s.diagnosticsDetailed)}<p class="al-muted">켜면 대화·기억·프롬프트·응답 본문도 기록됩니다. 공유 전 내용을 확인해 주세요. API 키·비밀번호는 가립니다.</p><p class="al-muted al-optional-help">프로필 결정, 요청·응답, 오류·취소, 검색·선별·주입 과정을 기록합니다. AI 호출은 추가하지 않습니다. 최근 20개·최대 3일·전체 20MiB, 작업당 본문 8MiB·2,000개 이벤트까지 보관하며 생략 여부를 로그에 표시합니다. 끄면 시간·오류 중심으로 기록합니다.</p>${button('debug-export','디버그 로그 내보내기')}</details>
             <details open data-embedding-settings><summary>임베딩 연결</summary><div class="al-fields">
             ${field('임베딩 제공자',select('embeddingProvider',[['gemini','Google AI Studio'],['vertex','Vertex AI Express'],...(s.embeddingProvider==='openai'?[['openai','OpenAI 호환 API (기존 설정)']]:[])],s.embeddingProvider))}
             ${s.embeddingProvider==='openai'?field('임베딩 모델',input('embeddingModel',s.embeddingModel)):''}
@@ -56,6 +55,7 @@ export function createLoreUI(api) {
             ${s.embeddingProvider==='vertex'?field('Google Cloud 프로젝트 ID',input('embeddingVertexProjectId',s.embeddingVertexProjectId,'text','spellcheck="false"'))+field('리전',input('embeddingVertexRegion',s.embeddingVertexRegion,'text','placeholder="global" spellcheck="false"')):''}
             <div data-openai ${s.embeddingProvider === 'openai' ? '' : 'hidden'}>${field('임베딩 API 주소',input('embeddingUrl',s.embeddingUrl,'url'))}</div>
             </div><div class="al-actions">${button('embedding-test','임베딩 연결 확인')}</div><div data-embedding-status role="status"></div></details>
+            <section data-debug-settings><h3>디버그 기록</h3>${check('diagnosticsDetailed','디버그 모드 · 전체 처리 과정 기록',s.diagnosticsDetailed)}<p class="al-muted">켜면 대화·기억·프롬프트·응답 본문도 기록됩니다. 공유 전 내용을 확인해 주세요. API 키·비밀번호는 가립니다.</p><p class="al-muted al-optional-help">프로필 결정, 요청·응답, 오류·취소, 검색·선별·주입 과정을 기록합니다. AI 호출은 추가하지 않습니다. 최근 20개·최대 3일·전체 20MiB, 작업당 본문 8MiB·2,000개 이벤트까지 보관하며 생략 여부를 로그에 표시합니다. 끄면 시간·오류 중심으로 기록합니다.</p><textarea class="text_pole al-debug-log" data-debug-log readonly rows="10" aria-label="디버그 로그" spellcheck="false" placeholder="기록 불러오는 중…"></textarea><div class="al-actions">${button('debug-copy','복사','disabled')}<span data-debug-status role="status"></span></div></section>
             </section><section data-settings-pane="collection" hidden><details open><summary>수집·검색 설정</summary><div class="al-fields">
             ${field('검색 방식',select('mode',[['dialogue','대화로 검색'],['questions','질문으로 검색'],['embedding','일반 임베딩']],s.mode))}
             ${field('최근 대화 참고 개수',input('recentCount',s.recentCount,'number','min="1" max="200"'))}
@@ -128,7 +128,34 @@ export function createLoreUI(api) {
             const note=document.createElement('p');note.textContent='서버 실행은 검색·선별·임베딩에 적용됩니다. 메모리북 수집·사이드 작업은 브라우저에서 실행됩니다.';container.querySelector('[data-settings-pane="server"]').append(note);
             const top=container.querySelector('[data-action="open"]');if(top)top.textContent='메모리북 열기';
         }
-
+        void loadDebugLog(container);
+    }
+    async function loadDebugLog(container) {
+        const box=container.querySelector('[data-debug-log]'),copy=container.querySelector('[data-action="debug-copy"]'),status=container.querySelector('[data-debug-status]');
+        if(!box || !api.diagnostics?.export)return;
+        const key=api.context().key,request={};box.debugRequest=request;copy.disabled=true;status.textContent='기록 불러오는 중…';
+        try {
+            const result=await api.diagnostics.export(key,'all');
+            const text=typeof result==='string'?result:await result.text();
+            if(box.debugRequest!==request || !box.isConnected || key!==api.context().key)return;
+            box.value=text;box.debugChatKey=key;copy.disabled=!text;status.textContent='';
+        } catch(error) {
+            if(box.debugRequest!==request || !box.isConnected)return;
+            box.value='';box.placeholder='기록을 불러오지 못했어.';status.textContent=`기록 확인 실패 · ${error.message}`;
+        }
+    }
+    async function copyDebugLog(container) {
+        const box=container.querySelector('[data-debug-log]'),status=container.querySelector('[data-debug-status]');
+        if(!box?.value)return;
+        if(box.debugChatKey!==api.context().key){await loadDebugLog(container);status.textContent='채팅방이 바뀌어 기록을 갱신했어. 복사를 다시 눌러 줘.';return;}
+        const text=box.value;
+        try {await navigator.clipboard.writeText(text);status.textContent='복사했어!';return;} catch {}
+        // LAN HTTP and clipboard-denied browsers still support selection/copy.
+        const focused=document.activeElement,scroll=box.scrollTop;
+        box.focus();box.select();box.setSelectionRange(0,text.length);
+        let copied=false;try {copied=document.execCommand('copy');} catch {}
+        status.textContent=copied?'복사했어!':'자동 복사가 막혔어. 선택된 글을 길게 눌러 복사해 줘.';
+        if(copied){focused?.focus({preventScroll:true});box.scrollTop=scroll;}
     }
     function openSettings() {
         const panel=document.createElement('dialog');panel.className='al-root al-dialog al-settings-dialog';panel.setAttribute('aria-label','아카이브 로어 설정');
@@ -180,7 +207,7 @@ export function createLoreUI(api) {
         container.addEventListener('click', safe(async event => {
             const target = event.target.closest('[data-action]'); if (!target) return;
             switch (target.dataset.action) {
-                case 'settings-tab':settingsTab(container,target.dataset.settingsTab);break;
+                case 'settings-tab':settingsTab(container,target.dataset.settingsTab);if(target.dataset.settingsTab==='connection')void loadDebugLog(container);break;
                 case 'connection-test':{
                     const node=container.querySelector('[data-connection-status]');node.textContent='검색 AI 연결 확인 중';target.disabled=true;
                     try {
@@ -188,13 +215,13 @@ export function createLoreUI(api) {
                         const label=[profile?.name,profile?.source,profile?.model].filter(Boolean).join(' · ');
                         node.textContent=`${result.formatValid?'연결 성공 · 확인 응답 정상':'AI 응답 수신 · 확인용 JSON 형식 불일치'}${label?' · '+label:''} · ${(result.elapsedMs/1000).toFixed(1)}초`;
                     } catch(error) {node.textContent=`${error.category==='response-format'?'AI 응답 수신 · 내용 확인 실패':error.category==='profile'?'프로필 확인 실패':'연결 확인 실패'} · ${error.message}`;throw error;}
-                    finally{target.disabled=false;}break;
+                    finally{target.disabled=false;void loadDebugLog(container);}break;
                 }
-                case 'debug-export':download(await api.diagnostics.export(api.context().key,'all'),`archive-lore-debug-${new Date().toISOString().replace(/[:.]/g,'-')}.txt`);break;
+                case 'debug-copy':await copyDebugLog(container);break;
                 case 'server-check':case 'embedding-test':{
                     const node=container.querySelector(target.dataset.action==='server-check'?'[data-server-status]':'[data-embedding-status]');node.textContent='연결 확인 중';target.disabled=true;
                     try{const result=await (target.dataset.action==='server-check'?api.serverCheck():api.embeddingTest());node.textContent=target.dataset.action==='server-check'?`연결됨 · 서버 ${result.version}`:`임베딩 성공 · ${result.dimensions}차원`;}
-                    catch(error){node.textContent=error.message;throw error;}finally{target.disabled=false;}break;
+                    catch(error){node.textContent=error.message;throw error;}finally{target.disabled=false;void loadDebugLog(container);}break;
                 }
                 case 'open': container.closest('.al-settings-dialog')?.close();await (api.openHome ? api.openHome() : open()); break;
                 case 'expand-prompt': expandPrompt(container,target.dataset.key);break;

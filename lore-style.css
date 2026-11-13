@@ -130,3 +130,6 @@
 .al-root.al-settings [data-side] > summary { min-height: 34px; padding: 7px 0 !important; }
 .al-root.al-settings [data-side][open] { padding-bottom: 8px !important; }
 .al-root.al-settings [data-settings-pane] > details > summary { padding: 8px 0; }
+
+.al-settings [data-debug-settings] { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--al-border); }
+.al-settings .al-debug-log { display: block; width: 100%; box-sizing: border-box; height: 240px; min-height: 160px; line-height: 1.5; overflow: auto; }

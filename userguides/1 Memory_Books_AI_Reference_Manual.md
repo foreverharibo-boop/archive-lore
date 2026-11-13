@@ -3266,10 +3266,15 @@ attribution, chronology, conditions, refusals and negation. It reports allowlist
 examples. Cross-batch ordering groups matching events within each fact priority.
 No category is mandatory, and relevance to the current request remains primary.
 
-A separate `archive-lore-guidance` prompt directs the RP model to emphasize the
-chosen aspects supported by the recalled evidence, preserve character/user agency,
-and avoid invented feelings, guessed elapsed years or treating temporary past
-agreements as permanent. It is explicitly labeled as instructions, not historical
+A separate `archive-lore-guidance` prompt uses the chosen aspects as context for
+present actions, dialogue and continuity. It discourages recapping retrieved events,
+listing past examples or repeatedly narrating comparisons with the past merely to
+demonstrate recall. It asks the model to mention the relevant memory when the user
+asks about the past or the current conversation needs it, without imposing a length
+limit on that mention. It preserves character/user agency and avoids invented
+feelings, guessed elapsed years or treating temporary past agreements as permanent.
+Question generation, search and selection rules are unchanged by this response-style
+instruction. It is explicitly labeled as instructions, not historical
 facts, and never becomes saved memory. The guidance and recalled text share the
 existing injection-token cap (core remains separate as before). If no evidence is
 selected, no guidance is injected; if guidance would crowd out all facts, it is

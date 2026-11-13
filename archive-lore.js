@@ -124,7 +124,7 @@ function error(error) {
     toastr.error(error?.message || '작업을 완료하지 못했어.','Archive Lore');
 }
 const diagnosticStore=createDiagnosticStore();
-const diagnostics = createDiagnostics({store:diagnosticStore,
+const diagnostics = createDiagnostics({
     detailed:()=>settings()?.diagnosticsDetailed===true,
     secrets:()=>[settings()?.embeddingKey,...Object.values(settings()?.embeddingKeys || {}),...proxies.map(p=>p.password)],
     warning:message=>toastr.warning(message,'Archive Lore'),
@@ -210,15 +210,16 @@ const diagnosticView={
     async preview(key){
         const local=await diagnostics.previewRuns(key);if(!settings()?.serverEnabled)return formatDiagnosticPreview(local);
         try{
-            const server=await serverCall('/logs/preview',{chatKey:key},{signal:AbortSignal.timeout(5000)});
-            if(!Array.isArray(server.runs))throw Error('서버 플러그인을 업데이트하고 재시작해 줘.');
+            const server=await serverCall('/debug/recent',{chatKey:key},{signal:AbortSignal.timeout(5000)});
+            if(server.diagnosticMode!=='memory-errors-v1'||!Array.isArray(server.runs))throw Error('서버 플러그인을 업데이트하고 재시작해 줘.');
             return formatDiagnosticPreview([...local,...server.runs]);
         }catch(error){return formatDiagnosticPreview(local)+'\n\n서버 진단 요약 확인 불가 · '+String(redact(errorInfo(error)).message).slice(0,600);}
     },
-    async list(key){const local=await diagnostics.list(key);return settings()?.serverEnabled?[...local,...await serverCall('/logs/list',{chatKey:key})].sort((a,b)=>a.started.localeCompare(b.started)):local;},
-    async export(key,mode){const original=await diagnostics.export(key,mode);if(!settings()?.serverEnabled)return original;
-        try {const server=await serverCall('/logs/export',{chatKey:key,mode},{blob:true});return new Blob([original,'\n\n===== SERVER JOB DIAGNOSTICS =====\n',server],{type:'text/plain;charset=utf-8'});}
-        catch(error){return original+'\n\n===== SERVER DIAGNOSTIC EXPORT FAILED · BROWSER LOGS PRESERVED =====\n'+JSON.stringify(redact(errorInfo(error)),null,2);}},
+    async list(key){
+        const local=await diagnostics.list(key);if(!settings()?.serverEnabled)return local;
+        try{const server=await serverCall('/debug/recent',{}, {signal:AbortSignal.timeout(5000)});return [...local,...(server.runs||[])];}catch{return local;}
+    },
+    async export(){return this.preview();},
 };
 async function replayTransport(captured,log) {
     for(const event of captured?.events||[])await log(event.stage,{...event.data,...(event.detailOmitted?{detailOmitted:true}:{})});

@@ -2,14 +2,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID, webcrypto } from 'node:crypto';
-import { atomic,inside,json,privateStore,hash } from './storage.js';
+import { atomic,inside,json,hash } from './storage.js';
 import { reusableVectorStore,legacyEmbeddingBooks } from './vector-store.js';
-import {pruneDiagnostics,pruneJobs,resetLegacyHistory} from './retention.js';
+import {clearLegacyDiagnostics,pruneJobs,resetLegacyHistory} from './retention.js';
 import { entrySearchAllowed } from '../lore-side-search.js';
 import { createLoreController } from '../lore-controller.js';
-import { compactDiagnosticRun,formatDiagnosticPreview } from '../lore-diagnostic-preview.js';
+import { formatDiagnosticPreview } from '../lore-diagnostic-preview.js';
 import { createDiagnostics } from '../lore-diagnostics.js';
-import { diagnosticFiles,diagnosticStream } from './diagnostics.js';
 import { normalizeSettings,NS,sourceRange,matchesRange,estimateTokens,materializeEntry,entryAvailable,isCore } from '../lore-core.js';
 import { embed,completionText } from '../lore-api.js';
 import { consolidationView } from '../lore-maintenance.js';
@@ -17,8 +16,7 @@ import { normalizeCompletionRequest } from '../completionCompatibility.js';
 import { observer } from '../lore-telemetry.js';
 globalThis.crypto ||= webcrypto;
 export function createJobService({sanitize,ask,embedRequest=embed,countTokens}) {
-    const users=new Map(),vectorStores=new Map(),exports=new Map();
-    const cleanDiagnostics=(root,file)=>{if(!exports.get(root))pruneDiagnostics(root,file);};
+    const users=new Map(),vectorStores=new Map(),diagnosticSessions=new Map();
     // Keep completed history on disk, not one full chat/template/result per turn
     // in the process heap. Drafts and results are loaded only when requested.
     const archived=job=>({id:job.id,requestId:job.requestId,kind:job.kind,status:job.status,message:job.message,
@@ -32,10 +30,15 @@ export function createJobService({sanitize,ask,embedRequest=embed,countTokens}) 
         const owner=fs.realpathSync(user.directories.root);
         if(!vectorStores.has(owner)){
             const root=inside(owner,'archive-lore-server');fs.mkdirSync(root,{recursive:true,mode:0o700});
-            resetLegacyHistory(root);
+            resetLegacyHistory(root);clearLegacyDiagnostics(root);
             vectorStores.set(owner,reusableVectorStore(root,{legacyBooks:()=>legacyEmbeddingBooks(root,user.directories.worlds)}));
         }
         return vectorStores.get(owner);
+    }
+    function diagnosticSession(user){
+        vectorStore(user);const owner=fs.realpathSync(user.directories.root);
+        if(!diagnosticSessions.has(owner))diagnosticSessions.set(owner,createDiagnostics());
+        return diagnosticSessions.get(owner);
     }
     function state(user) {
         if(!user?.profile?.handle||!user.directories?.root)throw Error('로그인한 실리태번 사용자만 사용할 수 있어.');
@@ -50,7 +53,7 @@ export function createJobService({sanitize,ask,embedRequest=embed,countTokens}) 
         for(const file of fs.readdirSync(jobsDir).filter(f=>/^[a-f0-9-]+\.json$/.test(f))){
             const job=json(inside(jobsDir,file));if(['queued','running'].includes(job.status)){job.status='interrupted';job.message='서버가 재시작됐어. 저장된 구간은 유지돼. 다시 실행해 줘.';atomic(inside(jobsDir,file),job);}s.jobs.set(job.id,archived(job));
         }
-        pruneJobs(s);cleanDiagnostics(root);s.lastPrune=Date.now();users.set(owner,s);return s;
+        pruneJobs(s);s.lastPrune=Date.now();users.set(owner,s);return s;
     }
     const save=(s,job)=>{
         // A restarted job is marked interrupted, never replayed from its saved input.
@@ -86,8 +89,8 @@ export function createJobService({sanitize,ask,embedRequest=embed,countTokens}) 
         const input=job.input, config=normalizeSettings(input.settings),expected=new Map();
         const secrets=[config.embeddingKey,...Object.values(config.embeddingKeys||{}),...Object.values(input.templates||{}).map(t=>t.proxy_password).filter(Boolean)];
         const clean=text=>secrets.filter(Boolean).reduce((v,key)=>v.split(key).join('[REDACTED]'),String(text));
-        const diagnosticStore=privateStore(s.root,'diagnostics');
-        const diagnostics=createDiagnostics({store:{put:async run=>{await diagnosticStore.put(run.id,run);cleanDiagnostics(s.root,inside(s.root,'diagnostics',hash(run.id)+'.json'));}},detailed:()=>config.diagnosticsDetailed,secrets:()=>secrets,warning:message=>{job.diagnosticWarning=message;}});
+        const session=diagnosticSession(s.user);
+        const diagnostics={begin:meta=>session.begin(meta,{enabled:()=>config.diagnosticsDetailed,secrets:()=>secrets})};
         const host={
             contextKey:()=>input.context.key,yieldControl:()=>new Promise(resolve=>setImmediate(resolve)),
             settings:()=>config,context:()=>({...input.context,messages:readChat(s,input).messages}),books:()=>input.books,target:()=>input.target,initialStart:()=>input.initialStart||0,
@@ -178,22 +181,11 @@ export function createJobService({sanitize,ask,embedRequest=embed,countTokens}) 
             save(s,job);return publicJob(job);
         },
         vectors:vectorStore,
-        // Listing/exporting diagnostics must not initialize the full job history.
-        async logFiles(user,key,mode='all'){
-            vectorStore(user);const root=inside(user.directories.root,'archive-lore-server');cleanDiagnostics(root);
-            exports.set(root,(exports.get(root)||0)+1);
-            try{return await diagnosticFiles(root,key,mode);}finally{exports.set(root,exports.get(root)-1);}
-        },
-        async logPreview(user,key){
-            const rows=(await this.logFiles(user,key)).slice(-3),runs=[];
-            for(const {file} of rows){try{runs.push(compactDiagnosticRun(JSON.parse(await fs.promises.readFile(file,'utf8'))));}catch{}}
-            return {text:formatDiagnosticPreview(runs),runs};
-        },
-        async logList(user,key){return (await this.logFiles(user,key)).map(({header})=>({...header,details:'전체 내용은 진단 TXT에 포함돼.'}));},
-        async logStream(user,key,mode='all'){
-            vectorStore(user);const root=inside(user.directories.root,'archive-lore-server');cleanDiagnostics(root);
-            return (async function*(){exports.set(root,(exports.get(root)||0)+1);try{yield* diagnosticStream(await diagnosticFiles(root,key,mode));}finally{exports.set(root,exports.get(root)-1);}})();
-        },
+        // Diagnostics are a single in-memory ring per signed-in server user.
+        async logFiles(user){diagnosticSession(user);return [];},
+        async logPreview(user){const runs=await diagnosticSession(user).previewRuns();return {diagnosticMode:'memory-errors-v1',text:formatDiagnosticPreview(runs),runs};},
+        async logList(user,key){return diagnosticSession(user).list(key);},
+        async logStream(user,key){const rows=await this.logList(user,key);return (async function*(){yield JSON.stringify(rows);})();},
         state,
     };
 }

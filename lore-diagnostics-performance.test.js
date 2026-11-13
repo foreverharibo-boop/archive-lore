@@ -2,59 +2,32 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createDiagnostics} from './lore-diagnostics.js';
-import {compactDiagnosticRun,formatDiagnosticPreview,PREVIEW_CHARS} from './lore-diagnostic-preview.js';
-
-test('only the newest ten stages are persisted and evicted bodies are released',async()=>{
-    const saved=[],d=createDiagnostics({detailed:()=>true,store:{put:async r=>saved.push(r),list:async()=>saved}});
-    const t=d.begin({chatKey:'chat'});const data={text:'x'.repeat(500000)};
-    await t.event('request',data);data.text='changed after capture';
-    for(let i=0;i<15;i++)await t.event('cache',{index:i});
-    assert.equal(saved.length,0);
-    await t.finish('success');assert.equal(saved.length,1);
-    const first=saved[0];assert.equal(first.events.length,10);assert.equal(first.events[0].data.index,6);assert.equal(first.eventsOmitted,7);assert(!JSON.stringify(first).includes('changed after capture'));assert(first.diagnosticBytes<10000);
-    assert(first.diagnosticBytes>=JSON.stringify(first).length*2);
-    await t.event('injection.installed',{text:'done'});
-    assert.equal(saved.length,2);assert.equal(first.events.length,10);assert.equal(saved[1].events.length,10);assert.equal(first.events.at(-1).stage,'operation.end');assert.equal(saved[1].events[0].data.index,7);assert.equal(saved[1].events.at(-1).stage,'injection.installed');
+import {observer} from './lore-telemetry.js';
+import {captureTransport} from './server/connection-test.js';
+test('interleaved operations share exactly ten stages and evicted operations cannot restore old events',async()=>{
+    const d=createDiagnostics(),a=d.begin({chatKey:'a'}),b=d.begin({chatKey:'b'});
+    for(let i=0;i<15;i++)await (i%2?a:b).event('step-'+i,{elapsedMs:i});
+    let events=(await d.list()).flatMap(r=>r.events);assert.equal(events.length,10);assert(!events.some(e=>e.stage==='step-4'));
+    await a.finish('error',{message:'latest failure'});events=(await d.list()).flatMap(r=>r.events);assert.equal(events.length,10);assert(!events.some(e=>e.stage==='step-5'));
+    assert((await d.preview()).includes('latest failure'));
 });
-test('turning detailed mode off stops future bodies in an already active trace',async()=>{
-    let detailed=true,run;const d=createDiagnostics({detailed:()=>detailed,store:{put:async r=>run=r,list:async()=>[]}});
-    const t=d.begin({chatKey:'chat'});await t.event('before',{text:'old detail'});detailed=false;
-    await t.event('after',{text:'new private body'});await t.finish('success');
-    assert.equal(run.events[0].data.text,'old detail');assert(!JSON.stringify(run).includes('new private body'));
+test('diagnostic source does not enumerate or clone a large content array',async()=>{
+    const forbidden=new Proxy([],{get(){throw Error('body array accessed');}}),events=[];
+    const log=observer((stage,data)=>events.push({stage,data}));
+    await log('request',{body:{model:'model',messages:forbidden},vectors:forbidden,memories:forbidden});
+    assert.equal(events.length,1);assert.equal(events[0].data['body.model'],'model');assert(!JSON.stringify(events).includes('messages'));
 });
-test('preview uses bounded store path and does not flush or export complete logs',async()=>{
-    let writes=0,previews=0;
-    const d=createDiagnostics({detailed:()=>true,store:{put:async()=>writes++,preview:async()=>{previews++;return [];},list:async()=>assert.fail('must not load whole history')}});
-    const t=d.begin({chatKey:'chat'});await t.event('profile.resolved',{model:'fixture'});
-    const text=await d.preview('chat');assert(text.includes('fixture'));assert.equal(writes,0);assert.equal(previews,1);
-    await t.finish('success');
+test('nested provider status/errors survive multiple diagnostic boundaries with secrets masked',async()=>{
+    const d=createDiagnostics({secrets:()=>['private-key']}),t=d.begin({chatKey:'chat'});
+    const log=observer(observer((stage,data)=>t.event(stage,data),['private-key']),['private-key']);
+    await log('error',{status:429,response:{error:{code:'RESOURCE_EXHAUSTED',message:'quota private-key'}},body:{messages:[{content:'private story'}]}});
+    const text=await d.preview();assert(text.includes('RESOURCE_EXHAUSTED'));assert(text.includes('429'));assert(text.includes('quota [REDACTED]'));assert(!text.includes('private story'));assert(!text.includes('private-key'));
 });
-test('large histories give bounded previews with errors, profile routes and no expanded arrays',()=>{
-    const runs=[],payload={text:'x'.repeat(10000),vectors:Array(10000).fill(1)};
-    for(let i=0;i<20;i++)runs.push(compactDiagnosticRun({id:String(i),started:new Date(1000+i).toISOString(),kind:'generation',status:'error',events:[
-        {stage:'profile.resolved',data:{requestedProfile:'current',resolvedProfile:'profile-A',source:'vertexai'}},
-        ...Array.from({length:1997},()=>({stage:'response',data:payload})),
-        {stage:'ai.transport.error',data:{message:'permission denied',status:403,authorization:'Bearer hidden-key'}},
-    ]}));
-    const text=formatDiagnosticPreview(runs);assert(text.length<=PREVIEW_CHARS);assert(text.includes('permission denied'));assert(!text.includes('profile-A'));
-    assert(!text.includes('hidden-key'));assert(text.includes('생략'));assert.equal((text.match(/ · generation · error/g)||[]).length,10);
+test('turning debug off stops recording for an in-progress operation',async()=>{
+    let enabled=true;const d=createDiagnostics({detailed:()=>enabled}),t=d.begin();await t.event('before');enabled=false;await t.event('after');await t.finish('error');
+    assert.equal((await d.list())[0].events.length,1);assert(!(await d.preview()).includes('after'));
 });
-test('batches arriving during slow persistence are not lost or overwritten',async()=>{
-    const rows=new Map();let release,entered;const started=new Promise(r=>entered=r),gate=new Promise(r=>release=r);let calls=0;
-    const d=createDiagnostics({store:{put:async r=>{if(++calls===1){entered();await gate;}rows.set(r.id,r);},list:async()=>[...rows.values()]}});
-    const t=d.begin({chatKey:'chat'});await t.event('first');const finishing=t.finish('success');await started;
-    const late=t.event('late');release();await Promise.all([finishing,late]);
-    assert.equal(rows.get(t.id).events.at(-1).stage,'late');assert.equal(calls,2);
-});
-test('active traces persist on the batching timer before completion',async t=>{
-    t.mock.timers.enable({apis:['setTimeout']});let saved;
-    const d=createDiagnostics({store:{put:async r=>saved=r,list:async()=>[]}});
-    const trace=d.begin({chatKey:'chat'});await trace.event('pending');t.mock.timers.tick(1000);
-    await Promise.resolve();await Promise.resolve();assert.equal(saved.events[0].stage,'pending');await trace.finish('success');
-});
-
-test('server transport also evicts the oldest stage after ten',async()=>{
-    const {captureTransport}=await import('./server/connection-test.js');
-    const result=await captureTransport(async log=>{for(let i=0;i<15;i++)await log('step-'+i,{index:i});return 'ok';},{detailed:true});
-    assert.equal(result.events.length,10);assert.equal(result.events[0].stage,'step-5');assert.equal(result.events.at(-1).stage,'step-14');assert.equal(result.eventsOmitted,5);
+test('server probe records metadata only and caps ephemeral stages at ten',async()=>{
+    const result=await captureTransport(async log=>{for(let i=0;i<15;i++)await log('step-'+i,{model:'model',response:'private body',vectors:[1,2,3]});return 'actual reply';},{detailed:true});
+    assert.equal(result.result,'actual reply');assert.equal(result.events.length,10);assert.equal(result.events[0].stage,'step-5');assert(!JSON.stringify(result.events).includes('private body'));
 });

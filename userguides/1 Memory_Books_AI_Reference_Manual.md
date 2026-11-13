@@ -178,15 +178,28 @@ Default recent-message count is 10 (1–200); default final retrieved-memory inj
 
 Only offered original units can be selected; unknown IDs and AI rewrites cannot become injected memory. Final recalled text, titles and wrappers are counted with the host tokenizer and kept within the configured cap. Entries marked constant (blue-dot/core) are excluded from embeddings and supplied through a separate always-on core prompt, outside the retrieved-memory cap. Disabled entries are excluded. Selected books' native scan copies are suppressed to avoid duplicate insertion; stored keywords/enable flags are not rewritten. The optional keyword setting allows other native keyword matches, while suppressing a second insertion of the selected records. Existing custom character-filter/trigger rules are not independently reproduced for explicit Archive Lore book searches; select only books intended for the current chat.
 
-Vector cache keys include a per-settings namespace, provider, model, endpoint, record ID and exact chunk content. Changing any of these invalidates reuse. In browser mode vectors are stored in this browser's IndexedDB; another browser/device must embed again. Server mode stores vectors under the ST user directory and can reuse them across browsers. The API key is saved in SillyTavern extension settings and is not included in the prompt export. API request text and completion text are recorded in local diagnostics; credential fields and known embedding keys are redacted. Keys are never intentionally exported. Removing browser site data removes the local vector cache. Saved lorebook text is independent of that cache.
+Vector cache keys include a per-settings namespace, provider, model, endpoint, record ID and exact chunk content. Changing any of these invalidates reuse. In browser mode vectors are stored in this browser's IndexedDB; another browser/device must embed again. Server mode stores vectors under the ST user directory and can reuse them across browsers. The API key is saved in SillyTavern extension settings and is not included in the prompt export. Diagnostics record only bounded error/connection metadata in session memory; request/completion text and arrays are never retained. Credential values are redacted. Keys are never intentionally exported. Removing browser site data removes the local vector cache. Saved lorebook text is independent of that cache.
 
 Collection stops on invalid JSON, invalid side evidence, changed source dialogue, changed lorebook data, canceled work or switched chats. Before saving, the book is re-read and compared, but the World Info API has no cross-client atomic compare-and-swap; simultaneous external writes remain a host limitation. Retrieval failures abort that answer generation visibly rather than silently reusing a previous turn's prompt. Missing embeddings are reported in the preview and can be resumed with the pending-embedding button.
 
 ## Turn diagnostics and translation display
 
-Diagnostics are on by default for this testing build. Each RP generation attempt, retrieval preview, collection and embedding job gets a separate ID, chat key, mode, timestamps and status. Records include settings without credentials, available/excluded records, the original recent messages and the clipped dialogue actually reviewed, question/selection prompts and completion text, embedding input and vector dimensions, cache hits/misses, ranked candidates and scores, accepted/rejected units, budget-dropped units, core/recalled text and installed prompt slots. Native scan suppression and host message/end/stop events are appended to the generation attempt. No hidden model reasoning is requested. Raw numeric embedding arrays are omitted. Installed slots prove what Archive Lore supplied to the host, not the final provider request after every other extension or whether the roleplay model used those facts.
+Diagnostics are opt-in (`diagnosticsDetailed`, default false). The extension keeps
+one in-memory ring of 10 stages across all chats and operations. Stages contain
+bounded error messages/codes, profile/model identifiers, request routes, timing,
+finish reasons and cancellation flags. Prompt, dialogue, memory, successful reply
+bodies and input arrays are discarded at the diagnostic boundary, not stored and
+hidden later. Credentials are masked. Host metadata may not expose the provider's
+final HTTP request or internal error cause.
 
-Open the chat dashboard → 도구 → 턴별 진단 기록 → 진단 TXT 다운로드. The filter exports all operations or only a chosen search mode for this chat. Preview and collection are not counted as RP attempts. The UI renders the latest 30 records; TXT includes all stored records without silently pruning older ones. IndexedDB `archive-lore-diagnostics` persists across reloads in the same browser, separate from lorebooks/settings/vector data. These files contain full dialogue and memory text. Site-data deletion removes local diagnostics. Storage failures show a warning and preserve the current page's in-memory copy for immediate export. No automatic upload is performed.
+Open settings → Connection → Debug record at the bottom. The displayed text and
+Copy button use the same 10-stage list. No diagnostic database, timer-based saves,
+per-turn archive or diagnostic file is created. Reloading clears browser records;
+server restart clears the optional server user's 10-stage memory ring. Existing
+browser `archive-lore-diagnostics` databases are deleted on initialization. Updated
+server startup removes only the old `diagnostics` directory, without reading its
+bodies or touching jobs, backups, memories, vectors or credentials. Cleanup errors
+are surfaced; close older tabs when they block database deletion.
 
 The read-only translation bridge reads `extension_settings['simple-lorebook'].translations[book + U+241F + uid]` from the user's lore-manager extension. It matches the stored source hash to the current original. Stale translations remain visibly marked as previous translations. The dashboard displays translations beneath saved entries and beneath recent injection results. Retrieval translations are explicitly the full selected entry translation; there is no guessed sentence alignment. Translations never replace injection text and do not trigger translation API calls. Reopen or refresh the dashboard after editing translations in lore-manager. No changes to lore-manager are required.
 
@@ -3311,12 +3324,10 @@ symlinks are unlinked without following targets; linked history directories are
 rejected. The authenticated `/status` call triggers cleanup even from the home
 screen when server mode is enabled, before any old jobs are loaded.
 
-On page initialization, browser IndexedDB `archive-lore-diagnostics` upgrades to
-schema 2 and clears the old `runs` store once in the upgrade transaction. New
-writes wait for that transaction. Close older SillyTavern tabs if they block the
-upgrade, then reload. Other browsers/origins clear their own records when opened
-with this version. Separately downloaded TXT files are outside managed storage
-and are not deleted. No cleanup occurs on the phone until the update is loaded.
+On page initialization, the obsolete browser `archive-lore-diagnostics` database
+is deleted. No replacement database is created. Older tabs may block deletion;
+close them and reload. Previously downloaded files are outside managed storage.
+No cleanup occurs on a device until the updated extension is loaded.
 
 Regression tests cover first-run deletion, repeated-start preservation, malformed
 history, symlink confinement, authenticated startup and simulated IndexedDB
@@ -3324,16 +3335,11 @@ upgrade/blocked-tab lifecycle; they do not substitute for an Android browser tes
 
 #### Bounded history and foreground polling (server 0.3.13)
 
-`diagnosticsDetailed` defaults to false. Timing/error traces retain stages,
-numeric counts, timing breakdowns and bounded error messages, but omit dialogue,
-memory text, API bodies and installed prompt text. The Connection settings tab has
-a debug-mode opt-in and bounded copyable preview. Each trace captures its mode at creation; turning the toggle off also stops future detailed bodies for active browser traces;
-full traces fall back to summary fields after an 8 MiB estimated body budget and
-mark `detailTruncated` and `detailBytesOmitted`. Only the latest 10 events per run are retained; the oldest event and its body are discarded on the next append, with an omitted counter.
+`diagnosticsDetailed` defaults to false. Debug-enabled execution keeps only a
+single transient list of 10 diagnostic stages. There is no diagnostic history
+retention on disk, no detailed-body mode and no background diagnostic persistence.
 
-On writes/access, browser diagnostics and server diagnostics each retain up to
-20 runs for up to 3 days, with a 20 MiB budget per store (browser size is an
-estimate). Server jobs plus their backup folders share a 100 MiB budget and the
+Server jobs plus their backup folders share a 100 MiB budget and the
 same age/count limits. Expired completed/interrupted jobs, unapplied drafts and
 their job-specific backup folders are removed. Active jobs and the current
 writer/result are protected, so one in-flight or latest oversized item can
@@ -3647,45 +3653,28 @@ probe does not guarantee that subsequent long prompts or model JSON outputs succ
 Server execution requires the updated server plugin and restart; it never silently
 falls back to the browser when the server test endpoint is unavailable.
 
-**디버그 모드 · 최근 10단계 기록** reuses `diagnosticsDetailed` (no second toggle).
-It records the environment, complete normalized configuration, requested/current/
-resolved profile, saved profile/preset/provider/model, normalized request overrides,
-raw provider result before text extraction, exposed HTTP status/headers, error name,
-stack/cause and abort reason, existing dialogue/cache/ranking/selection/budget stages,
-and installed prompt slots. Every AI/embedding request receives a correlation ID;
-late responses remain attached to the original trace. Debugging adds no AI requests,
-retries, per-sentence reasons or global fetch interception. The connection button is
-the only additional search-AI request, and it runs only on click. Browser connection
-services do not expose the final upstream HTTP request/status; saved routing fields
-are labelled as configuration, never claimed as proof of the final provider URL.
-Server traces record the payload handed to ST's authenticated backend and its reply.
+**디버그 모드 · 최근 10단계 기록** reuses `diagnosticsDetailed`. Enabling it
+records only bounded connection/error metadata. Each new stage evicts the oldest
+stage across operations and chats, including its metadata; a completed operation
+has no separate retained event history. Disabling stops browser stage capture,
+including active operations. Logging never adds AI calls or changes model routing.
 
-Redaction happens at observation and persistence/export, including nested JSON
-error strings, credential headers, URL credentials and known embedding/proxy secrets.
-Provider reasoning is omitted. Dialogue and memory contents remain in full debug
-traces and should be reviewed before sharing. Bounded retention is unchanged (20
-runs, 3 days, 20 MiB per store); the per-run body/event limits above mark omissions.
-Debug mode takes effect for newly started traces. A disconnected server does not
-prevent viewing browser diagnostics; the text records the server export error.
+The observer reduces input to an allowlist before redaction or retention. Arrays
+of prompts/messages/memories/vectors are not walked or copied. Small provider JSON
+error envelopes expose only error metadata; HTML and text responses expose their
+type, not their body. Model finish reasons and token counts may be retained. Each
+stage has a bounded metadata budget. Secrets are removed before string clipping.
 
-The connection tab ends with an always-visible debug section and a read-only log
-box. Opening settings, returning to the connection tab, and finishing a connection
-or embedding check refresh the displayed current-chat preview (no polling). The
-Copy button copies only the latest 10 stages across the recent runs, ordered by
-event time; long strings and arrays are omitted, at most 24,000 characters. Server summaries use /logs/preview with a 5-second deadline; older
-servers show local logs plus an explicit unavailable notice, never fetch the full
-export automatically. Server and browser stages share the same 10-stage display limit. Older stages,
-including old errors or initial profile events, are not pinned beyond the limit.
-Clipboard-denied / LAN HTTP browsers use selection-based copy with a manual
-selection fallback. This section no longer downloads a file.
+Settings show the same bounded list that Copy uses. There is no full-text side
+archive or export file behind the preview. Existing compatibility export methods
+return only the in-memory metadata list. Native tool links open these settings
+instead of downloading TXT. Clipboard-denied / LAN HTTP browsers retain selection
+and manual-copy fallback.
 
-Diagnostic persistence batches dirty runs at most once per second during work and
-flushes at completion / explicit export. Each event is redacted once at append;
-byte accounting is incremental, with no re-redaction/stringification of all prior
-events on every append. Immutable event snapshots prevent later mutations from
-changing queued writes. Abrupt page termination may lose the last unflushed second.
-IndexedDB version 3 adds retention and chat/start-time indexes without deleting v2
-logs. Pruning reads index keys instead of full bodies; previews retrieve only the
-latest 3 runs and compact them immediately. Previously stored logs remain available to
-the explicit diagnostic export workflow. New runs keep only a rolling 10 stages
-in memory and persistent storage; body-budget accounting is released on eviction.
+Browser startup deletes the obsolete diagnostic IndexedDB database. The optional
+server plugin uses one transient ring per authenticated user across jobs, removes
+its legacy diagnostic folder on initialization, and never writes new diagnostic
+files. `/debug/recent` returns metadata only; older plugins show an update notice
+instead of falling back to a full-file export. Update/restart the optional plugin
+to apply server cleanup. Regular job/result persistence and recovery backups are
+independent operational data and are unchanged by this debug-only cleanup.

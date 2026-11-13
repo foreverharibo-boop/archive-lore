@@ -5,16 +5,16 @@ import { observer, errorInfo } from '../lore-telemetry.js';
 import { diagnosticSummary,DIAGNOSTIC_EVENT_LIMIT } from '../lore-retention.js';
 // Bounded, redacted events are returned to the browser's ordinary trace store.
 export async function captureTransport(work,{detailed=false,secrets=[]}={}) {
-    const events=[],sizes=[];let bytes=0,eventsOmitted=0;
+    const events=[];let eventsOmitted=0;
     const log=observer((stage,data)=>{
-        if(events.length>=DIAGNOSTIC_EVENT_LIMIT){events.shift();bytes-=sizes.shift();eventsOmitted++;}
-        const size=JSON.stringify(data).length*2,keep=detailed&&bytes+size<=8*1024*1024;
-        if(keep)bytes+=size;sizes.push(keep?size:0);
-        events.push({stage,data:{...(keep?data:diagnosticSummary(data)),serverObservedAt:new Date().toISOString()},detailOmitted:detailed&&!keep});
+        if(!detailed)return;
+        if(events.length>=DIAGNOSTIC_EVENT_LIMIT){events.shift();eventsOmitted++;}
+        events.push({stage,data:{...data,serverObservedAt:new Date().toISOString()}});
     },secrets);
-    try { return {result:await work(log),events,eventsOmitted}; }
-    catch(error) { await log('transport.error',errorInfo(error));return {error:await sanitizedError(error,secrets),events,eventsOmitted}; }
+    try {return {result:await work(log),events,eventsOmitted};}
+    catch(error){await log('transport.error',errorInfo(error));return {error:await sanitizedError(error,secrets),events,eventsOmitted};}
 }
+
 async function sanitizedError(error,secrets) { let result;await observer((_stage,data)=>{result=data;},secrets)('error',errorInfo(error));return result; }
 export function probePayload(template) {
     if(!template || typeof template.chat_completion_source!=='string' || !template.chat_completion_source)throw Object.assign(Error('검색 AI 연결 프로필을 확인해 줘.'),{category:'profile'});

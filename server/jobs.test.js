@@ -117,7 +117,7 @@ test('server generous recall persists its option and finishes underfilled withou
     assert.equal(result.result.lastRecall.fill,undefined);
     const saved=json(path.join(f.root,'archive-lore-server','jobs',job.id+'.json'));assert.equal(saved.input.settings.generousRecall,true);
     const logs=await readLogs(f.service,f.user,'test-key');
-    assert(logs.some(r=>r.events.some(e=>e.stage==='selection.validated'&&e.data.accepted?.length&&!e.data.reviews)));
+    assert(logs.some(r=>r.events.some(e=>e.stage==='selection.validated'&&!('accepted' in e.data)&&!('reviews' in e.data))));
 });
 test('accepted collection survives without polling; saves book, vector, hide flags and redacted diagnostics on disk',async t=>{
     const f=fixture(t);f.replies.push(memory());const id=randomUUID(),job=await f.service.submit(f.user,'collect',f.input(),id);
@@ -339,4 +339,13 @@ for(const mode of ['dialogue','questions'])for(const scenario of ['empty','core'
     assert.equal(result.status,'completed',result.message);assert.equal(result.result.text,'');assert.deepEqual(result.result.selected,[]);
     assert.equal(result.result.core,scenario==='core'?'Retained memory.':'');assert.deepEqual(result.result.lastRecall.questions,[]);
     assert.equal(result.result.lastRecall.pending,scenario==='unindexed'?1:0);
+});
+
+test('server diagnostics share one ten-stage ring across jobs and never write diagnostic files',async t=>{
+    const f=fixture(t);atomic(f.book,{entries:{0:{uid:0,content:'Hospital memory.'}}});
+    for(let i=0;i<4;i++){const input=f.input();input.settings.mode='embedding';input.templates={};const job=await f.service.submit(f.user,i===0?'index':'recall',input,randomUUID());assert.equal((await done(f.service,f.user,job.id)).status,'completed');}
+    const runs=await f.service.logList(f.user);assert.equal(runs.reduce((n,r)=>n+r.events.length,0),10);
+    assert(!fs.existsSync(path.join(f.root,'archive-lore-server','diagnostics')));
+    const text=JSON.stringify(runs);assert(!text.includes('Hospital memory.'));assert(!text.includes('We agreed'));assert(!text.includes('private-embedding-key'));
+    const restarted=createJobService(f.dependencies);assert.deepEqual(await restarted.logList(f.user),[]);
 });

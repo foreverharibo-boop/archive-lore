@@ -14,30 +14,16 @@ test('retention reserves active work and expires older count, age and byte overf
     assert.deepEqual(removed.filter(r=>typeof r.id==='number').map(r=>r.id),Array.from({length:16},(_,i)=>i+9));
 });
 
-test('default diagnostics retain useful timings and redacted errors but omit dialogue and API bodies',async()=>{
-    assert.equal(normalizeSettings().diagnosticsDetailed,false);
-    const saved=new Map(),d=createDiagnostics({store:{put:async r=>saved.set(r.id,r),list:async()=>[...saved.values()]},secrets:()=>['private-test-key']});
-    const trace=d.begin({kind:'generation',chatKey:'chat'});
-    await trace.event('ai.request',{system:'secret prompt',data:{dialogue:'private dialogue',memories:[{text:'private memory'}]},maxTokens:1200});
-    await trace.event('server.recall',{text:'private recalled text',timings:{questionMs:12,clientStages:{inputMs:110000}}});
-    await trace.finish('error',{message:'Invalid request private-test-key'});
-    const exported=await d.export('chat');
-    for(const text of ['secret prompt','private dialogue','private memory','private recalled text','private-test-key'])assert(!exported.includes(text));
-    assert(exported.includes('110000'));assert(exported.includes('Invalid request [REDACTED]'));
-    assert.equal(saved.get(trace.id).detail,'timing');
+test('diagnostics retain only metadata even when debug is enabled',async()=>{
+    const d=createDiagnostics({detailed:()=>true,secrets:()=>['private-test-key']}),t=d.begin({chatKey:'chat'});
+    await t.event('request',{system:'secret prompt',body:{messages:[{content:'private dialogue'}],model:'example'},elapsedMs:12});
+    await t.event('response',{response:'x'.repeat(5*1024*1024),vectors:[1,2,3]});
+    await t.finish('error',{message:'Invalid request private-test-key'});
+    const text=await d.export();assert(text.includes('example'));assert(text.includes('Invalid request [REDACTED]'));
+    assert(!text.includes('private dialogue'));assert(!text.includes('secret prompt'));assert(text.length<3000);
 });
-
-test('full traces opt in per run and stop retaining large bodies at the size limit',async()=>{
-    const saved=new Map(),d=createDiagnostics({detailed:()=>true,store:{put:async r=>saved.set(r.id,r),list:async()=>[...saved.values()]}});
-    const trace=d.begin({chatKey:'chat'});await trace.event('ai.response',{response:'small exact response'});
-    await trace.event('ai.response',{response:'x'.repeat(5*1024*1024),elapsedMs:3});await trace.finish('success');
-    const run=saved.get(trace.id);assert.equal(run.detail,'full');assert.equal(run.detailTruncated,true);
-    assert.equal(run.events[0].data.response,'small exact response');assert.equal(run.events[1].data.response,undefined);
-    assert.equal(run.events[1].data.elapsedMs,3);assert(run.diagnosticBytes<10000);
-});
-
-test('failed persistence cannot accumulate unlimited fallback runs',async()=>{
-    const d=createDiagnostics({store:{put:async()=>{throw Error('offline');},list:async()=>[]}});
-    for(let i=0;i<25;i++){const t=d.begin({chatKey:'chat'});await t.finish('error',{message:'offline'});}
-    assert.equal((await d.list('chat')).length,20);
+test('one ring covers every chat and operation, including errors',async()=>{
+    const d=createDiagnostics();for(let i=0;i<25;i++){const t=d.begin({chatKey:'chat'+i});await t.finish('error',{message:'error '+i});}
+    const rows=await d.list();assert.equal(rows.reduce((n,r)=>n+r.events.length,0),10);assert.equal(rows.length,10);
+    assert.equal((await d.list('chat0')).length,0);assert((await d.preview()).includes('error 24'));d.clear();assert.deepEqual(await d.list(),[]);
 });

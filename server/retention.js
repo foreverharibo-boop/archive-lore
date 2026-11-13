@@ -49,3 +49,9 @@ export function pruneJobs(s,protectId) {
         s.jobs.delete(row.id);
     }
 }
+
+// Only obsolete debug files are removed. Jobs, backups and vector data are not touched.
+export function clearLegacyDiagnostics(root) {
+    const dir=fs.realpathSync(root)+'/diagnostics';
+    if(fs.existsSync(dir)||(()=>{try{return fs.lstatSync(dir).isSymbolicLink();}catch{return false;}})())fs.rmSync(dir,{recursive:true,force:true});
+}

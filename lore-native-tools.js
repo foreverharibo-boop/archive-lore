@@ -13,7 +13,7 @@ export function createSearchToolsPanel({search,download,document:doc=globalThis.
     const tools=node.querySelector('.al-tool-buttons');
     add(tools,'지금 검색 미리보기',async()=>{const r=await controller.recall();if(current())output.textContent=[r.core,r.text].filter(Boolean).join('\n\n')||'선택된 기억 없음';});
     add(tools,'최근 주입',()=>{const r=controller.state().lastRecall;output.textContent=r?JSON.stringify(r,null,2):'아직 검색한 기억 없음';});
-    add(tools,'진단 TXT 다운로드',async()=>{const text=await search.diagnostics.export(key,'all');if(current())download(text,'archive-lore-diagnostics.txt');});
+    add(tools,'디버그 기록 보기',()=>search.openSettings());
     add(tools,'서버 작업 내역',async()=>{await controller.restore(true);if(current())output.textContent=JSON.stringify(controller.jobs(),null,2);});
     add(tools,'중지',()=>controller.cancel());
     function showCounts(view,cached=false){

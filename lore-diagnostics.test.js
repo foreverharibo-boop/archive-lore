@@ -6,31 +6,17 @@ import { linkedTranslation, managerSourceHash } from './lore-translations.js';
 import { embed, embeddingRequest } from './lore-api.js';
 import { normalizeSettings } from './lore-core.js';
 
-test('diagnostic TXT persists ordered stages, separates chats/modes and removes keys',async()=>{
-    const rows=new Map(), store={put:async r=>rows.set(r.id,structuredClone(r)),list:async key=>[...rows.values()].filter(r=>r.chatKey===key)};
-    const diagnostics=createDiagnostics({store,detailed:()=>true,secrets:()=>['test-secret-key']});
-    const trace=diagnostics.begin({kind:'generation',chatKey:'a',mode:'questions'});
-    await trace.event('ai.request',{data:'recent dialogue',embeddingKey:'test-secret-key'});
-    await trace.event('ai.response',{text:'echo test-secret-key',authorization:'Bearer hello'});
-    await trace.finish('success');await trace.event('injection.installed',{text:'original memory'});
-    const other=diagnostics.begin({kind:'generation',chatKey:'b',mode:'dialogue'});await other.finish('error');
-    const reopened=createDiagnostics({store});
-    const exported=await reopened.export('a','questions');
-    assert(exported.includes('original memory'));assert(!exported.includes('test-secret-key'));assert(!exported.includes('Bearer hello'));
-    assert.equal((await reopened.list('a')).length,1);assert((await reopened.export('a','dialogue')).includes('"runs": 0'));
-    assert(exported.indexOf('ai.request')<exported.indexOf('ai.response'));
+test('diagnostics stay only in session memory and never access legacy stores',async()=>{
+    const store={put:()=>assert.fail('no disk writes'),list:()=>assert.fail('no disk reads')};
+    const d=createDiagnostics({store,secrets:()=>['private-key']});const t=d.begin({chatKey:'a'});
+    await t.event('ai.error',{message:'denied private-key',status:403,body:{messages:[{content:'PRIVATE DIALOGUE'}]}});await t.finish('error');
+    const text=await d.export();assert(text.includes('denied [REDACTED]'));assert(!text.includes('PRIVATE DIALOGUE'));
+    assert.equal(await d.preview(),text);assert.equal((await createDiagnostics({store}).list()).length,0);
 });
-test('failed diagnostic storage retains an exportable in-memory copy and warns',async()=>{
-    const warnings=[];const d=createDiagnostics({detailed:()=>true,store:{put:async()=>{throw Error('quota');},list:async()=>{throw Error('quota');}},warning:t=>warnings.push(t)});
-    const t=d.begin({chatKey:'x',kind:'collection'});await t.event('saved',{text:'keep all'});await t.finish('success');
-    assert((await d.export('x')).includes('keep all'));assert.equal(warnings.length,1);
-    assert.equal(redact({url:'https://example.test?key=secret',password:'hidden'}).password,'[REDACTED]');
-});
-test('successfully persisted diagnostics are read back from the store, without retaining old full snapshots',async()=>{
-    const rows=new Map();const d=createDiagnostics({store:{put:async r=>rows.set(r.id,r),list:async()=>[...rows.values()]}});
-    const trace=d.begin({chatKey:'chat'});await trace.event('large',{text:'saved'});await trace.finish('success');
-    const persisted=rows.get(trace.id);assert.equal((await d.list('chat'))[0],persisted);
-    rows.clear();assert.deepEqual(await d.list('chat'),[]);
+test('callers cannot mutate the diagnostic ring through list results',async()=>{
+    const d=createDiagnostics(),t=d.begin({chatKey:'a'});await t.event('error',{message:'original'});
+    const rows=await d.list();rows[0].events[0].data.message='changed';rows[0].events.push({});
+    assert.equal((await d.list())[0].events.length,1);assert((await d.preview()).includes('original'));
 });
 test('translation bridge uses exact book and UID, marks stale text, and never mutates manager records',()=>{
     const entry={uid:1,content:'Hello'},record={language:'Korean',text:'안녕',sourceHash:managerSourceHash('Hello')};

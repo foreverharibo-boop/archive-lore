@@ -1,3 +1,4 @@
+import { diagnosticSummary } from './lore-retention.js';
 // Archive Lore — AGPL-3.0-only
 // Shared by browser and server. Never patch global fetch or other extensions.
 const sensitive = /(?:api.?key|authorization|password|secret|embeddingKeys?|cacheKey|access.?token|refresh.?token|id.?token|^token$|cookie|credential|private.?key)/i;
@@ -40,7 +41,7 @@ export function errorInfo(error, signal) {
 }
 export function observer(sink, secrets = []) {
     // Diagnostics must not change success, failure or cancellation of real work.
-    return async (stage, data) => { if (sink) { try { await sink(stage, redact(data, secrets)); } catch {} } };
+    return async (stage, data) => { if (sink) { try { await sink(stage, diagnosticSummary(data,0,value=>redact(value,secrets))); } catch {} } };
 }
 export function environmentInfo() {
     return typeof window === 'undefined' ? { runtime:'server', node:globalThis.process?.version, platform:globalThis.process?.platform }

@@ -13,17 +13,38 @@ export function expiredHistory(rows,{now=Date.now(),maxAge=HISTORY_AGE_MS,maxCou
         count++;bytes+=row.bytes;return false;
     });
 }
-export function diagnosticSummary(data,depth=0) {
-    if(!data||typeof data!=='object'||depth>4)return {};
-    const result={};
-    const strings=new Set(['message','reason','mode','status','kind','stage','id','model','source','serverStarted','serverFinished','visibility','wakeReason','category','name','code','stage','requestId','phase','resolvedProfile','requestedProfile','currentProfile','transport','endpoint','runtime']);
-    for(const [key,value] of Object.entries(data)) {
-        if(typeof value==='number'||typeof value==='boolean'||value===null)result[key]=value;
-        else if(typeof value==='string'){
-            if(strings.has(key))result[key]=value.slice(0,600);
-            else result[key+'Chars']=value.length;
-        }else if(Array.isArray(value))result[key+'Count']=value.length;
-        else if(value&&typeof value==='object')result[key]=diagnosticSummary(value,depth+1);
-    }
+// Only diagnostic metadata is allowed into a log. Never traverse dialogue,
+// prompt, memory, vector or successful response bodies.
+export function diagnosticSummary(data, _depth=0, sanitize=value=>value) {
+    const result={};let budget=1800,fields=0;
+    const names=new Set(['message','reason','mode','status','statusText','kind','stage','id','model','source','category','name','code','requestId','phase','resolvedProfile','requestedProfile','currentProfile','transport','endpoint','url','route','method','runtime','preset','finish_reason','finishReason','blockReason','error_description','type','elapsedMs','timeoutMs','aborted','formatValid','connected','query','dimensions','max_tokens','max_completion_tokens','totalTokenCount','promptTokenCount','candidatesTokenCount','total_tokens','prompt_tokens','completion_tokens','x-request-id','x-goog-request-id','retry-after','profile','searchProfile','serverObservedAt','eventId','responseType','custom_url','reverse_proxy','api-url','vertexai_region','stack']);
+    const containers=new Set(['error','details','cause','abortReason','profile','body','payload','template','overrides','headers','response','usageMetadata','usage','data']);
+    const put=(key,value)=>{
+        if(fields>=24||budget<40)return;
+        if(typeof value==='string')value=String(sanitize(value)).slice(0,Math.min(key.endsWith('message')?600:240,budget-40));
+        else if(typeof value!=='number'&&typeof value!=='boolean'&&value!==null)return;
+        let cost=JSON.stringify({[key]:value}).length;
+        while(cost>budget&&typeof value==='string'&&value.length){value=value.slice(0,Math.floor(value.length/2));cost=JSON.stringify({[key]:value}).length;}
+        if(cost>budget)return;result[key]=value;fields++;budget-=cost;
+    };
+    const visit=(value,path='',depth=0)=>{
+        if(!value||typeof value!=='object'||depth>3||Array.isArray(value))return;
+        // Iterate the allowlist, not all input fields or large arrays.
+        for(const key of names){const item=value[key];if(item===undefined||typeof item==='object'&&item!==null)continue;put(path+key,item);}
+        for(const key of ['choices','candidates']){const item=value[key]?.[0];if(item)for(const field of ['finish_reason','finishReason'])if(item[field]!==undefined)put(path+field,item[field]);}
+        let inspected=0;
+        for(const key in value){if(++inspected>64)break;if(!Object.hasOwn(value,key)||!key.includes('.'))continue;
+            const parts=key.split('.');if(parts.length<=5&&names.has(parts.at(-1))&&parts.slice(0,-1).every(part=>containers.has(part)))put(path+key,value[key]);
+        }
+        for(const key of containers){const item=value[key];
+            if(item&&typeof item==='object'&&!Array.isArray(item))visit(item,path+key+'.',depth+1);
+            else if(key==='response'&&typeof item==='string'){
+                // Small provider error envelopes only; text/HTML/chat replies are not retained.
+                if(item.length<=16384){try{const parsed=JSON.parse(item);if(parsed?.error)visit(parsed.error,path+'error.',depth+1);}catch{}}
+                put(path+'responseType',/^\s*</.test(item)?'html':'text');
+            }
+        }
+    };
+    visit(data);
     return result;
 }

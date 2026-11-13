@@ -1,7 +1,7 @@
 // Archive Lore modifications Copyright (C) 2026 foreverharibo-boop
 // SPDX-License-Identifier: AGPL-3.0-only
 import { makeId } from './lore-api.js';
-import { expiredHistory,DIAGNOSTIC_BYTES,diagnosticSummary } from './lore-retention.js';
+import { expiredHistory,DIAGNOSTIC_BYTES,DIAGNOSTIC_EVENT_LIMIT,diagnosticSummary } from './lore-retention.js';
 
 import { redact, environmentInfo } from './lore-telemetry.js';
 import { compactDiagnosticRun, formatDiagnosticPreview } from './lore-diagnostic-preview.js';
@@ -110,9 +110,10 @@ export function createDiagnostics({ store, secrets = () => [], warning = () => {
             const run = { schemaVersion:2, extensionVersion:'0.4.1', environment:environmentInfo(), ...redact(meta, secrets()), id: makeId(), started: new Date().toISOString(), status: 'running', detail:isDetailed?'full':'timing', events: [] };
             run.diagnosticBytes=JSON.stringify(run).length*2+512;
             const append=(stage,data)=>{
-                if(run.events.length>=2000){const [removed]=run.events.splice(100,1);run.diagnosticBytes-=sizes.get(removed)||0;run.eventsOmitted=(run.eventsOmitted||0)+1;}
+                if(run.events.length>=DIAGNOSTIC_EVENT_LIMIT){const removed=run.events.shift(),size=sizes.get(removed);run.diagnosticBytes-=size?.bytes||0;contentBytes-=size?.bodyBytes||0;run.eventsOmitted=(run.eventsOmitted||0)+1;}
+                const previousBytes=contentBytes;
                 const event={at:new Date().toISOString(),elapsedMs:Date.now()-Date.parse(run.started),stage,data:eventData(data)};
-                const bytes=JSON.stringify(event).length*2+2;sizes.set(event,bytes);run.diagnosticBytes+=bytes;run.events.push(event);
+                const bytes=JSON.stringify(event).length*2+2;sizes.set(event,{bytes,bodyBytes:contentBytes-previousBytes});run.diagnosticBytes+=bytes;run.events.push(event);
             };
             persist(run);
             return {
@@ -133,18 +134,19 @@ export function createDiagnostics({ store, secrets = () => [], warning = () => {
             return [...new Map([...saved, ...[...memory.values()].filter(r => r.chatKey === chatKey)].map(r => [r.id, r])).values()]
                 .sort((a,b) => a.started.localeCompare(b.started));
         },
-        async preview(chatKey) {
+        async previewRuns(chatKey) {
             // Do not flush or export full histories just to paint settings.
             let saved=[];
             try{saved=store.preview?await store.preview(chatKey):(await store.list(chatKey)).slice(-3).map(compactDiagnosticRun);}catch{warn();}
             const live=[...memory.values()].filter(r=>r.chatKey===chatKey).map(compactDiagnosticRun);
-            return formatDiagnosticPreview([...new Map([...saved,...live].map(r=>[r.id,r])).values()]);
+            return [...new Map([...saved,...live].map(r=>[r.id,r])).values()];
         },
+        async preview(chatKey) {return formatDiagnosticPreview(await this.previewRuns(chatKey));},
         async export(chatKey, mode = 'all') {
             const runs = (await this.list(chatKey)).filter(r => mode === 'all' || r.mode === mode);
             const counts = Object.fromEntries(['dialogue','questions','embedding'].map(m => [m,runs.filter(r=>r.kind==='generation' && r.mode===m).length]));
             return 'ARCHIVE LORE · TURN DIAGNOSTICS\n' + JSON.stringify({ exported:new Date().toISOString(), chatKey, filter:mode, generationAttempts:counts, runs:runs.length },null,2)
-                + '\n\nTiming/error diagnostics are the default. Dialogue/API/prompt bodies appear only in opt-in full traces; detailTruncated/detailBytesOmitted mark the 8 MiB per-run body limit; eventsOmitted marks the 2000-event limit. Secrets and provider reasoning are removed. HTTP status/headers are recorded only where the host exposes them; a profile snapshot is not proof of the final upstream URL. History keeps up to 20 recent runs for up to 3 days, with a byte limit. Installed prompts are not proof of the final host request or model compliance. Preview/collection/index operations are separate from RP generation attempts. No hidden model reasoning is requested.\n\n'
+                + '\n\nTiming/error diagnostics are the default. Dialogue/API/prompt bodies appear only in opt-in full traces; detailTruncated/detailBytesOmitted mark the 8 MiB per-run body limit; eventsOmitted marks the rolling 10-event limit. Secrets and provider reasoning are removed. HTTP status/headers are recorded only where the host exposes them; a profile snapshot is not proof of the final upstream URL. History keeps up to 20 recent runs for up to 3 days, with a byte limit. Installed prompts are not proof of the final host request or model compliance. Preview/collection/index operations are separate from RP generation attempts. No hidden model reasoning is requested.\n\n'
                 + runs.map((run,i) => `===== ${i+1} · ${run.kind} · ${run.mode} · ${run.status} =====\n${JSON.stringify(redact(run,secrets()),null,2)}`).join('\n\n');
         },
     };

@@ -1,5 +1,6 @@
 // Archive Lore — AGPL-3.0-only
 import { redact } from './lore-telemetry.js';
+import { DIAGNOSTIC_EVENT_LIMIT } from './lore-retention.js';
 export const PREVIEW_CHARS=24000;
 const clip=(value,limit)=>value.length>limit?value.slice(0,limit)+' … [생략]':value;
 // Bound traversal before redaction/stringification. Arrays show counts instead of
@@ -21,26 +22,21 @@ function compactData(data,depth=0) {
 }
 export function compactDiagnosticRun(run) {
     const events=run.events||[];
-    const important=events.filter(e=>/error|profile\.(requested|resolved)|operation.end/.test(e.stage||'')).slice(-12);
-    const picked=[...new Set([...important,...events.slice(-40)])];
+    const picked=events.slice(-DIAGNOSTIC_EVENT_LIMIT);
     return {id:run.id,kind:run.kind,mode:run.mode,status:run.status,started:run.started,finished:run.finished,
         detail:run.detail,eventCount:events.length,eventsOmitted:run.eventsOmitted||0,detailTruncated:!!run.detailTruncated,
-        events:picked.map(e=>({at:e.at,stage:e.stage,elapsedMs:e.elapsedMs,data:redact(compactData(e.data))}))};
+        events:picked.map(e=>{const data=redact(compactData(e.data)),text=JSON.stringify(data);return {at:e.at,stage:e.stage,elapsedMs:e.elapsedMs,data:text.length>1300?{excerpt:clip(text,1300)}:data};})};
 }
 export function formatDiagnosticPreview(rows) {
-    const runs=[...rows].sort((a,b)=>String(b.started).localeCompare(String(a.started))).slice(0,3);
-    const header='ARCHIVE LORE · 최근 진단 요약\n최근 작업 3개 · 긴 본문/배열 생략 · 최대 24,000자 (복사도 이 요약만)\n';
-    if(!runs.length)return header+'\n아직 기록이 없어. 디버그 모드를 켜고 오류가 난 동작을 다시 실행해 줘.';
-    const parts=runs.map(run=>{
-        const {events,...meta}=run;
-        const important=events.filter(e=>/error|profile\.(requested|resolved)|operation.end/.test(e.stage||''));
-        const rest=events.filter(e=>!important.includes(e)).reverse();
-        let text='\n===== '+run.kind+' · '+run.status+' =====\n'+JSON.stringify(meta,null,2)+'\n';
-        for(const event of [...important,...rest]){
-            const line=event.at+' · '+event.stage+' · '+event.elapsedMs+'ms\n'+clip(JSON.stringify(event.data),1300)+'\n';
-            if(text.length+line.length>7600){text+='[나머지 단계 표시 생략]\n';break;}text+=line;
-        }
-        return text;
-    });
-    return clip(header+parts.join('\n'),PREVIEW_CHARS-10);
+    const runs=[...rows].sort((a,b)=>String(b.started).localeCompare(String(a.started)));
+    const header='ARCHIVE LORE · 최근 진단 10단계\n작업마다 최근 10단계만 보관 · 화면/복사도 합쳐서 최신 10단계 · 긴 본문 생략\n';
+    const recent=runs.flatMap(run=>(run.events||[]).map((event,index)=>({run,event,index})))
+        .sort((a,b)=>String(a.event.at||a.run.started).localeCompare(String(b.event.at||b.run.started)) || String(a.run.started).localeCompare(String(b.run.started)) || a.index-b.index)
+        .slice(-DIAGNOSTIC_EVENT_LIMIT);
+    if(!recent.length)return header+'\n아직 기록이 없어. 디버그 모드를 켜고 오류가 난 동작을 다시 실행해 줘.';
+    let text=header;
+    for(const {run,event} of recent){
+        text+='\n'+(event.at||run.started)+' · '+run.kind+' · '+run.status+'\n'+event.stage+' · '+(event.elapsedMs??'?')+'ms\n'+clip(JSON.stringify(event.data),1300)+'\n';
+    }
+    return clip(text,PREVIEW_CHARS-10);
 }

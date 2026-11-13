@@ -18,6 +18,7 @@ import { ask, embed, createVectorStore, makeId, resolveConnection, connectionInf
 import { testSearchConnection } from './lore-connection-test.js';
 import { errorInfo, observer, redact } from './lore-telemetry.js';
 import { createLoreController } from './lore-controller.js';
+import { formatDiagnosticPreview } from './lore-diagnostic-preview.js';
 import { createDiagnostics, createDiagnosticStore } from './lore-diagnostics.js';
 import { linkedTranslation } from './lore-translations.js';
 import { createInjectionRecorder } from './lore-injection-view.js';
@@ -207,9 +208,12 @@ const backgroundRecall=createBackgroundRecall({
 });
 const diagnosticView={
     async preview(key){
-        const local=await diagnostics.preview(key);if(!settings()?.serverEnabled)return local;
-        try{const server=await serverCall('/logs/preview',{chatKey:key},{signal:AbortSignal.timeout(5000)});return local.slice(0,11500)+'\n[서버와 함께 표시할 때 각 요약은 최대 11,500자]\n\n===== SERVER =====\n'+String(server.text||'').slice(0,11500);}
-        catch(error){return local.slice(0,23000)+'\n\n서버 진단 요약 확인 불가 · '+String(redact(errorInfo(error)).message).slice(0,600);}
+        const local=await diagnostics.previewRuns(key);if(!settings()?.serverEnabled)return formatDiagnosticPreview(local);
+        try{
+            const server=await serverCall('/logs/preview',{chatKey:key},{signal:AbortSignal.timeout(5000)});
+            if(!Array.isArray(server.runs))throw Error('서버 플러그인을 업데이트하고 재시작해 줘.');
+            return formatDiagnosticPreview([...local,...server.runs]);
+        }catch(error){return formatDiagnosticPreview(local)+'\n\n서버 진단 요약 확인 불가 · '+String(redact(errorInfo(error)).message).slice(0,600);}
     },
     async list(key){const local=await diagnostics.list(key);return settings()?.serverEnabled?[...local,...await serverCall('/logs/list',{chatKey:key})].sort((a,b)=>a.started.localeCompare(b.started)):local;},
     async export(key,mode){const original=await diagnostics.export(key,mode);if(!settings()?.serverEnabled)return original;

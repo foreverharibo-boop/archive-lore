@@ -3329,7 +3329,7 @@ numeric counts, timing breakdowns and bounded error messages, but omit dialogue,
 memory text, API bodies and installed prompt text. The Connection settings tab has
 a debug-mode opt-in and bounded copyable preview. Each trace captures its mode at creation; turning the toggle off also stops future detailed bodies for active browser traces;
 full traces fall back to summary fields after an 8 MiB estimated body budget and
-mark `detailTruncated` and `detailBytesOmitted`. At most 2000 events are retained with an omitted counter.
+mark `detailTruncated` and `detailBytesOmitted`. Only the latest 10 events per run are retained; the oldest event and its body are discarded on the next append, with an omitted counter.
 
 On writes/access, browser diagnostics and server diagnostics each retain up to
 20 runs for up to 3 days, with a 20 MiB budget per store (browser size is an
@@ -3647,7 +3647,7 @@ probe does not guarantee that subsequent long prompts or model JSON outputs succ
 Server execution requires the updated server plugin and restart; it never silently
 falls back to the browser when the server test endpoint is unavailable.
 
-**디버그 모드 · 전체 처리 과정 기록** reuses `diagnosticsDetailed` (no second toggle).
+**디버그 모드 · 최근 10단계 기록** reuses `diagnosticsDetailed` (no second toggle).
 It records the environment, complete normalized configuration, requested/current/
 resolved profile, saved profile/preset/provider/model, normalized request overrides,
 raw provider result before text extraction, exposed HTTP status/headers, error name,
@@ -3671,11 +3671,11 @@ prevent viewing browser diagnostics; the text records the server export error.
 The connection tab ends with an always-visible debug section and a read-only log
 box. Opening settings, returning to the connection tab, and finishing a connection
 or embedding check refresh the displayed current-chat preview (no polling). The
-Copy button copies only the bounded visible preview: latest 3 runs, key errors /
-profile stages plus recent stages, long strings and arrays omitted, at most 24,000
-characters. Server summaries use /logs/preview with a 5-second deadline; older
+Copy button copies only the latest 10 stages across the recent runs, ordered by
+event time; long strings and arrays are omitted, at most 24,000 characters. Server summaries use /logs/preview with a 5-second deadline; older
 servers show local logs plus an explicit unavailable notice, never fetch the full
-export automatically. With server output, each side is capped at 11,500 characters.
+export automatically. Server and browser stages share the same 10-stage display limit. Older stages,
+including old errors or initial profile events, are not pinned beyond the limit.
 Clipboard-denied / LAN HTTP browsers use selection-based copy with a manual
 selection fallback. This section no longer downloads a file.
 
@@ -3686,5 +3686,6 @@ events on every append. Immutable event snapshots prevent later mutations from
 changing queued writes. Abrupt page termination may lose the last unflushed second.
 IndexedDB version 3 adds retention and chat/start-time indexes without deleting v2
 logs. Pruning reads index keys instead of full bodies; previews retrieve only the
-latest 3 runs and compact them immediately. Existing full logs remain available to
-the explicit diagnostic export workflow; preview omissions do not delete records.
+latest 3 runs and compact them immediately. Previously stored logs remain available to
+the explicit diagnostic export workflow. New runs keep only a rolling 10 stages
+in memory and persistent storage; body-budget accounting is released on eviction.

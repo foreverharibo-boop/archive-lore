@@ -108,5 +108,5 @@ test('server preview reads only recent matching runs and returns bounded text th
     await handlers.get('/logs/preview')({body:{chatKey:'chat-a'}},res);assert.equal(code,401);
     await handlers.get('/logs/preview')({user,body:{chatKey:'chat-a'}},res);
     assert(body.text.length<=24000);assert(body.text.includes('permission denied 4'));assert(!body.text.includes('permission denied 0'));assert(!body.text.includes('chat-b'));
-    assert.equal((body.text.match(/===== recall/g)||[]).length,3);
+    assert.equal(body.runs.length,3);assert.equal((body.text.match(/ · recall · error/g)||[]).length,6);
 });

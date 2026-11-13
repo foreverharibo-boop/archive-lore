@@ -16,11 +16,11 @@ function fixture(t){
     const messages=[{name:'A',mes:'We agreed to go to the hospital.',is_user:true},{name:'B',mes:'We arrived at the hospital.'}];
     const writeChat=value=>atomic(file,[JSON.stringify({chat_metadata:{}}),...value.map(m=>JSON.stringify(m))].join('\n')+'\n');writeChat(messages);
     const book=path.join(dirs.worlds,'Book.json');atomic(book,{entries:{}});
-    const user={profile:{handle:'owner'},directories:dirs},replies=[],calls=[];
-    const dependencies={sanitize,ask:async(_user,payload,signal)=>{calls.push(payload);const r=replies.shift();return typeof r==='function'?r(payload,signal):r;},embedRequest:async()=>[1,0]};
+    const user={profile:{handle:'owner'},directories:dirs},replies=[],calls=[],embeddingCalls=[];
+    const dependencies={sanitize,ask:async(_user,payload,signal)=>{calls.push(payload);const r=replies.shift();return typeof r==='function'?r(payload,signal):r;},embedRequest:async(_config,text,query)=>{embeddingCalls.push({text,query});return [1,0];}};
     const service=createJobService(dependencies);
     const input=()=>({context:{key:'test-key',name:'Test',messages:jsonLines(file).slice(1)},chat:{id:'chat',avatar:'char.png',group:false},books:['Book'],target:'Book',initialStart:0,settings:{diagnosticsDetailed:true,embeddingProvider:'gemini',embeddingKeys:{gemini:'private-embedding-key'},keepMessages:1,cacheNamespace:'server-test'},templates:{collection:{chat_completion_source:'custom',model:'test'},search:{chat_completion_source:'custom',model:'test'}},options:{}});
-    return {root,user,file,book,messages,writeChat,replies,calls,service,input,dependencies};
+    return {root,user,file,book,messages,writeChat,replies,calls,embeddingCalls,service,input,dependencies};
 }
 const jsonLines=file=>fs.readFileSync(file,'utf8').trim().split('\n').map(l=>JSON.parse(l));
 async function readLogs(service,user,key){let text='';for await(const chunk of await service.logStream(user,key))text+=chunk;return JSON.parse(text);}
@@ -100,7 +100,7 @@ test('server recall preserves selection emphasis in persisted jobs, AI requests 
     assert(result.result.tokens<=3000);
     assert(result.result.tokens>result.result.memoryTokens);
     const logs=await readLogs(f.service,f.user,'test-key');
-    assert(logs.some(r=>r.events.some(e=>e.stage==='selection.plan'&&e.data.selectionFocus.join(',')==='affection,meaning')));
+    assert(logs.every(r=>r.events.length<=10));assert(logs.some(r=>r.events.some(e=>e.stage==='selection.validated')));
 });
 test('server generous recall persists its option and finishes underfilled without another review',async t=>{
     const f=fixture(t);atomic(f.book,{entries:{0:{uid:0,content:'The hospital visit reassured her.'},1:{uid:1,content:'She liked having him beside her at the hospital.'}}});
@@ -202,9 +202,8 @@ test('plain vector recall on server works without completion templates and prese
     job=await f.service.submit(f.user,'recall',input,randomUUID());const result=await done(f.service,f.user,job.id);
     assert.equal(result.status,'completed',result.message);assert(result.result.text.includes('hospital'));
     assert.equal(f.calls.length,0);assert.equal(result.result.lastRecall.mode,'embedding');
-    const logs=await readLogs(f.service,f.user,'test-key');
-    const context=logs.flatMap(r=>r.events).find(e=>e.stage==='dialogue.context').data;
-    assert.equal(context.excludedTail,1);assert.equal(context.sourceMessages.length,1);
+    const queries=f.embeddingCalls.filter(call=>call.query).map(call=>call.text).join('\n');
+    assert(queries.includes(f.messages[0].mes));assert(!queries.includes(f.messages[1].mes));
 });
 
 test('polling queued/running and completed recall jobs does not read the chat file',async t=>{

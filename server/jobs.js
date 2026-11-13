@@ -187,7 +187,7 @@ export function createJobService({sanitize,ask,embedRequest=embed,countTokens}) 
         async logPreview(user,key){
             const rows=(await this.logFiles(user,key)).slice(-3),runs=[];
             for(const {file} of rows){try{runs.push(compactDiagnosticRun(JSON.parse(await fs.promises.readFile(file,'utf8'))));}catch{}}
-            return {text:formatDiagnosticPreview(runs)};
+            return {text:formatDiagnosticPreview(runs),runs};
         },
         async logList(user,key){return (await this.logFiles(user,key)).map(({header})=>({...header,details:'전체 내용은 진단 TXT에 포함돼.'}));},
         async logStream(user,key,mode='all'){

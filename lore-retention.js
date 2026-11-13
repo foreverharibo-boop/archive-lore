@@ -1,6 +1,7 @@
 // Archive Lore — AGPL-3.0-only
 export const HISTORY_AGE_MS=3*24*60*60*1000;
 export const HISTORY_COUNT=20;
+export const DIAGNOSTIC_EVENT_LIMIT=10;
 export const DIAGNOSTIC_BYTES=20*1024*1024;
 export const JOB_BYTES=100*1024*1024;
 // Active work is protected. Other rows are newest-first within age/count/bytes.

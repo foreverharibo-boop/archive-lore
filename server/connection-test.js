@@ -2,17 +2,18 @@
 import { normalizeCompletionRequest } from '../completionCompatibility.js';
 import { CONNECTION_TEST_SYSTEM, CONNECTION_TEST_DATA, CONNECTION_TEST_TOKENS } from '../lore-connection-test.js';
 import { observer, errorInfo } from '../lore-telemetry.js';
-import { diagnosticSummary } from '../lore-retention.js';
+import { diagnosticSummary,DIAGNOSTIC_EVENT_LIMIT } from '../lore-retention.js';
 // Bounded, redacted events are returned to the browser's ordinary trace store.
 export async function captureTransport(work,{detailed=false,secrets=[]}={}) {
-    const events=[];let bytes=0;
+    const events=[],sizes=[];let bytes=0,eventsOmitted=0;
     const log=observer((stage,data)=>{
+        if(events.length>=DIAGNOSTIC_EVENT_LIMIT){events.shift();bytes-=sizes.shift();eventsOmitted++;}
         const size=JSON.stringify(data).length*2,keep=detailed&&bytes+size<=8*1024*1024;
-        if(keep)bytes+=size;
+        if(keep)bytes+=size;sizes.push(keep?size:0);
         events.push({stage,data:{...(keep?data:diagnosticSummary(data)),serverObservedAt:new Date().toISOString()},detailOmitted:detailed&&!keep});
     },secrets);
-    try { return {result:await work(log),events}; }
-    catch(error) { await log('transport.error',errorInfo(error));return {error:await sanitizedError(error,secrets),events}; }
+    try { return {result:await work(log),events,eventsOmitted}; }
+    catch(error) { await log('transport.error',errorInfo(error));return {error:await sanitizedError(error,secrets),events,eventsOmitted}; }
 }
 async function sanitizedError(error,secrets) { let result;await observer((_stage,data)=>{result=data;},secrets)('error',errorInfo(error));return result; }
 export function probePayload(template) {

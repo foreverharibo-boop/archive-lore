@@ -4,17 +4,17 @@ import assert from 'node:assert/strict';
 import {createDiagnostics} from './lore-diagnostics.js';
 import {compactDiagnosticRun,formatDiagnosticPreview,PREVIEW_CHARS} from './lore-diagnostic-preview.js';
 
-test('1000 stages batch into one snapshot, keep ordered events and isolate later writes',async()=>{
+test('only the newest ten stages are persisted and evicted bodies are released',async()=>{
     const saved=[],d=createDiagnostics({detailed:()=>true,store:{put:async r=>saved.push(r),list:async()=>saved}});
     const t=d.begin({chatKey:'chat'});const data={text:'x'.repeat(500000)};
     await t.event('request',data);data.text='changed after capture';
-    for(let i=0;i<1000;i++)await t.event('cache',{index:i});
+    for(let i=0;i<15;i++)await t.event('cache',{index:i});
     assert.equal(saved.length,0);
     await t.finish('success');assert.equal(saved.length,1);
-    const first=saved[0];assert.equal(first.events.length,1002);assert.equal(first.events[0].data.text.length,500000);
+    const first=saved[0];assert.equal(first.events.length,10);assert.equal(first.events[0].data.index,6);assert.equal(first.eventsOmitted,7);assert(!JSON.stringify(first).includes('changed after capture'));assert(first.diagnosticBytes<10000);
     assert(first.diagnosticBytes>=JSON.stringify(first).length*2);
     await t.event('injection.installed',{text:'done'});
-    assert.equal(saved.length,2);assert.equal(first.events.length,1002);assert.equal(saved[1].events.length,1003);
+    assert.equal(saved.length,2);assert.equal(first.events.length,10);assert.equal(saved[1].events.length,10);assert.equal(first.events.at(-1).stage,'operation.end');assert.equal(saved[1].events[0].data.index,7);assert.equal(saved[1].events.at(-1).stage,'injection.installed');
 });
 test('turning detailed mode off stops future bodies in an already active trace',async()=>{
     let detailed=true,run;const d=createDiagnostics({detailed:()=>detailed,store:{put:async r=>run=r,list:async()=>[]}});
@@ -36,8 +36,8 @@ test('large histories give bounded previews with errors, profile routes and no e
         ...Array.from({length:1997},()=>({stage:'response',data:payload})),
         {stage:'ai.transport.error',data:{message:'permission denied',status:403,authorization:'Bearer hidden-key'}},
     ]}));
-    const text=formatDiagnosticPreview(runs);assert(text.length<=PREVIEW_CHARS);assert(text.includes('permission denied'));assert(text.includes('profile-A'));
-    assert(!text.includes('hidden-key'));assert(text.includes('생략'));assert.equal((text.match(/===== generation/g)||[]).length,3);
+    const text=formatDiagnosticPreview(runs);assert(text.length<=PREVIEW_CHARS);assert(text.includes('permission denied'));assert(!text.includes('profile-A'));
+    assert(!text.includes('hidden-key'));assert(text.includes('생략'));assert.equal((text.match(/ · generation · error/g)||[]).length,10);
 });
 test('batches arriving during slow persistence are not lost or overwritten',async()=>{
     const rows=new Map();let release,entered;const started=new Promise(r=>entered=r),gate=new Promise(r=>release=r);let calls=0;
@@ -51,4 +51,10 @@ test('active traces persist on the batching timer before completion',async t=>{
     const d=createDiagnostics({store:{put:async r=>saved=r,list:async()=>[]}});
     const trace=d.begin({chatKey:'chat'});await trace.event('pending');t.mock.timers.tick(1000);
     await Promise.resolve();await Promise.resolve();assert.equal(saved.events[0].stage,'pending');await trace.finish('success');
+});
+
+test('server transport also evicts the oldest stage after ten',async()=>{
+    const {captureTransport}=await import('./server/connection-test.js');
+    const result=await captureTransport(async log=>{for(let i=0;i<15;i++)await log('step-'+i,{index:i});return 'ok';},{detailed:true});
+    assert.equal(result.events.length,10);assert.equal(result.events[0].stage,'step-5');assert.equal(result.events.at(-1).stage,'step-14');assert.equal(result.eventsOmitted,5);
 });

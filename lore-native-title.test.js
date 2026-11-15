@@ -1,3 +1,4 @@
+import { withCollectionDate } from './lore-date-collection.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -11,7 +12,7 @@ function load(file,name,scope) {
  vm.runInNewContext(s.slice(a,b),scope);return scope[name];
 }
 test('native collection applies fictional-date title instructions only for the selected format',async()=>{
- const scope={archiveLoreFork:true,withArchiveLoreTitle,getGroupMemoryProfile:p=>p,getEffectivePrompt:async()=> 'Custom memory instructions',substituteParams:s=>s,resolveAdditionalContextEntries:async()=>({entries:[]}),formatSceneForAI:()=> 'Scene with a story date',extension_settings:{}};
+ const scope={archiveLoreFork:true,withArchiveLoreTitle,withCollectionDate,getGroupMemoryProfile:p=>p,getEffectivePrompt:async()=> 'Custom memory instructions',substituteParams:s=>s,resolveAdditionalContextEntries:async()=>({entries:[]}),formatSceneForAI:()=> 'Scene with a story date',extension_settings:{}};
  const build=load('./stmemory.js','buildPrompt',scope);
  const normal=await build({metadata:{},messages:[]},{titleFormat:'[000] - {{title}}'});
  assert.equal(normal,'Custom memory instructions\n\nScene with a story date');

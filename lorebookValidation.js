@@ -216,11 +216,24 @@ export async function validateLorebookRequirement(options = {}) {
   } = options;
   const route = lorebookNameOverride === undefined ? getArchiveLoreBookRoute() : null;
   if (route) {
-    if (!route.name || !world_names?.includes(route.name)) return {valid:false,error:'설정 → 로어북 연결·테마에서 사용할 로어북을 확인해 주세요.'};
+    let name = route.name;
+    if (!name && !skipAutoCreate && ['chat', 'character'].includes(route.mode)
+        && extension_settings.STMemoryBooks?.moduleSettings?.autoCreateLorebook) {
+      const created = await autoCreateLorebook(
+        extension_settings.STMemoryBooks.moduleSettings.lorebookNameTemplate || 'Archive Lore - {{char}} - {{chat}}',
+        createContext, { mode: route.mode, canBind: () => {
+          const current = getArchiveLoreBookRoute();
+          return current?.mode === route.mode && !current.name;
+        } },
+      );
+      if (!created.success) return { valid: false, error: created.error };
+      name = created.name;
+    }
+    if (!name || !world_names?.includes(name)) return {valid:false,error:'설정 → 로어북 연결·테마에서 사용할 로어북을 확인해 주세요.'};
     try {
-      const data = await loadWorldInfo(route.name);
+      const data = await loadWorldInfo(name);
       if (!data) throw new Error('load failed');
-      return {valid:true,data,name:route.name,source:'archive-lore'};
+      return {valid:true,data,name,source:'archive-lore'};
     } catch { return {valid:false,error:'선택한 로어북을 불러오지 못했습니다. 로어북 연결·테마 설정을 확인해 주세요.'}; }
   }
   const settings = extension_settings.STMemoryBooks;
@@ -247,6 +260,14 @@ export async function validateLorebookRequirement(options = {}) {
 
   while (attempts < 3) {
     let recoveryReason = null;
+
+    // An enabled auto-create setting means an unbound chat can continue without
+    // a recovery popup. Missing named books still require explicit recovery.
+    if (!lorebookName && allowCreate && lorebookNameOverride === undefined) {
+      const created = await autoCreateLorebook(settings.moduleSettings.lorebookNameTemplate, createContext);
+      if (!created.success) return { valid: false, error: created.error };
+      lorebookName = created.name;
+    }
 
     if (!lorebookName) {
       recoveryReason = "unassigned";

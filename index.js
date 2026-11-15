@@ -1,3 +1,5 @@
+import { validateDateRanges, dateCollectionSource, runDateCollection } from './lore-date-collection.js';
+import { ARCHIVE_LORE_TITLE_FORMAT } from './lore-native-title.js';
 import { mountInjectionPreference } from './lore-injection-view.js';
 import { applyAutoHideRanges } from './lore-auto-hide.js';
 import { captureIntervalScene } from './lore-side-after-memory.js';
@@ -512,8 +514,9 @@ async function handleSetHighestMemoryProcessedCommand(namedArgs, unnamedArgs) {
  * Check if memory is currently being processed
  * @returns {boolean} True if memory creation is in progress
  */
+let archiveDateCollection = null;
 export function isMemoryProcessing() {
-  return !!globalThis.archiveLoreUndoing || isProcessingMemory || hasActiveStmbJobs(getStmbChatKey());
+  return !!archiveDateCollection || !!globalThis.archiveLoreUndoing || isProcessingMemory || hasActiveStmbJobs(getStmbChatKey());
 }
 
 export { currentProfile };
@@ -1731,7 +1734,7 @@ async function collectNextArchiveLore() {
 }
 
 async function runSceneMemoryRange(startId, endId, options = {}) {
-  if(globalThis.archiveLoreFork && isMemoryProcessing())throw new Error('진행 중인 수집이 끝난 뒤 다시 눌러 주세요.');
+  if(globalThis.archiveLoreFork && isMemoryProcessing() && options.dateCollection?.batch !== archiveDateCollection)throw new Error('진행 중인 수집이 끝난 뒤 다시 눌러 주세요.');
   if (guardPendingProgress()) return false;
   const { showSceneToast = true } = options;
 
@@ -1753,7 +1756,40 @@ async function runSceneMemoryRange(startId, endId, options = {}) {
     );
   }
 
-  return (await initiateMemoryCreation()) === true;
+  return (await initiateMemoryCreation(null, options.dateCollection)) === true;
+}
+
+async function collectArchiveDates({ start, end, ranges, onProgress }) {
+  if (isMemoryProcessing()) throw Error('진행 중인 수집이 끝난 뒤 다시 눌러 주세요.');
+  if (guardPendingProgress()) throw Error('진행·저장 확인을 먼저 완료해 주세요.');
+  const plan = validateDateRanges(ranges, start, end);
+  const sourceChat = chat, key = getStmbChatKey();
+  if (!key || !validateSceneMemoryRange(start, end)) throw Error('수집할 채팅과 범위를 확인해 주세요.');
+  const source = dateCollectionSource(chat, start, end);
+  const task = createStmbInFlightTask('ArchiveDateCollection');
+  const batch = { task }; archiveDateCollection = batch;
+  const assertCurrent = () => {
+    task.throwIfStopped();
+    if (batch.book && getCurrentCanonicalLorebookName() !== batch.book) throw Error('저장할 로어북이 변경되어 날짜별 수집을 중단했습니다.');
+    if (chat !== sourceChat || getStmbChatKey() !== key || dateCollectionSource(chat,start,end) !== source)
+      throw Error('채팅 또는 수집할 메시지가 변경되어 날짜별 수집을 중단했습니다.');
+  };
+  try {
+    const settings = initializeSettings();
+    // Capture side input before per-day auto-hide changes message visibility.
+    const sideScene = compileScene(createSceneRequest(start,end), {includeHiddenMessages:!!settings.moduleSettings.unhideBeforeMemory});
+    captureIntervalScene(sideScene, {chat,compileScene,createSceneRequest});
+    applyNarratorSceneMetadata(sideScene, getCurrentMemoryBooksContext());
+    applyGroupMemoryPolicy(sideScene, settings.moduleSettings, getCurrentMemoryBooksContext());
+    return await runDateCollection({ ranges: plan, assertCurrent, onProgress,
+      collect: async (range, last) => runSceneMemoryRange(range.start,range.end, {
+        showSceneToast:false, dateCollection:{batch,date:range.date,last,sideScene,assertCurrent},
+      }),
+    });
+  } finally {
+    task.finish(); if (archiveDateCollection === batch) archiveDateCollection = null;
+    refreshCollectionStatus(); notifyCollectionCompletion();
+  }
 }
 
 function compileSceneForCatchupPreflight(sceneRequest, unhideBeforeMemory) {
@@ -1800,8 +1836,11 @@ async function validateStmbCatchupNonInteractive(settings, chunks) {
   const isManualMode = !!moduleSettings.manualModeEnabled;
   const stmbData = isManualMode ? getSceneMarkers() || {} : null;
   const lorebookName = getCurrentCanonicalLorebookName();
+  const bookRoute = getArchiveLoreBookRoute();
   const canAutoCreateLorebook =
-    !getArchiveLoreBookRoute() && !isManualMode && !!moduleSettings.autoCreateLorebook;
+    !!moduleSettings.autoCreateLorebook && (bookRoute
+      ? bookRoute.mode === 'chat' || (bookRoute.mode === 'character' && !getCurrentMemoryBooksContext().isGroupChat)
+      : !isManualMode);
 
   if (!lorebookName && !canAutoCreateLorebook) {
     return __st_t_tag`/stmb-catchup is non-interactive. Select a valid ${isManualMode ? "manual" : "chat-bound"} lorebook before running it.`;
@@ -5563,12 +5602,14 @@ async function executeMemoryGeneration(
 
   try {
     throwIfStmbStopped(runEpoch);
+    effectiveSettings.dateCollection?.assertCurrent();
     // Create and compile scene first
     const sceneRequest = createSceneRequest(
       sceneData.sceneStart,
       sceneData.sceneEnd,
     );
     compiledScene = compileScene(sceneRequest);
+    if (effectiveSettings.dateCollection) compiledScene.metadata.archiveLoreCollectionDate = effectiveSettings.dateCollection.date;
     if (globalThis.archiveLoreFork) captureIntervalScene(compiledScene, { chat, compileScene, createSceneRequest });
     const promptContext = memoryOriginSnapshot.sceneContext;
     compiledScene.metadata = {
@@ -5689,6 +5730,7 @@ async function executeMemoryGeneration(
     });
     stmbTask.throwIfStopped();
     throwIfStmbStopped(runEpoch);
+    effectiveSettings.dateCollection?.assertCurrent();
 
     // Check if memory previews are enabled and handle accordingly
     let finalMemoryResult = memoryResult;
@@ -5703,6 +5745,7 @@ async function executeMemoryGeneration(
         profileSettings,
       );
       throwIfStmbStopped(runEpoch);
+      effectiveSettings.dateCollection?.assertCurrent();
 
       if (previewResult.action === "cancel") {
         // User cancelled, abort the process
@@ -5788,7 +5831,12 @@ async function executeMemoryGeneration(
     }
 
     throwIfStmbStopped(runEpoch);
+    effectiveSettings.dateCollection?.assertCurrent();
 
+    if (effectiveSettings.dateCollection) {
+      finalMemoryResult.extractedTitle = effectiveSettings.dateCollection.date || '날짜 미상';
+      finalMemoryResult.titleFormat = ARCHIVE_LORE_TITLE_FORMAT;
+    }
     // Add to lorebook silently
     const saveContext = memoryOriginSnapshot.sceneContext;
     const resolvedManualGroupLorebooks =
@@ -5832,6 +5880,7 @@ async function executeMemoryGeneration(
           )
         : await withStmbWriteLane({type:'lorebook',name:lorebookValidation.name},async()=>{
             const data=await loadWorldInfo(lorebookValidation.name);
+            effectiveSettings.dateCollection?.assertCurrent();
             if(!data?.entries)throw Error('저장할 로어북을 다시 불러오지 못했어.');
             if(!settings.moduleSettings.allowSceneOverlap && findOverlappingMemoryInLorebook(data,sceneData))throw Error('수집 중 같은 범위의 기억이 저장됐어. 중복 저장을 멈췄어.');
             return addMemoryToLorebook(finalMemoryResult,{...lorebookValidation,data},automaticGroupAddOptions);
@@ -5856,7 +5905,8 @@ async function executeMemoryGeneration(
         model: connDbg.model,
         temperature: connDbg.temperature,
       });
-      await runAfterMemory(compiledScene, profileSettings, {
+      if (!effectiveSettings.dateCollection || effectiveSettings.dateCollection.last) await runAfterMemory(
+        effectiveSettings.dateCollection?.sideScene || compiledScene, profileSettings, {
         parentJobId:collectionReceipt?.id || '',
         onSummary:summary=>{if(collectionReceipt)collectionReceipt.side=summary;},
         chatRef: memoryOriginSnapshot.chatRef,
@@ -5884,6 +5934,7 @@ async function executeMemoryGeneration(
       });
     }
     throwIfStmbStopped(runEpoch);
+    effectiveSettings.dateCollection?.assertCurrent();
 
     // Update auto-summary baseline so the next trigger starts after this scene
     try {
@@ -7091,7 +7142,9 @@ async function showConsolidationRecoveryPopup() {
   await shown;
 }
 
-async function initiateMemoryCreation(selectedProfileIndex = null) {
+async function initiateMemoryCreation(selectedProfileIndex = null, dateCollection = null) {
+  if (archiveDateCollection && dateCollection?.batch !== archiveDateCollection) return false;
+  dateCollection?.assertCurrent();
   if(globalThis.archiveLoreUndoing){toastr.info('되돌리기가 끝난 뒤 수집해 줘.','Archive Lore');return false;}
   const reminderChatKey = getStmbChatKey();
   if (guardPendingProgress()) return false;
@@ -7258,13 +7311,21 @@ async function initiateMemoryCreation(selectedProfileIndex = null) {
       return false;
     }
 
+    if (dateCollection) {
+      dateCollection.assertCurrent();
+      dateCollection.batch.book ||= lorebookValidation.name;
+      if (dateCollection.batch.book !== lorebookValidation.name) throw Error('저장할 로어북이 변경되었습니다.');
+      effectiveSettings.dateCollection = dateCollection;
+      effectiveSettings.profileSettings = {...effectiveSettings.profileSettings, titleFormat:ARCHIVE_LORE_TITLE_FORMAT};
+    }
+
     // Close settings popup if open
     if (currentPopupInstance) {
       currentPopupInstance.completeCancelled();
       currentPopupInstance = null;
     }
 
-    if (areStmbJobsEnabled()) {
+    if (areStmbJobsEnabled() && !dateCollection) {
       const job = await buildQueuedMemoryJob(
         sceneData,
         lorebookValidation,
@@ -7290,7 +7351,7 @@ async function initiateMemoryCreation(selectedProfileIndex = null) {
       lorebookValidation,
       effectiveSettings,
       0,
-      null,
+      dateCollection?.batch.task || null,
       manualGroupLorebookValidation,
       { memoryOriginSnapshot },
     );
@@ -15144,7 +15205,7 @@ $(document).ready(() => {
 if (globalThis.archiveLoreFork) globalThis.archiveLoreMemoryBooks = {
   sideTemplates: listTemplates, sideSearchExclusions: getSideSearchExclusions,
   initialize: init, open: showSettingsPopup, settings: initializeSettings, busy: isMemoryProcessing,
-  collect: collectNextArchiveLore, collectRange: runSceneMemoryRange, catchup: handleStmbCatchupCommand, undo: undoLastArchiveCollection, stop: stmbStopAllInFlight,
+  collect: collectNextArchiveLore, collectRange: runSceneMemoryRange, collectDates: collectArchiveDates, catchup: handleStmbCatchupCommand, undo: undoLastArchiveCollection, stop: stmbStopAllInFlight,
   route: getArchiveLoreBookRoute,
   books: () => [...getCurrentChatLorebookNames(initializeSettings())],
   refresh: refreshPopupContent,

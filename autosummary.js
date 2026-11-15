@@ -109,7 +109,7 @@ async function validateLorebookForAutoSummary() {
     return await validateLorebookRequirement({
         createContext: 'auto-summary',
         manualMode: false,
-        lorebookName: chat_metadata?.[METADATA_KEY] || null,
+        // Resolve the live chat binding so enabled auto-creation can run.
         retryText: i18n('STMemoryBooks_AutoSummaryRetryAfterSelection', 'After selecting a lorebook, try again.'),
     });
 }

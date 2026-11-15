@@ -1,11 +1,13 @@
 // Copyright (C) 2024–2026 Aiko Hanasaki
 // SPDX-License-Identifier: AGPL-3.0-only
 
-import { getCurrentChatId, name1, name2, chat_metadata, saveMetadata } from '../../../../script.js';
+import { getCurrentChatId, name1, name2, chat_metadata, saveMetadata, getRequestHeaders } from '../../../../script.js';
+import { getContext } from '../../../extensions.js';
 import { createNewWorldInfo, METADATA_KEY, world_names } from '../../../world-info.js';
 import { translate } from '../../../i18n.js';
 
 const MODULE_NAME = 'STMemoryBooks-AutoCreate';
+const creating = new WeakMap();
 
 /**
  * i18n helper: translate with Mustache-style {{var}} interpolation
@@ -63,19 +65,69 @@ export function generateLorebookName(template) {
  * @param {string} context - Context description for logging (e.g., 'chat', 'auto-summary')
  * @returns {Promise<{success: boolean, name?: string, error?: string}>}
  */
-export async function autoCreateLorebook(template, context = 'chat') {
+export async function autoCreateLorebook(template, context = 'chat', options = {}) {
+    const chat = getContext().chat;
+    if (!chat) return { success: false, error: '채팅방을 먼저 열어 주세요.' };
+    const mode = options.mode || 'chat';
+    const pending = creating.get(chat);
+    if (pending) return pending.mode === mode ? pending.promise : { success: false, error: '다른 연결 대상의 로어북을 생성 중입니다.' };
+    const promise = createAndBindLorebook(template, context, { ...options, mode });
+    creating.set(chat, { mode, promise });
+    try { return await promise; } finally { if (creating.get(chat)?.promise === promise) creating.delete(chat); }
+}
+
+async function createAndBindLorebook(template, context, { mode, canBind = () => true }) {
+    const origin = getContext();
+    const chatId = getCurrentChatId();
+    const character = origin.characters?.[origin.characterId];
+    const current = () => getCurrentChatId() === chatId && getContext().chat === origin.chat
+        && getContext().groupId === origin.groupId && getContext().characters?.[getContext().characterId]?.avatar === character?.avatar;
+    const binding = () => mode === 'character' ? character?.data?.extensions?.world : origin.chatMetadata?.[METADATA_KEY];
+    const originalBinding = binding();
     try {
+        if (!chatId || !['chat', 'character'].includes(mode) || (mode === 'character' && (origin.groupId || !character?.avatar))) {
+            throw new Error('로어북을 연결할 채팅 또는 캐릭터를 확인해 주세요.');
+        }
         const newLorebookName = generateLorebookName(template);
 
         console.log(i18n('autocreate.log.creating', `${MODULE_NAME}: Auto-creating lorebook "{{name}}" for {{context}}`, { name: newLorebookName, context }));
         const created = await createNewWorldInfo(newLorebookName);
 
         if (created) {
-            // Bind the new lorebook to the chat
-            chat_metadata[METADATA_KEY] = newLorebookName;
-            await saveMetadata();
-            // Match SillyTavern's chat-lorebook binding UI without emitting a chat change.
-            $('.chat_lorebook_button').addClass('world_set');
+            // Never attach a newly created book to a different chat or overwrite a
+            // binding changed while the create request was in flight.
+            if (!current() || binding() !== originalBinding || !canBind()) throw new Error(`로어북은 만들었지만 채팅 또는 연결이 바뀌었습니다. 목록에서 ${newLorebookName}을 선택해 주세요.`);
+            if (mode === 'character') {
+                const response = await fetch('/api/characters/merge-attributes', {
+                    method: 'POST', headers: getRequestHeaders(),
+                    body: JSON.stringify({ avatar: character.avatar, data: { extensions: { world: newLorebookName } } }),
+                });
+                if (!response.ok) throw new Error(`로어북은 만들었지만 캐릭터 연결에 실패했습니다. 목록에서 ${newLorebookName}을 선택해 주세요.`);
+                character.data ||= {}; character.data.extensions ||= {};
+                character.data.extensions.world = newLorebookName;
+                if (character.json_data) {
+                    const data = JSON.parse(character.json_data);
+                    data.data ||= {}; data.data.extensions ||= {}; data.data.extensions.world = newLorebookName;
+                    character.json_data = JSON.stringify(data);
+                }
+                if (!current()) throw new Error('원래 캐릭터에 로어북을 연결했지만 채팅이 바뀌어 수집을 중단했습니다.');
+                const field = document.querySelector('#character_world');
+                if (field) field.value = newLorebookName;
+                const jsonField = document.querySelector('#character_json_data');
+                if (jsonField && character.json_data) jsonField.value = character.json_data;
+            } else {
+                chat_metadata[METADATA_KEY] = newLorebookName;
+                try { await saveMetadata(); }
+                catch (error) {
+                    if (current() && chat_metadata[METADATA_KEY] === newLorebookName) {
+                        if (originalBinding === undefined) delete chat_metadata[METADATA_KEY];
+                        else chat_metadata[METADATA_KEY] = originalBinding;
+                    }
+                    throw error;
+                }
+                if (!current()) throw new Error('원래 채팅에 로어북을 연결했지만 채팅이 바뀌어 수집을 중단했습니다.');
+                $('.chat_lorebook_button').addClass('world_set');
+            }
 
             console.log(i18n('autocreate.log.created', `${MODULE_NAME}: Successfully created and bound lorebook "{{name}}"`, { name: newLorebookName }));
             toastr.success(i18n('autocreate.toast.createdBound', 'Created and bound lorebook "{{name}}"', { name: newLorebookName }), i18n('autocreate.toast.title', 'STMemoryBooks'));

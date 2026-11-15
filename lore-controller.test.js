@@ -164,7 +164,7 @@ test('both recall modes focus the new request, select original facts, and reuse 
         f.host.ask=async(_p,system,data)=>{
             assert.equal(data.latestUser,'Remember the ski resort?');
             if(system.includes('"questions":')){questionCalls++;return '{"questions":["What happened at the ski resort?"]}';}
-            reviews++;assert.equal(data.maxSelections,24);assert.equal(data.injectionBudgetTokens,3000);
+            reviews++;assert.equal(data.maxSelections,48);assert.equal(data.injectionBudgetTokens,3000);
             const found=data.memories.find(u=>u.text.includes('exchanged rings'));
             assert(found,'focused event must reach the selection AI');
             assert(!data.memories.some(u=>u.text==='m.'));
@@ -522,7 +522,7 @@ for(const selectionFocus of [[],['affection','meaning']])test(`six-question reca
             planners++;assert.match(system,/one to six/);assert.doesNotMatch(system,/at most four/);assert.equal(tokens,1200);
             return JSON.stringify({questions});
         }
-        selectors++;assert.equal(tokens,3000);assert.deepEqual(data.questions,questions);
+        selectors++;assert.equal(tokens,6000);assert.deepEqual(data.questions,questions);
         assert.equal(data.injectionBudgetTokens,500);
         const fact=data.memories[0];
         return JSON.stringify({selections:[{id:fact.id,priority:3,reason:'Recorded hospital gratitude informs the current shared hospital visit.'}]});

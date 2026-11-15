@@ -2,10 +2,10 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { normalizeSideSearchExclusions } from './lore-side-search.js';
 import { normalizeSides } from './lore-side-config.js';
-import { normalizeSelectionFocus } from './lore-selection-focus.js';
+import { normalizeSelectionFocus, MAX_EVENT_CONTEXT, MAX_EVENT_SELECTIONS } from './lore-selection-focus.js';
 import { outcomeContext } from './lore-outcome-context.js';
 import { fingerprintChatMessage } from './chatSelection.js';
-import { COLLECT_PROMPT, SIDE_PROMPT, QUESTIONS_PROMPT, SELECT_PROMPT, LEGACY_QUESTIONS, LEGACY_SELECT, PREVIOUS_QUESTIONS, PREVIOUS_SELECT, PREVIOUS_EVENT_SELECT, PREVIOUS_ENGLISH_QUESTIONS, PREVIOUS_COMPARISON_SELECT, PREVIOUS_BACKGROUND_QUESTIONS } from './lore-prompts.js';
+import { COLLECT_PROMPT, SIDE_PROMPT, QUESTIONS_PROMPT, SELECT_PROMPT, LEGACY_QUESTIONS, LEGACY_SELECT, PREVIOUS_QUESTIONS, PREVIOUS_SELECT, PREVIOUS_EVENT_SELECT, PREVIOUS_ENGLISH_QUESTIONS, PREVIOUS_COMPARISON_SELECT, PREVIOUS_BACKGROUND_QUESTIONS, PREVIOUS_BACKGROUND_SELECT } from './lore-prompts.js';
 import { LEGACY_COLLECT, LEGACY_SIDE } from './lore-prompts-v1.js';
 export { SIDE_PROMPT } from './lore-prompts.js';
 import { dateDay, relationshipLabel, relationshipPhase, formatRelationship } from './lore-relationship.js';
@@ -52,7 +52,8 @@ export function normalizeSettings(value = {}) {
     if ((value.promptRevision || 0) < 7) {
         if (value.prompts.questions === PREVIOUS_BACKGROUND_QUESTIONS) value.prompts.questions = QUESTIONS_PROMPT;
     }
-    return { ...DEFAULTS, ...value, promptRevision: 7,
+    if ((value.promptRevision || 0) < 8 && value.prompts.select === PREVIOUS_BACKGROUND_SELECT) value.prompts.select = SELECT_PROMPT;
+    return { ...DEFAULTS, ...value, promptRevision: 8,
         excludedSidePromptKeys: normalizeSideSearchExclusions(value.excludedSidePromptKeys),
         enabled: value.enabled === true,
         autoEmbed: value.autoEmbed !== false,
@@ -253,7 +254,7 @@ export function selectedUnits(response, offered, selectionFocus = []) {
     const rows = ranked ? data.selections : data.ids.map(id=>({id,priority:2,reason:'legacy ordered selection'}));
     for (const row of rows) {
         outcomeContext(row, allowed);
-        if (row?.contextIds !== undefined && (!Array.isArray(row.contextIds) || row.contextIds.length > 8
+        if (row?.contextIds !== undefined && (!Array.isArray(row.contextIds) || row.contextIds.length > MAX_EVENT_CONTEXT
             || row.contextIds.some(id => !allowed.has(id) || allowed.get(id).entryId !== allowed.get(row.id)?.entryId)))
             throw new Error('기억 선별의 연결 문장 형식이 올바르지 않아.');
     }
@@ -266,7 +267,7 @@ export function selectedUnits(response, offered, selectionFocus = []) {
         ...[...new Set(row.contextIds || [])].filter(id=>id!==row.id).map(id=>allowed.get(id)),
         ...outcomeContext(row, allowed),
     ].map(unit=>[unit.id,unit])).values()]}))
-        .sort((a,b)=>b.priority-a.priority).slice(0,24);
+        .sort((a,b)=>b.priority-a.priority).slice(0,MAX_EVENT_SELECTIONS);
 }
 export function formatInjection(units) {
     if (!units.length) return '';
@@ -297,7 +298,6 @@ export async function fitInjection(units, budget, countTokens = estimateTokens) 
         const unit={...original,requiredContext:[...context.values()]};
         // Supporting sentences are carried by their root, including on server-to-client re-budgeting.
         if (unit.contextOnly) continue;
-        if (unit.selectionFormat === 'ranked' && unit.priority === 2 && !chosen.some(u=>u.priority===3)) continue;
         const group = [unit, ...(unit.requiredContext || []).map(u=>({...u,contextOnly:true}))];
         const next = new Map(chosen.map(u=>[key(u),u]));
         for (const item of group) {

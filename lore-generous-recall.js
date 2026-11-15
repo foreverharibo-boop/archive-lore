@@ -2,7 +2,7 @@
 import { parseJson, reviewUnits } from './lore-core.js';
 import { reviewCandidates, reviewBatches, selectorMemories } from './lore-retrieval.js';
 import { fitFocusedInjection } from './lore-focus-injection.js';
-import { normalizeSelectionFocus, orderFocusedUnits, selectionFocusPrompt } from './lore-selection-focus.js';
+import { normalizeSelectionFocus, orderFocusedUnits, selectionFocusPrompt, EVENT_CONTEXT_SELECTION_PROMPT, MAX_EVENT_CONTEXT } from './lore-selection-focus.js';
 import { mapOrdered } from './lore-parallel.js';
 import { OUTCOME_SELECTION_PROMPT, outcomeContext } from './lore-outcome-context.js';
 
@@ -13,7 +13,7 @@ GENEROUS RELATED MEMORY MODE
 For this mode, the following relevance and output rules replace earlier restrictions to indispensable facts, a small selection count, or a terse answer. Preserve all other source-fidelity and user exclusions.
 Select related source units generously from the FIRST review. Priority 3: directly addresses the present request. Priority 2: related background that can enrich this scene or keep character reactions consistent, including connected experiences, preferences, promises, feelings with their recorded reasons, and distinctive event details. Priority 2 does NOT require a priority-3 fact and does NOT need to be indispensable. Do not reject related material merely because the current reply is possible without it, it is old, or enough other facts have already been selected. Do not stop after 24 units. The program fills the token budget from the selected related pool.
 Omit unrelated, redundant or uninterpretable units without listing them. A shared character name alone does not establish relevance; a different date or location alone does not disprove a concrete connection. Never invent connections to fill space.
-For each selected unit include contextIds (up to 8 IDs from the SAME entry in this batch) needed for owner, speaker, chronology, pronoun, condition, negation or a contrasting counterpart. These sentences are retained together or omitted together. Do not include unrelated sentences as context. Never rewrite or summarize the original text. Preserve uncertainty and distinguish past events from current status.
+For each selected unit include contextIds (up to 32 IDs from the SAME entry in this batch) for the event's circumstances, meaningful dialogue, reasons, reactions, conditions and outcome, including owner, speaker, chronology and negation. These sentences are retained together or omitted together. Do not include unrelated sentences as context. Never rewrite or summarize the original text. Preserve uncertainty and distinguish past events from current status.
 Return ONLY JSON: {"selections":[{"id":"u0","priority":2,"contextIds":[]}]}.
 Return only selected IDs, priorities and contextIds, plus focusMatches when selectionFocus is supplied (only checked categories supported by the source). Do NOT output inclusion/exclusion reasons, explanations, rejected IDs or a review of every unit. For no related material return {"selections":[]}. There is no minimum fill quota and no second review to fill unused space.`;
 
@@ -26,7 +26,7 @@ export function parseGenerousSelections(response, offered, selectionFocus = []) 
             throw Error('넉넉한 주입 선별 형식이 올바르지 않아.');
         seen.add(row.id);
         outcomeContext(row, allowed);
-        if (row.contextIds !== undefined && (!Array.isArray(row.contextIds) || row.contextIds.length > 8
+        if (row.contextIds !== undefined && (!Array.isArray(row.contextIds) || row.contextIds.length > MAX_EVENT_CONTEXT
             || row.contextIds.some(id => !allowed.has(id) || allowed.get(id).entryId !== allowed.get(row.id).entryId)))
             throw Error('기억 선별의 연결 문장 형식이 올바르지 않아.');
     }
@@ -51,7 +51,7 @@ export async function generousRecall({candidates, chunks, config, latestUser, di
         notify('관련 기억을 넉넉하게 고르는 중');
         for(let attempt=0;attempt<2;attempt++){
             signal.throwIfAborted();
-            const response=await ask(config.prompts.select+selectionFocusPrompt(config.selectionFocus)+GENEROUS_SELECTION_PROMPT+OUTCOME_SELECTION_PROMPT
+            const response=await ask(config.prompts.select+selectionFocusPrompt(config.selectionFocus)+GENEROUS_SELECTION_PROMPT+OUTCOME_SELECTION_PROMPT+EVENT_CONTEXT_SELECTION_PROMPT
                 +(attempt?'\nThe previous response was invalid. Return a selections array with valid supplied IDs, priority 2 or 3 and same-entry contextIds. Do not include explanations.':''),
                 {latestUser,dialogue,questions,memories:selectorMemories(batch),batch:index+1,batchCount:batches.length,
                     injectionBudgetTokens:config.injectionTokens,...(config.selectionFocus.length?{selectionFocus:config.selectionFocus}:{})},signal,6000);

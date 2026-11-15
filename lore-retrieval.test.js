@@ -83,16 +83,16 @@ test('ranked selection rejects invented IDs and vague relevance; budget retains 
     assert.equal(selectedUnits(JSON.stringify({selections:[{id:'u0',priority:1,reason:'same mood'},{id:'u1',priority:3,reason:''}]}),offered).length,0);
     assert.deepEqual(selectedUnits('{"selections":[]}',offered),[]);
     const contextOnly=selectedUnits('{"selections":[{"id":"u0","priority":2,"reason":"background only"}]}',offered);
-    assert.equal((await fitInjection(contextOnly,3000)).text,'');
+    assert((await fitInjection(contextOnly,3000)).text.includes('Supporting detail'));
     const oversized=selectedUnits(JSON.stringify({selections:[{id:'u0',priority:3,reason:'direct but too long'},
         {id:'u1',priority:2,reason:'context for oversized fact'}]}),offered);
-    assert.equal((await fitInjection(oversized,180,t=>t.length)).text,'');
+    assert((await fitInjection(oversized,180,t=>t.length)).text.includes('exchanged rings'));
 });
 
 test('selection flooding is bounded and legacy custom responses preserve their relevance order',()=>{
     const offered=Array.from({length:100},(_,i)=>({id:'u'+i,text:'original '+i}));
     const picked=selectedUnits(JSON.stringify({ids:[...offered.map(u=>u.id)].reverse()}),offered);
-    assert.equal(picked.length,24);assert.equal(picked[0].id,'u99');
+    assert.equal(picked.length,48);assert.equal(picked[0].id,'u99');
 });
 
 test('saved old defaults upgrade once while customized search and selection prompts survive',()=>{
@@ -129,10 +129,10 @@ test('attribution dependencies survive together or are dropped together, includi
     assert.equal((await fitInjection(result.units,1000,t=>t.length)).text,result.text);
 });
 
-test('review expands only adjacent chunks of the same retrieved entry',async()=>{
+test('review exposes the complete retrieved entry without admitting unrelated entries',async()=>{
     const {reviewCandidates}=await import('./lore-retrieval.js');
     const chunks=Array.from({length:5},(_,index)=>({id:'a',index})).concat({id:'b',index:1});
-    assert.deepEqual(reviewCandidates([chunks[1]],chunks).map(c=>c.index),[0,1,2]);
+    assert.deepEqual(reviewCandidates([chunks[1]],chunks).map(c=>c.index),[0,1,2,3,4]);
 });
 
 test('review batching keeps short entries intact and overlaps large-entry source context',async()=>{
@@ -191,9 +191,9 @@ test('compact review keeps every source sentence and identity without sending so
 test('revision-three defaults migrate without overwriting customized prompts or changing stored embeddings',async()=>{
     const {PREVIOUS_QUESTIONS,PREVIOUS_SELECT}=await import('./lore-prompts.js');
     const migrated=normalizeSettings({promptRevision:3,prompts:{questions:PREVIOUS_QUESTIONS,select:PREVIOUS_SELECT}});
-    assert.equal(migrated.promptRevision,7);assert.equal(migrated.prompts.questions,DEFAULT_PROMPTS.questions);
+    assert.equal(migrated.promptRevision,8);assert.equal(migrated.prompts.questions,DEFAULT_PROMPTS.questions);
     assert.equal(migrated.prompts.select,DEFAULT_PROMPTS.select);
-    assert.match(migrated.prompts.questions,/English/);assert.match(migrated.prompts.select,/original conditions/);
+    assert.match(migrated.prompts.questions,/English/);assert.match(migrated.prompts.select,/conditions and outcome/);
     const custom=normalizeSettings({promptRevision:3,prompts:{questions:'My custom questions',select:'My custom selector'}});
     assert.equal(custom.prompts.questions,'My custom questions');assert.equal(custom.prompts.select,'My custom selector');
 });
@@ -205,7 +205,7 @@ test('revision-four selector upgrades without mutating saved settings, custom pr
         embeddingModel:'gemini-embedding-001',selectionFocus:['affection','meaning']};
     const before=structuredClone(saved),migrated=normalizeSettings(saved);
     assert.deepEqual(saved,before);
-    assert.equal(migrated.promptRevision,7);
+    assert.equal(migrated.promptRevision,8);
     assert.equal(migrated.prompts.select,DEFAULT_PROMPTS.select);
     assert.equal(migrated.prompts.collect,saved.prompts.collect);
     assert.equal(migrated.prompts.questions,saved.prompts.questions);
@@ -232,7 +232,7 @@ test('revision-six migration upgrades exact defaults once and preserves custom p
         prompts:{questions:PREVIOUS_ENGLISH_QUESTIONS,select:PREVIOUS_COMPARISON_SELECT,collect:'My private summary'}};
     const before=structuredClone(saved),migrated=normalizeSettings(saved);
     assert.deepEqual(saved,before);
-    assert.equal(migrated.promptRevision,7);assert.equal(migrated.candidateCount,24);
+    assert.equal(migrated.promptRevision,8);assert.equal(migrated.candidateCount,24);
     assert.equal(migrated.prompts.questions,DEFAULT_PROMPTS.questions);assert.equal(migrated.prompts.select,DEFAULT_PROMPTS.select);
     assert.equal(migrated.prompts.collect,'My private summary');assert.equal(migrated.injectionTokens,4500);assert.equal(migrated.selectionConcurrency,2);
     assert.deepEqual(normalizeSettings(migrated),migrated);
@@ -252,7 +252,7 @@ test('revision-seven question defaults migrate while custom prompts, selector an
     const {PREVIOUS_BACKGROUND_QUESTIONS,QUESTIONS_PROMPT}=await import('./lore-prompts.js');
     const saved={promptRevision:6,prompts:{questions:PREVIOUS_BACKGROUND_QUESTIONS,select:'Custom selector',collect:'Custom summary'},candidateCount:16,injectionTokens:3500};
     const before=structuredClone(saved),migrated=normalizeSettings(saved);
-    assert.deepEqual(saved,before);assert.equal(migrated.promptRevision,7);
+    assert.deepEqual(saved,before);assert.equal(migrated.promptRevision,8);
     assert.equal(migrated.prompts.questions,QUESTIONS_PROMPT);assert.equal(migrated.prompts.select,'Custom selector');assert.equal(migrated.prompts.collect,'Custom summary');
     assert.equal(migrated.candidateCount,16);assert.equal(migrated.injectionTokens,3500);
     assert.equal(normalizeSettings({...saved,prompts:{questions:'Personal questions'}}).prompts.questions,'Personal questions');

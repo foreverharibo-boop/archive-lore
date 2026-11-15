@@ -116,15 +116,16 @@ export function recallMessages(messages, generationType) {
     return last >= 0 && !messages[last].is_user ? messages.slice(0,last) : messages;
 }
 
-// Review neighboring source chunks too, so a retrieved object's owner/contrast is not silently cut away.
-// This changes review context, never stored embedding text or cache keys.
+// Review the complete original entry once a chunk retrieves it. A distant
+// explanation, response or outcome must not be hidden by a +/-1 chunk window.
+// No new source embeddings or cache keys: unindexed tails can be read as context.
 export function reviewCandidates(candidates, chunks) {
-    const seen=new Set(), result=[];
-    for (const candidate of candidates) {
-        for (const row of chunks.filter(c=>c.id===candidate.id && Math.abs(c.index-candidate.index)<=1).sort((a,b)=>a.index-b.index)) {
-            const key=chunkKey(row);
-            if (!seen.has(key)) { seen.add(key); result.push(row); }
-        }
+    const byEntry=new Map(), seen=new Set(), result=[];
+    for(const chunk of chunks){if(!byEntry.has(chunk.id))byEntry.set(chunk.id,[]);byEntry.get(chunk.id).push(chunk);}
+    for(const candidate of candidates){
+        if(seen.has(candidate.id))continue;
+        seen.add(candidate.id);
+        result.push(...(byEntry.get(candidate.id)||[]).slice().sort((a,b)=>a.index-b.index));
     }
     return result;
 }

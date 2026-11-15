@@ -10,7 +10,7 @@ import { automaticReady, collectedHideRanges } from './lore-automation.js';
 import { consolidationView, maintenanceRequest, maintenanceResult } from './lore-maintenance.js';
 import { digest, embeddingKey, makeId } from './lore-api.js';
 import { retrievalFocus, rankFocusedChunks, chooseCandidates, recallMessages, reviewCandidates, reviewBatches, selectorMemories } from './lore-retrieval.js';
-import { selectionFocusPrompt, focusQuestionPrompt, focusSearchQuery, orderFocusedUnits } from './lore-selection-focus.js';
+import { selectionFocusPrompt, focusQuestionPrompt, focusSearchQuery, orderFocusedUnits, EVENT_CONTEXT_SELECTION_PROMPT, MAX_EVENT_SELECTIONS } from './lore-selection-focus.js';
 import { fitFocusedInjection } from './lore-focus-injection.js';
 import { withAbort } from './lore-cancellation.js';
 import { mapOrdered } from './lore-parallel.js';
@@ -264,8 +264,9 @@ export function createLoreController(host) {
             await log('dialogue.context', {requested:config.recentCount,generationType:options.generationType,excludedTail:snapshot.messages.length-messages.length, recent, sourceMessages:messages.map((m,index)=>({index,name:m.name,is_user:m.is_user,is_system:m.is_system,text:m.mes})).filter(m=>!m.is_system&&String(m.text||'').trim()).slice(-config.recentCount)});
             await log('core.records',{records:rows.filter(r=>isCore(r.entry)),text:core});
             if (!recent.text) { lastRecall={text:'',core,units:[],questions:[],pending:0,candidateTotal:0,tokens:0,mode:config.mode,records:rows.filter(r=>isCore(r.entry))};await log('retrieval.empty',{reason:'no dialogue'});return { text: '', core, selected: new Set(), books: host.books() }; }
-            const chunks = [], cacheStatus=[]; let pending = 0;
+            const chunks = [], reviewChunks = [], cacheStatus=[]; let pending = 0;
             for (const row of rows.filter(r => !isCore(r.entry))) for (const chunk of await chunksFor(row, config)) {
+                reviewChunks.push(chunk);
                 const vector = await host.store.get(chunk.cacheKey);
                 cacheStatus.push({entryId:chunk.id,chunk:chunk.index,hit:!!vector,text:chunk.text,dimensions:vector?.length});
                 if (vector) chunks.push({ ...chunk, vector }); else pending++;
@@ -332,14 +333,14 @@ export function createLoreController(host) {
                 } else if (config.generousRecall) {
                     const selectionStarted=Date.now();
                     const result=await generousRecall({candidates,
-                        chunks,config,latestUser:focus.latestUser,dialogue:recent.text,questions,
+                        chunks:reviewChunks,config,latestUser:focus.latestUser,dialogue:recent.text,questions,
                         ask:(system,data,signal,maxTokens)=>askTracked(config.searchProfile || config.profile,system,data,signal,maxTokens),
                         countTokens:host.countTokens,signal,log,notify});
                     fitted=result;candidateTotal=result.candidateTotal;
                     timings.selectionRequestMs=timings.selectionMs;
                     timings.selectionMs=Date.now()-selectionStarted;
                 } else {
-                    const offered = reviewUnits(reviewCandidates(candidates,chunks)), selected = [];
+                    const offered = reviewUnits(reviewCandidates(candidates,reviewChunks)), selected = [];
                     const batches = reviewBatches(offered);
                     await log('selection.plan',{policy:'compact-source-units-v1',selectionFocus:config.selectionFocus,units:offered.length,batches:batches.length,concurrency:config.selectionConcurrency,
                         originalTokens:estimateTokens(JSON.stringify(offered)),selectorTokens:estimateTokens(JSON.stringify(selectorMemories(offered)))});
@@ -349,10 +350,10 @@ export function createLoreController(host) {
                         let response, accepted;
                         for (let attempt=0;attempt<2;attempt++) {
                             response = await askTracked(config.searchProfile || config.profile,
-                                config.prompts.select + '\nReturn ONLY JSON: {"selections":[{"id":"u0","priority":3,"reason":"specific missing fact needed now","contextIds":[]}]}. Use priority 3 for facts relevant under the selection instructions, 2 for indispensable supporting context. Omit everything else. At most 24 selections in usefulness order. For no needed facts return {"selections":[]}. For each fact include contextIds (up to 8 IDs from the same entry) for sentences required to identify the owner, speaker, referent, conditions, negation, or a contrasting counterpart. Read nearby sentences before selecting. If two people have similar objects, include the distinguishing facts for each relevant owner; never assume their properties match. Before responding check that your excerpts do not change attribution or omit a qualification. Omit a fact if the supplied context cannot disambiguate it. These dependent sentences are retained together or omitted together; do not invent connective text.' + selectionFocusPrompt(config.selectionFocus) + OUTCOME_SELECTION_PROMPT,
+                                config.prompts.select + '\nReturn ONLY JSON: {"selections":[{"id":"u0","priority":3,"reason":"concrete relevance to this scene","contextIds":[],"outcomeIds":[]}]}. Use priority 3 for direct answers and continuity constraints, 2 for useful connected background. Return at most 48 main event anchors in usefulness order; connected context IDs are separate. For no useful related context return {"selections":[]}.' + selectionFocusPrompt(config.selectionFocus) + OUTCOME_SELECTION_PROMPT + EVENT_CONTEXT_SELECTION_PROMPT,
                                 { latestUser:focus.latestUser, dialogue: recent.text, questions, memories: selectorMemories(batch),
-                                    batch:index+1,batchCount:batches.length,maxSelections:24,injectionBudgetTokens:config.injectionTokens,
-                                    ...(config.selectionFocus.length?{selectionFocus:config.selectionFocus}:{}) }, signal, 3000);
+                                    batch:index+1,batchCount:batches.length,maxSelections:MAX_EVENT_SELECTIONS,injectionBudgetTokens:config.injectionTokens,
+                                    ...(config.selectionFocus.length?{selectionFocus:config.selectionFocus}:{}) }, signal, 6000);
                             try { accepted=selectedUnits(response,batch,config.selectionFocus);break; }
                             catch(error) {
                                 signal.throwIfAborted();
@@ -361,7 +362,7 @@ export function createLoreController(host) {
                                 notify('선별 응답 형식 다시 확인 중');
                             }
                         }
-                        await log('selection.validated',{batch:index+1,batchCount:batches.length,maxSelections:24,offered:batch,rawResponse:response,accepted,rejectedOrUnselected:batch.filter(u=>!accepted.some(a=>a.id===u.id))});
+                        await log('selection.validated',{batch:index+1,batchCount:batches.length,maxSelections:MAX_EVENT_SELECTIONS,offered:batch,rawResponse:response,accepted,rejectedOrUnselected:batch.filter(u=>!accepted.some(a=>a.id===u.id))});
                         return accepted;
                     },signal);
                     // API durations overlap in parallel mode. Report wall time separately.

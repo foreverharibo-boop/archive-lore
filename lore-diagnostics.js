@@ -18,7 +18,7 @@ export function createDiagnosticStore(factory=globalThis.indexedDB) {
 }
 
 // One ring for the whole extension session, shared across chats and operations.
-// Active traces accumulate only a bounded recall summary, never source arrays.
+// Active traces retain recall evidence as strings, never raw API/vector arrays.
 // No disk snapshots, IndexedDB, timers or separate export archive.
 export function createDiagnostics({secrets=()=>[],detailed=()=>true}={}) {
     const recent=[];
@@ -51,14 +51,14 @@ export function createDiagnostics({secrets=()=>[],detailed=()=>true}={}) {
                 if(!enabled()){audit=null;return;}
                 audit ||= createRecallAudit(value=>redact(value,hidden()));
                 try{
-                    if(audit.capture(stage,data))appendRaw('recall.review',{recallReview:audit.text()});
+                    if(audit.capture(stage,data))appendRaw('recall.review',{recallReview:audit.text(),recallDetails:audit.details()});
                     else appendRaw(stage,data);
                 }catch{appendRaw('diagnostic.summary-error',{message:'진단 요약 일부를 표시하지 못했어. 실제 검색·선별은 계속 진행돼.'});}
             };
             return {id:info.id,event:async(stage,data={})=>append(stage,data),finish:async(next,data={})=>{
                 status=next;for(const row of recent)if(row.meta.id===info.id)row.status=status;
-                // Refresh the bounded summary after long API phases, including errors.
-                if(enabled()&&seenRevision===revision&&audit?.text())appendRaw('recall.review',{recallReview:audit.text()});
+                // Refresh recall evidence after long API phases, including errors.
+                if(enabled()&&seenRevision===revision&&audit?.text())appendRaw('recall.review',{recallReview:audit.text(),recallDetails:audit.details()});
                 append('operation.end',{...data,...(typeof data.status==='number'?{httpStatus:data.status}:{}),status});
             }};
         },

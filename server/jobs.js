@@ -183,7 +183,7 @@ export function createJobService({sanitize,ask,embedRequest=embed,countTokens}) 
         vectors:vectorStore,
         // Diagnostics are a single in-memory ring per signed-in server user.
         async logFiles(user){diagnosticSession(user);return [];},
-        async logPreview(user){const runs=await diagnosticSession(user).previewRuns();return {diagnosticMode:'memory-errors-v1',recallDiagnostics:true,text:formatDiagnosticPreview(runs),runs};},
+        async logPreview(user){const runs=await diagnosticSession(user).previewRuns();return {diagnosticMode:'memory-errors-v1',recallDiagnostics:true,fullRecallDiagnostics:true,text:formatDiagnosticPreview(runs),runs};},
         async logList(user,key){return diagnosticSession(user).list(key);},
         async logStream(user,key){const rows=await this.logList(user,key);return (async function*(){yield JSON.stringify(rows);})();},
         state,

@@ -28,11 +28,11 @@ test('a completed long recall retains early candidates and selection in one stag
     await t.event('injection.prepared',{candidateTotal:3,selected:units.slice(0,2),tokens:40,core:'core body must stay absent'});
     await t.finish('success');
     let text=await d.preview();assert.match(text,/Where does the team train/);assert.match(text,/Repairs complete/);assert.match(text,/등록 확인 전/);
-    assert(!text.includes('등록 완료'));assert(!text.includes('private-fixture-secret'));assert(!text.includes('raw body must'));assert(!text.includes('core body must'));assert.match(text,/REDACTED/);
+    assert(!text.includes('등록 완료'));assert(!text.includes('private-fixture-secret'));assert(!text.includes('raw body must'));assert(text.includes('core body must'));assert.match(text,/REDACTED/);
     await t.event('injection.installed',{slots:[{name:'archive-lore-recalled',text:'body must stay absent',position:'IN_CHAT',depth:1}],selected:['book:1','book:2']});
     await t.event('rp.response',{text:'RP must stay absent'});await t.finish('success');
     const rows=await d.list(),events=rows.flatMap(r=>r.events);assert.equal(events.length,10);assert.equal(events.filter(e=>e.stage==='recall.review').length,1);
-    text=await d.preview();assert.match(text,/주입 슬롯 등록 완료/);assert(!text.includes('body must stay absent'));assert(!text.includes('RP must stay absent'));
+    text=await d.preview();assert.match(text,/주입 슬롯 등록 완료/);assert(text.includes('body must stay absent'));assert(!text.includes('RP must stay absent'));
     const roundTrip=JSON.parse(JSON.stringify(rows));for(const r of roundTrip)for(const e of r.events)e.data=diagnosticSummary(e.data);
     assert.equal(formatDiagnosticPreview(roundTrip),text);
 });
@@ -43,14 +43,14 @@ test('empty candidates, zero selection and deferred installation are explicit',a
     await t.event('injection.reserved',{slots:[],selected:[]});await t.finish('success');
     const text=await d.preview();assert.match(text,/미임베딩 1/);assert.match(text,/no indexed memories/);assert.match(text,/선별 원문 0/);assert.match(text,/설치 완료 아님/);assert(!text.includes('주입 슬롯 등록 완료'));
 });
-test('bounded excerpts survive batch volume without retaining full source or leaking a secret crossing the clipping boundary',async()=>{
+test('overview stays bounded while full recall originals survive beyond the old display limit and secrets remain masked',async()=>{
     const secret='a'.repeat(190)+'PRIVATE-SECRET-END',d=createDiagnostics({secrets:()=>[secret]}),t=d.begin();
-    const offered=Array.from({length:200},(_,i)=>({...units[0],id:'u'+i,index:i,text:secret+' BODY-TAIL'.repeat(1000)}));
+    const offered=Array.from({length:200},(_,i)=>({...units[0],id:'u'+i,index:i,text:secret+' BODY-TAIL'.repeat(30)}));
     await t.event('search.ranking',{ranked:offered.map(u=>({...u,offered:true}))});
-    for(let i=0;i<50;i++)await t.event('selection.validated',{batch:i+1,offered,accepted:offered.map(u=>({...u,requiredContext:[]}))});
+    for(let i=0;i<3;i++)await t.event('selection.validated',{batch:i+1,offered,accepted:offered.map(u=>({...u,requiredContext:[]}))});
     await t.finish('success');const events=(await d.list()).flatMap(r=>r.events),audit=events.find(e=>e.stage==='recall.review').data.recallReview;
     assert(audit.length<=RECALL_REVIEW_CHARS);assert.match(audit,/표시 .*200개/);assert.match(audit,/진단 표시 한도/);assert(!audit.includes('a'.repeat(140)));assert.match(audit,/REDACTED/);
-    assert((await d.preview()).length<30000);
+    const full=(await d.preview());assert(full.length>30000);assert(full.includes('u199'));assert(full.includes(' BODY-TAIL'.repeat(30)));assert(!full.includes(secret));
 });
 test('disabled diagnostics do not inspect recall arrays, clear and disable do not revive previous summaries',async()=>{
     let enabled=false;const d=createDiagnostics({detailed:()=>enabled}),t=d.begin();
@@ -65,4 +65,26 @@ test('errors keep the partial search audit and original diagnostic error, withou
     for(let i=0;i<20;i++)await t.event('request',{model:'test'});
     await t.finish('error',{message:'selector failed',status:429});
     const text=await d.preview();assert.match(text,/original query/);assert.match(text,/selector failed/);assert.match(text,/429/);assert(!text.includes('주입 슬롯 등록 완료'));
+});
+test('full selected and rejected source units and exact final slots survive preview, copy/export and server round trips',async()=>{
+    const secret='private-completion-key',d=createDiagnostics({secrets:()=>[secret]}),t=d.begin({chatKey:'full',kind:'generation'});
+    const offered=Array.from({length:60},(_,i)=>({id:'unit-'+i,entryId:'book:'+i,index:0,title:'Source '+i,text:`START ${i}\n`+'full source words '.repeat(80)+`\nEND ${i}`}));
+    const selected={...offered[58],priority:3,reason:'Complete reason '+secret,requiredContext:[offered[59]]};
+    await t.event('selection.validated',{batch:2,offered,accepted:[selected]});
+    const prepared='PREPARED-ONLY\n'+'original memory '.repeat(3000)+'\nPREPARED END';
+    await t.event('injection.prepared',{recalled:prepared,core:'Original core',guidance:'Original guidance',selected:[selected,offered[59]],tokens:5000});
+    let text=await d.preview();assert(text.includes(prepared));assert(text.includes(offered[0].text));assert(text.includes(offered[58].text));assert(text.includes(offered[59].text));
+    const installed='REGISTERED\n'+offered[58].text+'\n'+offered[59].text+'\nREGISTERED END';
+    await t.event('injection.installed',{slots:[{name:'archive-lore-recalled',text:installed},{name:'archive-lore-core',text:'Core '+secret},{name:'archive-lore-guidance',text:'Guidance\nEND'}],selected:['book:58','book:59']});
+    offered[58].text='MUTATED AFTER CAPTURE';await t.finish('success');
+    text=await d.preview();assert(text.includes(installed));assert(!text.includes('PREPARED-ONLY'));assert(!text.includes('MUTATED AFTER CAPTURE'));assert(!text.includes(secret));assert(!text.includes('diagnostic.summary-error'));assert.match(text,/Core \[REDACTED\]/);
+    assert.equal(await d.export(),text);
+    const transported=JSON.parse(JSON.stringify(await d.list()));
+    for(const run of transported)for(const event of run.events)event.data=diagnosticSummary(diagnosticSummary(event.data));
+    assert.equal(formatDiagnosticPreview(transported),text);
+    assert(text.length>24000);assert(text.includes('END 59'));
+});
+test('reserved reply placeholders are never presented as installed memory originals',async()=>{
+    const d=createDiagnostics(),t=d.begin();await t.event('injection.reserved',{slots:[{name:'memory',text:'SECRET RESERVATION MARKER'}]});
+    const text=await d.preview();assert(!text.includes('SECRET RESERVATION MARKER'));assert(!text.includes('실제 주입 슬롯에 등록한 원문 전체'));assert.match(text,/설치 완료 아님/);
 });

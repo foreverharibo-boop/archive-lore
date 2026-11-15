@@ -57,7 +57,7 @@ export async function generousRecall({candidates, chunks, config, latestUser, di
                     injectionBudgetTokens:config.injectionTokens,...(config.selectionFocus.length?{selectionFocus:config.selectionFocus}:{})},signal,6000);
             try {
                 const accepted=parseGenerousSelections(response,batch,config.selectionFocus);
-                await log('selection.validated',{policy:'generous-related-v2',batch:index+1,accepted});
+                await log('selection.validated',{policy:'generous-related-v2',batch:index+1,offered:batch,accepted});
                 return accepted;
             } catch(error) {
                 signal.throwIfAborted();

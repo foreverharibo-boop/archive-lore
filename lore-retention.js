@@ -1,4 +1,5 @@
 // Archive Lore — AGPL-3.0-only
+import { RECALL_REVIEW_CHARS } from './lore-recall-diagnostics.js';
 export const HISTORY_AGE_MS=3*24*60*60*1000;
 export const HISTORY_COUNT=20;
 export const DIAGNOSTIC_EVENT_LIMIT=10;
@@ -17,7 +18,10 @@ export function expiredHistory(rows,{now=Date.now(),maxAge=HISTORY_AGE_MS,maxCou
 // prompt, memory, vector or successful response bodies.
 export function diagnosticSummary(data, _depth=0, sanitize=value=>value) {
     const result={};let budget=1800,fields=0;
-    const names=new Set(['message','reason','mode','status','statusText','kind','stage','id','model','source','category','name','code','requestId','phase','resolvedProfile','requestedProfile','currentProfile','transport','endpoint','url','route','method','runtime','preset','finish_reason','finishReason','blockReason','error_description','type','elapsedMs','timeoutMs','aborted','formatValid','connected','query','dimensions','max_tokens','max_completion_tokens','totalTokenCount','promptTokenCount','candidatesTokenCount','total_tokens','prompt_tokens','completion_tokens','x-request-id','x-goog-request-id','retry-after','profile','searchProfile','serverObservedAt','eventId','responseType','custom_url','reverse_proxy','api-url','vertexai_region','stack']);
+    // Only the explicit, already bounded audit string is allowed; raw arrays and
+    // successful API bodies remain excluded. Preserve it across server/UI hops.
+    if(typeof data?.recallReview==='string')result.recallReview=String(sanitize(data.recallReview)).slice(0,RECALL_REVIEW_CHARS);
+    const names=new Set(['message','reason','mode','status','httpStatus','statusText','kind','stage','id','model','source','category','name','code','requestId','phase','resolvedProfile','requestedProfile','currentProfile','transport','endpoint','url','route','method','runtime','preset','finish_reason','finishReason','blockReason','error_description','type','elapsedMs','timeoutMs','aborted','formatValid','connected','query','dimensions','max_tokens','max_completion_tokens','totalTokenCount','promptTokenCount','candidatesTokenCount','total_tokens','prompt_tokens','completion_tokens','x-request-id','x-goog-request-id','retry-after','profile','searchProfile','serverObservedAt','eventId','responseType','custom_url','reverse_proxy','api-url','vertexai_region','stack']);
     const containers=new Set(['error','details','cause','abortReason','profile','body','payload','template','overrides','headers','response','usageMetadata','usage','data']);
     const put=(key,value)=>{
         if(fields>=24||budget<40)return;

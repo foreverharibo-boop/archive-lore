@@ -212,7 +212,7 @@ const diagnosticView={
         try{
             const server=await serverCall('/debug/recent',{chatKey:key},{signal:AbortSignal.timeout(5000)});
             if(server.diagnosticMode!=='memory-errors-v1'||!Array.isArray(server.runs))throw Error('서버 플러그인을 업데이트하고 재시작해 줘.');
-            return formatDiagnosticPreview([...local,...server.runs]);
+            return formatDiagnosticPreview([...local,...server.runs])+(server.recallDiagnostics?'':'\n\n서버 검색·선별 요약은 서버 플러그인 업데이트 후 재시작해야 표시됩니다.');
         }catch(error){return formatDiagnosticPreview(local)+'\n\n서버 진단 요약 확인 불가 · '+String(redact(errorInfo(error)).message).slice(0,600);}
     },
     async list(key){

@@ -100,7 +100,7 @@ test('server recall preserves selection emphasis in persisted jobs, AI requests 
     assert(result.result.tokens<=3000);
     assert(result.result.tokens>result.result.memoryTokens);
     const logs=await readLogs(f.service,f.user,'test-key');
-    assert(logs.every(r=>r.events.length<=10));assert(logs.some(r=>r.events.some(e=>e.stage==='selection.validated')));
+    assert(logs.every(r=>r.events.length<=10));assert(logs.some(r=>r.events.some(e=>e.stage==='recall.review'&&e.data.recallReview.includes('선별'))));
 });
 test('server recall persists cross-entry completion dependencies for client budgeting',async t=>{
     const f=fixture(t);
@@ -141,7 +141,7 @@ test('server generous recall persists its option and finishes underfilled withou
     assert.equal(result.result.lastRecall.fill,undefined);
     const saved=json(path.join(f.root,'archive-lore-server','jobs',job.id+'.json'));assert.equal(saved.input.settings.generousRecall,true);
     const logs=await readLogs(f.service,f.user,'test-key');
-    assert(logs.some(r=>r.events.some(e=>e.stage==='selection.validated'&&!('accepted' in e.data)&&!('reviews' in e.data))));
+    assert(logs.some(r=>r.events.some(e=>e.stage==='recall.review'&&e.data.recallReview.includes('선별')&&!('accepted' in e.data)&&!('reviews' in e.data))));
 });
 test('accepted collection survives without polling; saves book, vector, hide flags and redacted diagnostics on disk',async t=>{
     const f=fixture(t);f.replies.push(memory());const id=randomUUID(),job=await f.service.submit(f.user,'collect',f.input(),id);
@@ -190,8 +190,10 @@ test('server drafts survive service recreation; applying preserves history and c
 });
 test('both server retrieval modes use stored vectors and persist the full selection trace',async t=>{
     const f=fixture(t);f.replies.push(memory());let job=await f.service.submit(f.user,'collect',f.input(),randomUUID());await done(f.service,f.user,job.id);
-    for(const mode of ['dialogue','questions']){const input=f.input();input.settings.mode=mode;if(mode==='questions')f.replies.push('{"questions":["Which hospital visit?"]}');f.replies.push('{"selections":[{"id":"u0","priority":3,"reason":"supplies the requested visit fact"}]}');job=await f.service.submit(f.user,'recall',input,randomUUID());const result=await done(f.service,f.user,job.id);assert.equal(result.status,'completed',result.message);assert(result.result.text.includes('hospital'));assert.equal(result.result.selected.length,1);assert.equal(result.result.lastRecall.units[0].priority,3);}
-    assert((await readLogs(f.service,f.user,'test-key')).some(r=>r.events.some(e=>e.stage==='selection.validated')));
+    for(const mode of ['dialogue','questions']){const input=f.input();input.settings.mode=mode;if(mode==='questions')f.replies.push('{"questions":["Which hospital visit?"]}');f.replies.push('{"selections":[{"id":"u0","priority":3,"reason":"supplies the requested visit fact"}]}');job=await f.service.submit(f.user,'recall',input,randomUUID());const result=await done(f.service,f.user,job.id);assert.equal(result.status,'completed',result.message);assert(result.result.text.includes('hospital'));assert.equal(result.result.selected.length,1);assert.equal(result.result.lastRecall.units[0].priority,3);
+        const preview=await f.service.logPreview(f.user);assert.equal(preview.recallDiagnostics,true);assert.match(preview.text,/주입 준비 완료/);assert.match(preview.text,/supplies the requested visit fact/);assert(!preview.text.includes('private-embedding-key'));assert(!preview.text.includes('주입 슬롯 등록 완료'));
+    }
+    assert((await readLogs(f.service,f.user,'test-key')).some(r=>r.events.some(e=>e.stage==='recall.review'&&e.data.recallReview.includes('선별'))));
 });
 test('detached backend keeps non-streaming payload and aborts only on explicit signal',async()=>{
     let req;const router={handle(request,response){req=request;setTimeout(()=>response.json({choices:[{message:{content:'done'}}]}),15);}};
@@ -366,10 +368,10 @@ for(const mode of ['dialogue','questions'])for(const scenario of ['empty','core'
 });
 
 test('server diagnostics share one ten-stage ring across jobs and never write diagnostic files',async t=>{
-    const f=fixture(t);atomic(f.book,{entries:{0:{uid:0,content:'Hospital memory.'}}});
+    const f=fixture(t),fullMemory='Hospital memory. '.repeat(80)+'FULL_MEMORY_TAIL';atomic(f.book,{entries:{0:{uid:0,content:fullMemory}}});
     for(let i=0;i<4;i++){const input=f.input();input.settings.mode='embedding';input.templates={};const job=await f.service.submit(f.user,i===0?'index':'recall',input,randomUUID());assert.equal((await done(f.service,f.user,job.id)).status,'completed');}
     const runs=await f.service.logList(f.user);assert.equal(runs.reduce((n,r)=>n+r.events.length,0),10);
     assert(!fs.existsSync(path.join(f.root,'archive-lore-server','diagnostics')));
-    const text=JSON.stringify(runs);assert(!text.includes('Hospital memory.'));assert(!text.includes('We agreed'));assert(!text.includes('private-embedding-key'));
+    const text=JSON.stringify(runs);assert(text.includes('Hospital memory.'));assert(!text.includes(fullMemory));assert(!text.includes('\"messages\":'));assert(!text.includes('private-embedding-key'));
     const restarted=createJobService(f.dependencies);assert.deepEqual(await restarted.logList(f.user),[]);
 });

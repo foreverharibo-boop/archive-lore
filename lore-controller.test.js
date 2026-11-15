@@ -3,6 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createLoreController } from './lore-controller.js';
 import { DEFAULTS, NS, sourceRange } from './lore-core.js';
+import { createDiagnostics } from './lore-diagnostics.js';
 function fixture() {
     let book={entries:{}}, key='chat-a', failSave=false, failEmbed=false;
     let config={...DEFAULTS,cacheNamespace:'test'}, replies=[], calls=[], cache=new Map();
@@ -22,6 +23,24 @@ function fixture() {
         set key(v){key=v;},set failSave(v){failSave=v;},set failEmbed(v){failEmbed=v;},set config(v){config={...config,...v};}};
 }
 const memory=()=>JSON.stringify({entries:[{title:'병원 약속',content:'두 사람은 병원에 함께 가기로 약속했다.',keywords:['병원']}],sideChanges:[]});
+for(const mode of ['dialogue','questions','embedding'])for(const generousRecall of [false,true])test(`recall diagnostics inspect the real pipeline without extra model calls: ${mode}, generous=${generousRecall}`,async()=>{
+    const f=fixture(),diagnostics=createDiagnostics();f.host.diagnostics=diagnostics;
+    f.config={mode,generousRecall,injectionTokens:3000};
+    f.book={entries:{0:{uid:0,comment:'Hospital followup',content:'They visited the hospital together. The treatment is finished.'}}};
+    let requests=0;
+    f.host.ask=async(_p,system,data)=>{
+        requests++;
+        if(!data.memories)return '{"questions":["Did the treatment finish?"]}';
+        return JSON.stringify({selections:[{id:data.memories[0].id,priority:3,reason:'Prior visit',contextIds:data.memories.slice(1).map(u=>u.id)}]});
+    };
+    await f.controller.index();diagnostics.clear();
+    const result=await f.controller.recall();assert.match(result.text,/treatment is finished/);
+    const text=await diagnostics.preview();assert.match(text,/Hospital followup/);assert.match(text,/주입 준비 완료/);assert.match(text,/주입 한도 적용/);assert(!text.includes('주입 슬롯 등록 완료'));
+    if(mode!=='embedding'){assert.match(text,/미선택 0/);assert.match(text,/연결 문장 1/);}
+    else assert(!text.includes('[AI 미선택]'));
+    if(mode==='questions')assert.match(text,/Did the treatment finish/);
+    assert.equal(requests,mode==='questions'?2:mode==='embedding'?0:1);
+});
 for(const generousRecall of [false,true])test(`completed return is atomic with a selected side fact, generous=${generousRecall}`,async()=>{
     const f=fixture();
     f.config={mode:'questions',generousRecall,injectionTokens:3000,prompts:{questions:'Custom planner',select:'Custom selector'}};

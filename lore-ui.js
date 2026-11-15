@@ -1,6 +1,7 @@
 // Archive Lore modifications Copyright (C) 2026 foreverharibo-boop
 // SPDX-License-Identifier: AGPL-3.0-only
 import { applyNativeTheme } from './lore-native-preferences.js';
+import { formatDiagnosticPreview } from './lore-diagnostic-preview.js';
 import { DEFAULT_PROMPTS, SIDE_PROMPT, NS, normalizeSettings, isCore } from './lore-core.js';
 
 import { normalizeSides, DEFAULT_SIDES, SIDE_COMMON } from './lore-side-config.js';
@@ -55,7 +56,7 @@ export function createLoreUI(api) {
             ${s.embeddingProvider==='vertex'?field('Google Cloud 프로젝트 ID',input('embeddingVertexProjectId',s.embeddingVertexProjectId,'text','spellcheck="false"'))+field('리전',input('embeddingVertexRegion',s.embeddingVertexRegion,'text','placeholder="global" spellcheck="false"')):''}
             <div data-openai ${s.embeddingProvider === 'openai' ? '' : 'hidden'}>${field('임베딩 API 주소',input('embeddingUrl',s.embeddingUrl,'url'))}</div>
             </div><div class="al-actions">${button('embedding-test','임베딩 연결 확인')}</div><div data-embedding-status role="status"></div></details>
-            <section data-debug-settings><h3>디버그 기록</h3>${check('diagnosticsDetailed','디버그 모드 · 최근 10단계 기록',s.diagnosticsDetailed)}<p class="al-muted">오류 문구·코드, 실패 단계, 프로필·모델, 요청 주소와 소요 시간만 기록합니다. API 키는 가립니다.</p><p class="al-muted al-optional-help">작업·채팅을 합쳐 최근 10단계만 임시로 유지합니다. 긴 본문·배열은 저장하지 않으며 새로고침하면 초기화됩니다.</p><textarea class="text_pole al-debug-log" data-debug-log readonly rows="10" aria-label="디버그 로그" spellcheck="false" placeholder="기록 불러오는 중…"></textarea><div class="al-actions">${button('debug-copy','복사','disabled')}<span data-debug-status role="status"></span></div></section>
+            <section data-debug-settings><h3>디버그 기록</h3>${check('diagnosticsDetailed','디버그 모드 · 최근 10단계 기록',s.diagnosticsDetailed)}<p class="al-muted">검색 후보, AI 선택·미선택, 주입 한도 적용과 슬롯 등록 여부를 오류 정보와 함께 기록합니다. 항목 제목·원문 일부·제공된 선택 근거를 표시하며 API 키는 가립니다.</p><p class="al-muted al-optional-help">작업·채팅을 합쳐 최근 10단계만 임시로 유지합니다. 한 번의 검색 과정은 요약 한 단계로 묶습니다. 긴 원문·전체 배열은 중복 저장하지 않습니다. 브라우저는 새로고침, 서버는 재시작하면 초기화됩니다.</p><textarea class="text_pole al-debug-log" data-debug-log readonly rows="10" aria-label="디버그 로그" spellcheck="false" placeholder="기록 불러오는 중…"></textarea><div class="al-actions">${button('debug-refresh','새로고침')}${button('debug-copy','복사','disabled')}<span data-debug-status role="status"></span></div></section>
             </section><section data-settings-pane="collection" hidden><details open><summary>수집·검색 설정</summary><div class="al-fields">
             ${field('검색 방식',select('mode',[['dialogue','대화로 검색'],['questions','질문으로 검색'],['embedding','일반 임베딩']],s.mode))}
             ${field('최근 대화 참고 개수',input('recentCount',s.recentCount,'number','min="1" max="200"'))}
@@ -217,7 +218,8 @@ export function createLoreUI(api) {
                     } catch(error) {node.textContent=`${error.category==='response-format'?'AI 응답 수신 · 내용 확인 실패':error.category==='profile'?'프로필 확인 실패':'연결 확인 실패'} · ${error.message}`;throw error;}
                     finally{target.disabled=false;void loadDebugLog(container);}break;
                 }
-                case 'debug-copy':await copyDebugLog(container);break;
+                case 'debug-refresh':await loadDebugLog(container);break;
+                case 'debug-copy':await loadDebugLog(container);await copyDebugLog(container);break;
                 case 'server-check':case 'embedding-test':{
                     const node=container.querySelector(target.dataset.action==='server-check'?'[data-server-status]':'[data-embedding-status]');node.textContent='연결 확인 중';target.disabled=true;
                     try{const result=await (target.dataset.action==='server-check'?api.serverCheck():api.embeddingTest());node.textContent=target.dataset.action==='server-check'?`연결됨 · 서버 ${result.version}`:`임베딩 성공 · ${result.dimensions}차원`;}
@@ -313,7 +315,7 @@ export function createLoreUI(api) {
         if(!dialog?.isConnected || generation!==redraw)return;
         const attempts=runs.filter(r=>r.kind==='generation');
         dialog.querySelector('[data-log-counts]').textContent=`대화로 검색 ${attempts.filter(r=>r.mode==='dialogue'&&!['skipped','error','canceled'].includes(r.status)).length}회 · 질문으로 검색 ${attempts.filter(r=>r.mode==='questions'&&!['skipped','error','canceled'].includes(r.status)).length}회 · 일반 임베딩 ${attempts.filter(r=>r.mode==='embedding'&&!['skipped','error','canceled'].includes(r.status)).length}회 · 전체 기록 ${runs.length}개`;
-        dialog.querySelector('[data-log-list]').innerHTML=runs.slice(-30).reverse().map(r=>`<details><summary>${escape(r.started)} · ${escape(r.kind)} · ${escape(r.mode)} · ${escape(r.status)}</summary><pre>${escape(JSON.stringify(r,null,2))}</pre></details>`).join('');
+        dialog.querySelector('[data-log-list]').innerHTML=runs.slice(-30).reverse().map(r=>`<details><summary>${escape(r.started)} · ${escape(r.kind)} · ${escape(r.mode)} · ${escape(r.status)}</summary><pre>${escape(formatDiagnosticPreview([r]))}</pre></details>`).join('');
     }
     function openDraft(draft) {
         const editor=document.createElement('dialog');editor.className='al-root al-editor';

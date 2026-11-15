@@ -3662,18 +3662,34 @@ Server execution requires the updated server plugin and restart; it never silent
 falls back to the browser when the server test endpoint is unavailable.
 
 **디버그 모드 · 최근 10단계 기록** reuses `diagnosticsDetailed`. Enabling it
-records only bounded connection/error metadata. Each new stage evicts the oldest
+records bounded search/selection/injection summaries and connection/error metadata. Each new stage evicts the oldest
 stage across operations and chats, including its metadata; a completed operation
-has no separate retained event history. Disabling stops browser stage capture,
+has no separate retained event history. Recall milestones are coalesced into one
+`recall.review` stage per operation. This bounded summary preserves queries, candidate
+counts and excerpts, selected anchors and linked context, unselected source units,
+budget omissions, prepared output and prompt-slot registration. Active operations
+retain only bounded summary strings; long API phases cannot erase earlier recall
+milestones before the final summary is emitted. Disabling stops browser stage capture,
 including active operations. Logging never adds AI calls or changes model routing.
 
 The observer reduces input to an allowlist before redaction or retention. Arrays
-of prompts/messages/memories/vectors are not walked or copied. Small provider JSON
+of prompts/messages/memories/vectors are not walked or copied by the generic
+transport observer. Only explicit recall milestones inspect source arrays to
+produce bounded titles, IDs, excerpts and supplied reasons. A recall summary is
+limited to 24,000 characters with section limits and explicit display-omission
+markers; these limits do not change retrieval or injection. Context dependencies
+are counted as selected, not rejected. Unselected units have no invented rejection
+reasons. Budget omissions are reported separately. Prepared output, deferred server
+reservation and installed prompt slots are distinct; slot registration does not
+prove final API delivery or model adherence. Small provider JSON
 error envelopes expose only error metadata; HTML and text responses expose their
 type, not their body. Model finish reasons and token counts may be retained. Each
 stage has a bounded metadata budget. Secrets are removed before string clipping.
 
-Settings show the same bounded list that Copy uses. There is no full-text side
+Settings show the same bounded list that Copy uses. **새로고침** refreshes the
+visible log; Copy also refreshes before copying. The existing **턴별 진단 기록**
+view displays the same human-readable summaries. Full injected text remains in the
+existing injection viewer; diagnostics do not create another full-body archive. There is no full-text side
 archive or export file behind the preview. Existing compatibility export methods
 return only the in-memory metadata list. Native tool links open these settings
 instead of downloading TXT. Clipboard-denied / LAN HTTP browsers retain selection
@@ -3682,7 +3698,8 @@ and manual-copy fallback.
 Browser startup deletes the obsolete diagnostic IndexedDB database. The optional
 server plugin uses one transient ring per authenticated user across jobs, removes
 its legacy diagnostic folder on initialization, and never writes new diagnostic
-files. `/debug/recent` returns metadata only; older plugins show an update notice
+files. `/debug/recent` returns bounded summaries with `recallDiagnostics: true`;
+older compatible plugins show a recall-summary update notice
 instead of falling back to a full-file export. Update/restart the optional plugin
 to apply server cleanup. Regular job/result persistence and recovery backups are
 independent operational data and are unchanged by this debug-only cleanup.

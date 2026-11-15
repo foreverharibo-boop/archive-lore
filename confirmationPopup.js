@@ -1,4 +1,5 @@
 import { boundConnectionDisplay } from './lore-native-connection.js';
+import { combineDateMemories } from './lore-date-collection.js';
 import { getContext } from '../../../extensions.js';
 // Copyright (C) 2024–2026 Aiko Hanasaki
 // SPDX-License-Identifier: AGPL-3.0-only
@@ -618,7 +619,43 @@ export async function confirmSaveNewProfile(profileName) {
  * @param {Object} profileSettings - Profile settings used for generation
  * @returns {Promise<Object>} Result object with action and optional edited memory data
  */
+async function showDateMemoryPreviewPopup(memoryResult) {
+  const box=document.createElement('div'), heading=document.createElement('h3');
+  heading.textContent=`날짜별 기억 ${memoryResult.dateMemories.length}개 · 한 번에 저장`;
+  box.append(heading);
+  const fields=memoryResult.dateMemories.map(memory=>{
+    const section=document.createElement('section'),title=document.createElement('h4');
+    title.textContent=`${memory.extractedTitle} · #${memory.metadata.sceneRange}`;
+    const content=document.createElement('textarea'),keywords=document.createElement('input');
+    content.className='text_pole';content.rows=10;content.value=memory.content;content.setAttribute('aria-label',`${memory.extractedTitle} 본문`);
+    keywords.className='text_pole';keywords.value=(memory.suggestedKeys || []).join(', ');keywords.setAttribute('aria-label',`${memory.extractedTitle} 키워드`);
+    section.append(title,content,keywords);box.append(section);
+    return {memory,content,keywords};
+  });
+  const popup=new Popup(box,POPUP_TYPE.TEXT,'',{
+    okButton:'모두 저장',cancelButton:'취소',wide:true,allowVerticalScrolling:true,
+    customButtons:[{text:'전체 다시 생성',result:STMB_POPUP_RESULTS.RETRY,classes:['menu_button'],action:null}],
+    onClosing:()=>{
+      if (popup.result === POPUP_RESULT.AFFIRMATIVE && fields.some(f=>!f.content.value.trim())) {
+        toastr.error('날짜별 본문을 모두 채워 주세요.'); return false;
+      }
+      return true;
+    },
+  });
+  markStmbPopup(popup);activeMemoryPreviewPopups.add(popup);safePlayMessageSound();
+  try {
+    const result=await popup.show();
+    if (result === STMB_POPUP_RESULTS.RETRY) return {action:'retry'};
+    if (result !== POPUP_RESULT.AFFIRMATIVE) return {action:'cancel'};
+    const edited=fields.map(({memory,content,keywords})=>({...memory,content:content.value.trim(),
+      suggestedKeys:keywords.value.split(',').map(s=>s.trim()).filter(Boolean)}));
+    if (edited.some(m=>!m.content)) throw Error('날짜별 본문을 모두 채워 주세요.');
+    return {action:'edit',memoryData:combineDateMemories(memoryResult,edited)};
+  } finally {activeMemoryPreviewPopups.delete(popup);}
+}
+
 export async function showMemoryPreviewPopup(memoryResult, sceneData, profileSettings, options = {}) {
+  if (memoryResult?.dateMemories) return showDateMemoryPreviewPopup(memoryResult);
   let popup = null;
   try {
     // Input validation

@@ -11,6 +11,12 @@ export const COLLECTION_UNDO_PENDING='archiveLorePendingCollectionUndo';
 const same=(a,b)=>a?.start===b?.start && a?.end===b?.end;
 const time=value=>Date.parse(value)||0;
 const sideRange=s=>({start:s.sceneStart,end:s.sceneEnd});
+const collectionRange=entry=>{
+    const batch=entry.STMB_dateCollection, own=getRollbackEntryRange(entry);
+    return batch?.id && Number.isInteger(batch.start) && Number.isInteger(batch.end)
+        && batch.start>=0 && batch.start<=own?.start && batch.end>=own?.end
+        ? {start:batch.start,end:batch.end} : own;
+};
 
 export function planCollectionUndo(books,{chatId,messages,checkpoint}) {
     if(!chatId || !messages?.length)throw Error('대화가 있는 채팅방에서 되돌려 줘.');
@@ -18,7 +24,7 @@ export function planCollectionUndo(books,{chatId,messages,checkpoint}) {
     const candidates=[];
     for(const state of states) {
         for(const entry of Object.values(state.data.entries || {})) {
-            const range=getRollbackEntryRange(entry);
+            const range=collectionRange(entry);
             if(isRollbackBaseMemory(entry) && entry.STMB_chatId===chatId && range)
                 candidates.push({range,at:time(entry.STMB_collectedAt)});
             const s=getSidePromptRegenerationSnapshot(entry);
@@ -32,7 +38,7 @@ export function planCollectionUndo(books,{chatId,messages,checkpoint}) {
     if(!range)throw Error('현재 채팅의 수집 범위·복원 정보를 찾지 못했어. 로어북 파일을 확인해야 해.');
     if(range.end>=messages.length)throw Error('수집 이후 대화가 삭제돼서 범위를 확인할 수 없어.');
     const selected=new Map(states.map(s=>[s.name,new Set(Object.entries(s.data.entries || {})
-        .filter(([,e])=>isRollbackBaseMemory(e)&&e.STMB_chatId===chatId&&same(getRollbackEntryRange(e),range))
+        .filter(([,e])=>isRollbackBaseMemory(e)&&e.STMB_chatId===chatId&&same(collectionRange(e),range))
         .map(([k,e])=>String(e.uid??k)))]));
     const issues=validateAndExpandLinkedRollbackSelections(states,selected,chatId);
     if(issues.length)throw Error('연결된 기억 사본이 빠져 있어서 되돌리기를 멈췄어. 연결된 로어북을 확인해 줘.');
@@ -43,7 +49,8 @@ export function planCollectionUndo(books,{chatId,messages,checkpoint}) {
         // Range-only legacy receipts cannot distinguish repeated runs of the
         // same stream. Never guess and delete several independent collections.
         const baseEntries=Object.values(data.entries || {}).filter(e=>selected.get(state.name).has(String(e.uid)));
-        if(baseEntries.length>1 && !baseEntries.every(e=>e.STMB_inclusionGroup && e.STMB_inclusionGroup===baseEntries[0].STMB_inclusionGroup))
+        const singleDateBatch=baseEntries.every(e=>e.STMB_dateCollection?.id && e.STMB_dateCollection.id===baseEntries[0]?.STMB_dateCollection?.id);
+        if(baseEntries.length>1 && !singleDateBatch && !baseEntries.every(e=>e.STMB_inclusionGroup && e.STMB_inclusionGroup===baseEntries[0].STMB_inclusionGroup))
             throw Error('같은 범위가 여러 번 수집되어 직전 항목을 구별할 수 없어. 로어북에서 중복 항목을 먼저 확인해 줘.');
         const sideKeys=new Set();
         for(const e of Object.values(data.entries || {})) {

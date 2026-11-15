@@ -30,6 +30,18 @@ function harness() {
     return {state,scope};
 }
 const template={key:'relationship',name:'Relationship',settings:{}};
+test('staging multiple date entries makes no server, cache, progress, hide or notification changes',async()=>{
+    const {state,scope}=harness(),data={entries:{}};
+    let hides=0;scope.applySavedMemoryAutoHide=async()=>hides++;
+    for(const content of ['day one','day two']) {
+        const result=await scope.addMemoryToLorebook({content,titleFormat:ARCHIVE_LORE_TITLE_FORMAT,metadata:{}},
+            {valid:true,name:'book',data},{stageOnly:true,entryMetadata:{STMB_dateCollection:{id:'batch',start:0,end:3}}});
+        assert.equal(result.success,true);
+    }
+    assert.equal(Object.keys(data.entries).length,2);
+    assert.equal(state.writes,0);assert.equal(state.cache.size,0);assert.equal(state.progress,0);assert.equal(state.notifications,0);assert.equal(hides,0);
+    assert.equal(data.entries[1].STMB_dateCollection.id,'batch');
+});
 const history=(tpl=template)=>buildSidePromptHistoryRequest(tpl,{}, {chatId:'chat',chatRef:{type:'character',avatarUrl:'avatar',fileName:'chat'}},tpl.name,[tpl.name+' (STMB SidePrompt)']);
 const factory=({entry,priorEntry})=>({STMB_sidePromptRegeneration:buildSidePromptRegenerationSnapshot({templateKey:template.key,priorEntry,writtenEntry:entry,compiledScene:{metadata:{chatId:'chat',sceneStart:0,sceneEnd:1}}})});
 test('actual overwrite saves a stable identity, reuses UID after rename, and preserves the story entry',async()=>{

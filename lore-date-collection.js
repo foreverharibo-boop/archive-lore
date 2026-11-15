@@ -87,20 +87,59 @@ export function dateCollectionSource(messages, start, end) {
 }
 
 export async function runDateCollection({ ranges, assertCurrent, collect, onProgress = () => {} }) {
-    let saved = 0;
-    for (let index = 0; index < ranges.length; index++) {
-        assertCurrent();
-        const range = ranges[index];
-        onProgress({ saved, total: ranges.length, range });
-        const success = await collect(range, index === ranges.length - 1);
-        if (!success) throw Error(`날짜별 수집 중단 · ${saved}/${ranges.length}개 완료. #${range.start}부터 확인해 주세요.`);
-        saved++;
-    }
-    return { saved, total: ranges.length };
+    assertCurrent();
+    onProgress({ phase: 'generating', total: ranges.length });
+    if (!await collect(ranges)) throw Error('날짜별 수집이 취소되었거나 실패했습니다. 오류 알림을 확인해 주세요.');
+    return { saved: ranges.length, total: ranges.length };
 }
 
 export function withCollectionDate(prompt, metadata = {}) {
+    if (Array.isArray(metadata.archiveLoreDateRanges)) {
+        const plan = metadata.archiveLoreDateRanges.map((r,id) => ({id, date:r.date || 'unknown', start:r.start, end:r.end}));
+        return `${prompt}\n\nDATE-GROUPED BULK COLLECTION — OUTPUT FORMAT OVERRIDE\nRead the entire supplied scene once and produce all date groups in one response. Preserve the selected memory instructions, language, and full requested detail. This output schema replaces any earlier single-memory JSON schema: {"memories":[{"id":0,"content":"detailed memory","keywords":["keyword"]}]}. Return exactly one memory for EVERY listed id, in source order, including unknown dates. Do not combine groups or omit any. Each content must cover only its inclusive message-number range; other ranges and previous memories are context only. Dates are user-reviewed story dates, never message timestamps. Do not invent facts or dates. Do not shorten the requested detail merely because multiple entries are requested. Return JSON only.\nGroups: ${JSON.stringify(plan)}`;
+    }
     if (!Object.hasOwn(metadata, 'archiveLoreCollectionDate')) return prompt;
     const date = metadata.archiveLoreCollectionDate;
     return `${prompt}\n\nDATE-GROUPED COLLECTION\nThis selected message range has the user-reviewed story-date label: ${date || 'unknown'}. Preserve the full detail of the supplied scene. Do not import events from other dates or from reference memories into this scene. Write the JSON title field as exactly "${date || '날짜 미상'}". This is a story-date label, never a real message timestamp. Do not invent a missing date. Keep every required JSON field and the user's memory instructions.`;
+}
+
+export const DATE_COLLECTION_JSON_SCHEMA = {
+    name:'archive_lore_date_memories', description:'All date-grouped memories from one scene.', strict:true,
+    value:{type:'object',additionalProperties:false,required:['memories'],properties:{memories:{type:'array',items:{
+        type:'object',additionalProperties:false,required:['id','content','keywords'],properties:{
+            id:{type:'integer'},content:{type:'string'},keywords:{type:'array',items:{type:'string'}},
+        },
+    }}}},
+};
+
+export function validateDateCollectionResponse(result, ranges) {
+    const memories = result?.memories;
+    if (!Array.isArray(memories) || memories.length !== ranges.length)
+        throw Error(`날짜별 결과가 빠졌습니다. ${ranges.length}개 항목이 모두 있어야 저장할 수 있습니다.`);
+    for (let i=0;i<ranges.length;i++) {
+        const m=memories[i];
+        if (m?.id !== i || typeof m.content !== 'string' || !m.content.trim()
+            || !Array.isArray(m.keywords) || m.keywords.some(k=>typeof k !== 'string'))
+            throw Error(`날짜별 결과 ${i+1}의 번호·본문·키워드를 확인할 수 없어 저장하지 않았습니다.`);
+    }
+    return memories;
+}
+
+export function combineDateMemories(base, memories) {
+    return {...base, dateMemories:memories,
+        extractedTitle:`날짜별 기억 ${memories.length}개`,
+        content:memories.map(m=>`### ${m.extractedTitle}\n\n${m.content}`).join('\n\n'),
+        suggestedKeys:[...new Set(memories.flatMap(m=>m.suggestedKeys || []))],
+    };
+}
+
+export function splitDateMemoryResult(base, response, ranges) {
+    const memories=validateDateCollectionResponse(response,ranges).map((item,i)=>{
+        const range=ranges[i];
+        return {...base, content:item.content.trim(),extractedTitle:range.date || '날짜 미상',suggestedKeys:item.keywords,
+            metadata:{...base.metadata,sceneRange:`${range.start}-${range.end}`,messageCount:range.end-range.start+1},
+            lorebook:{...base.lorebook,content:item.content.trim(),key:item.keywords},
+        };
+    });
+    return combineDateMemories(base,memories);
 }

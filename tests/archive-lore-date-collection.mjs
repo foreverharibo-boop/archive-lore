@@ -14,7 +14,7 @@ import {dateCollectionSource} from '/lore-date-collection.js';
 window.messages=[{mes:'날짜 미상인 시작'},{mes:'Date: November 12, 2028'},{mes:'Same evening'},{mes:'### 2028-11-13'},{mes:'Next morning'}];
 const context={chat:messages,chatMetadata:{}};window.calls=[];
 const getContext=()=>context,nextCollectionRange=()=>({start:0,end:4});
-const native={collectionKey:()=> 'chat',collectRange:async()=>true,catchup:async()=>{},refresh:async()=>{},collectDates:async request=>{calls.push(request.ranges);window.request=request;request.onProgress({saved:0,total:request.ranges.length,range:request.ranges[0]});return new Promise((resolve,reject)=>{window.complete=()=>resolve({saved:request.ranges.length});window.fail=()=>reject(Error('test save failed'));});}};
+const native={collectionKey:()=> 'chat',collectRange:async()=>true,catchup:async()=>{},refresh:async()=>{},collectDates:async request=>{calls.push(request.ranges);window.request=request;request.onProgress({phase:'generating',total:request.ranges.length});return new Promise((resolve,reject)=>{window.complete=()=>resolve({saved:request.ranges.length});window.fail=()=>reject(Error('test save failed'));});}};
 function themedPopup(node){const dialog=document.createElement('dialog');dialog.append(node);document.body.append(dialog);return{show:()=>dialog.showModal()};}
 ${rangeFunction}
 await openRange();window.ready=true;

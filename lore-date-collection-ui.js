@@ -27,7 +27,9 @@ export function createDateCollectionEditor({ messages, start, end, collect, onBu
         if (busy) return;
         try {
             const ranges = read(); busy=true; onBusy(true); render();
-            const result = await collect(ranges, p => { status.textContent=`${p.saved}/${p.total}개 저장 · ${p.range.date || '날짜 미상'} (#${p.range.start}–#${p.range.end}) 수집 중`; });
+            const result = await collect(ranges, p => { status.textContent=p.phase==='saving'
+                ? `날짜별 기억 ${p.total}개를 한 번에 저장 중…`
+                : `전체 범위를 한 번에 읽고 날짜별 기억 ${p.total}개 생성 중…`; });
             status.textContent=`날짜별 수집 완료 · 기억 ${result.saved}개 저장`;
         } catch(e) { status.textContent=e.message; }
         finally { busy=false; onBusy(false); render(false); }
@@ -52,7 +54,7 @@ export function createDateCollectionEditor({ messages, start, end, collect, onBu
             rows.append(line);
         });
         add.disabled=busy;run.disabled=busy;
-        try { read();if(updateStatus)status.textContent=busy?'날짜별 수집 준비 중…':`기억 ${plan.length}개로 나누어 저장합니다. 사이드 기록은 마지막 기억 저장 후 한 번 갱신합니다.`; }
+        try { read();if(updateStatus)status.textContent=busy?'날짜별 수집 준비 중…':`전체 범위를 한 번에 생성하여 날짜별 기억 ${plan.length}개로 나누어 저장합니다. 날짜마다 생성 버튼을 다시 누르지 않습니다. 사이드 기록은 저장 후 한 번 갱신합니다.`; }
         catch(e){run.disabled=true;if(updateStatus)status.textContent=e.message;}
     }
     render();return box;

@@ -1,4 +1,4 @@
-import { withCollectionDate } from './lore-date-collection.js';
+import { withCollectionDate, DATE_COLLECTION_JSON_SCHEMA, validateDateCollectionResponse, splitDateMemoryResult } from './lore-date-collection.js';
 import { withArchiveLoreTitle } from './lore-native-title.js';
 // Copyright (C) 2024–2026 Aiko Hanasaki
 // SPDX-License-Identifier: AGPL-3.0-only
@@ -977,7 +977,7 @@ function makeAIError(code, message, recoverable = true) {
  * @returns {Object} Parsed JSON object
  * @throws {AIResponseError} If JSON parsing fails
  */
-export function parseAIJsonResponse(aiResponse) {
+export function parseAIJsonResponse(aiResponse, options = {}) {
     let cleanResponse = aiResponse;
 
     // Apply user-selected incoming regex scripts (bypass engine gating)
@@ -1054,6 +1054,10 @@ export function parseAIJsonResponse(aiResponse) {
     const uniq = uniqStrings(candidates);
 
     const validateParsed = (obj) => {
+        if (options.dateRanges) {
+            try { validateDateCollectionResponse(obj, options.dateRanges); return null; }
+            catch (error) { return makeAIError('INVALID_DATE_MEMORIES', error.message, false); }
+        }
         if (!obj || typeof obj !== 'object') {
             return makeAIError('EMPTY_OR_INVALID', 'AI response is empty or invalid', false);
         }
@@ -1085,6 +1089,8 @@ export function parseAIJsonResponse(aiResponse) {
             // ignore and try repair parse below
         }
 
+        // Bulk output must be complete; never repair a truncated list into a partial save.
+        if (options.dateRanges) continue;
         // Repair parse (dirty-json)
         try {
             const parsedRepaired = dirtyJson.parse(cand);
@@ -1238,7 +1244,7 @@ async function generateMemoryWithAI(promptString, profile, options = {}) {
             extra: extra,
             reverseProxy: !!conn.reverseProxy,
             signal,
-            jsonSchema: useStructuredOutput ? MEMORY_RESPONSE_JSON_SCHEMA : null,
+            jsonSchema: useStructuredOutput ? (options.dateRanges ? DATE_COLLECTION_JSON_SCHEMA : MEMORY_RESPONSE_JSON_SCHEMA) : null,
             useChatCompletionService: profile?.useChatCompletionService === true && apiType !== 'full-manual',
             chatCompletionPreset: profile?.chatCompletionPreset || '',
             archiveLoreConnectionProfileId: profile?.archiveLoreConnectionProfileId || '',
@@ -1265,7 +1271,7 @@ async function generateMemoryWithAI(promptString, profile, options = {}) {
 
         let jsonResult;
         try {
-            jsonResult = parseAIJsonResponse(aiResponseText);
+            jsonResult = parseAIJsonResponse(aiResponseText, {dateRanges:options.dateRanges});
         } catch (error) {
             if (
                 error instanceof AIResponseError
@@ -1284,6 +1290,7 @@ async function generateMemoryWithAI(promptString, profile, options = {}) {
             throw error;
         }
 
+        if (options.dateRanges) return {...jsonResult, profile};
         return {
             content: jsonResult.content || jsonResult.summary || jsonResult.memory_content || '',
             title: jsonResult.title || 'Memory',
@@ -1342,8 +1349,11 @@ export async function createMemory(compiledScene, profile, options = {}) {
             );
         }
         
-        const response = await generateMemoryWithAI(promptString, profile, { signal: options?.signal || null });
-        const processedMemory = processJsonResult(response, compiledScene);
+        const dateRanges = compiledScene.metadata.archiveLoreDateRanges;
+        const response = await generateMemoryWithAI(promptString, profile, { signal: options?.signal || null, dateRanges });
+        const processedMemory = processJsonResult(dateRanges
+            ? {content:response.memories.map(m=>m.content).join('\n\n'),title:'날짜별 기억',keywords:[]}
+            : response, compiledScene);
 
         const memoryResult = {
             content: processedMemory.content,
@@ -1403,7 +1413,7 @@ export async function createMemory(compiledScene, profile, options = {}) {
             }
         };
         
-        return memoryResult;
+        return dateRanges ? splitDateMemoryResult(memoryResult,response,dateRanges) : memoryResult;
         
     } catch (error) {
         if (isStmbStopError(error)) {
@@ -1559,7 +1569,7 @@ function formatSceneForAI(messages, metadata, previousSummariesContext = [], add
             'STMemoryBooks_PromptFrame_UnknownSpeaker',
         );
         const content = (message.mes || '').trim();
-        return content ? `${speaker}: ${content}` : null;
+        return content ? `${metadata.archiveLoreDateRanges ? `[Message #${message.id}] ` : ""}${speaker}: ${content}` : null;
     }).filter(Boolean); // Filter out any empty/null messages
         
     const sceneHeader = [
@@ -1643,7 +1653,7 @@ async function buildPrompt(compiledScene, profile) {
     };
     const basePrompt = await getEffectivePrompt(promptProfile);
     const systemPrompt = globalThis.archiveLoreFork
-        ? withCollectionDate(withArchiveLoreTitle(basePrompt, profile.titleFormat), metadata) : basePrompt;
+        ? withCollectionDate(metadata.archiveLoreDateRanges ? basePrompt : withArchiveLoreTitle(basePrompt, profile.titleFormat), metadata) : basePrompt;
     
     // Use substituteParams to allow for standard macros like {{char}} and {{user}}
     const groupName = metadata.groupName || metadata.characterName || '';

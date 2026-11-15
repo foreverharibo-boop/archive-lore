@@ -636,6 +636,10 @@ export async function addMemoryToLorebook(memoryResult, lorebookValidation, opti
         if(globalThis.archiveLoreFork) {
             maintainArchiveDisplayOrder(lorebookValidation.data, newEntry);
             newEntry.STMB_collectedAt = new Date().toISOString();
+            if (options.stageOnly) {
+                Object.assign(originalLorebookData,lorebookValidation.data);
+                return {success:true,entryId:newEntry.uid,entryTitle,lorebookName:lorebookValidation.name};
+            }
             await saveSidePromptLorebookChecked(lorebookValidation.name, lorebookValidation.data);
             Object.assign(originalLorebookData,lorebookValidation.data);
         } else await saveWorldInfo(lorebookValidation.name, lorebookValidation.data, true);

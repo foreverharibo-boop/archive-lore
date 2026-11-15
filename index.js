@@ -1775,21 +1775,74 @@ async function collectArchiveDates({ start, end, ranges, onProgress }) {
       throw Error('채팅 또는 수집할 메시지가 변경되어 날짜별 수집을 중단했습니다.');
   };
   try {
-    const settings = initializeSettings();
-    // Capture side input before per-day auto-hide changes message visibility.
-    const sideScene = compileScene(createSceneRequest(start,end), {includeHiddenMessages:!!settings.moduleSettings.unhideBeforeMemory});
-    captureIntervalScene(sideScene, {chat,compileScene,createSceneRequest});
-    applyNarratorSceneMetadata(sideScene, getCurrentMemoryBooksContext());
-    applyGroupMemoryPolicy(sideScene, settings.moduleSettings, getCurrentMemoryBooksContext());
     return await runDateCollection({ ranges: plan, assertCurrent, onProgress,
-      collect: async (range, last) => runSceneMemoryRange(range.start,range.end, {
-        showSceneToast:false, dateCollection:{batch,date:range.date,last,sideScene,assertCurrent},
+      collect: async (ranges) => runSceneMemoryRange(start,end, {
+        showSceneToast:false, dateCollection:{batch,ranges,onProgress,assertCurrent},
       }),
     });
   } finally {
     task.finish(); if (archiveDateCollection === batch) archiveDateCollection = null;
     refreshCollectionStatus(); notifyCollectionCompletion();
   }
+}
+
+async function saveArchiveDateMemories({memoryResult,lorebookValidation,settings,sceneData,dateCollection,automaticGroupAddOptions,groupOptions}) {
+  const memories = memoryResult.dateMemories;
+  if (!Array.isArray(memories) || memories.length !== dateCollection.ranges.length)
+    throw Error('날짜별 결과가 모두 준비되지 않아 저장하지 않았습니다.');
+  const names = [...new Set([lorebookValidation.name,...(groupOptions?.copyTargets || []).map(t=>t.lorebookName)])];
+  return withLorebookWriteLanes(names,async()=>{
+    dateCollection.assertCurrent();
+    const states=[];
+    for (const name of names) {
+      const originalData=await loadWorldInfo(name);
+      if (!originalData?.entries) throw Error(`로어북을 불러오지 못했습니다: ${name}`);
+      states.push({name,originalData,data:structuredClone(originalData)});
+    }
+    const stagedBooks=new Map(states.map(s=>[s.name,s.data]));
+    const primary=stagedBooks.get(lorebookValidation.name);
+    if (!settings.moduleSettings.allowSceneOverlap && findOverlappingMemoryInLorebook(primary,sceneData))
+      throw Error('수집 중 같은 범위의 기억이 저장되어 중복 저장을 멈췄습니다.');
+    const batchMetadata={id:globalThis.crypto?.randomUUID?.() || `dates-${Date.now()}-${Math.random().toString(36).slice(2)}`,start:sceneData.sceneStart,end:sceneData.sceneEnd};
+    let copiedCount=0;
+    for (let i=0;i<memories.length;i++) {
+      dateCollection.assertCurrent();
+      const range=dateCollection.ranges[i], memory=memories[i];
+      if (!memory.content?.trim() || memory.metadata?.sceneRange !== `${range.start}-${range.end}`)
+        throw Error('날짜별 본문 또는 메시지 범위가 잘못되어 저장하지 않았습니다.');
+      memory.extractedTitle=range.date || '날짜 미상'; memory.titleFormat=ARCHIVE_LORE_TITLE_FORMAT;
+      const validation={...lorebookValidation,data:primary};
+      let result;
+      if (groupOptions) {
+        const characterMemoryResultsByLorebookName=new Map();
+        for (const [name,focused] of groupOptions.characterMemoryResultsByLorebookName || []) {
+          const item=focused.dateMemories?.[i];
+          if (!item || item.metadata.sceneRange !== memory.metadata.sceneRange)
+            throw Error('캐릭터별 날짜 기억의 구간이 일치하지 않습니다.');
+          characterMemoryResultsByLorebookName.set(name,item);
+        }
+        result=await addMemoryToManualGroupLorebooks(memory,validation,{
+          ...groupOptions,characterMemoryResultsByLorebookName,stageOnly:true,writeLanesHeld:true,stagedBooks,
+          entryMetadata:{STMB_dateCollection:batchMetadata},
+        });
+      } else result=await addMemoryToLorebook(memory,validation,{
+        ...automaticGroupAddOptions,stageOnly:true,
+        entryMetadata:{...automaticGroupAddOptions?.entryMetadata,STMB_dateCollection:batchMetadata},
+      });
+      if (!result.success) throw Error(result.error || '날짜별 기억을 준비하지 못했습니다.');
+      copiedCount+=result.copiedCount || 0;
+    }
+    dateCollection.onProgress?.({phase:'saving',total:memories.length});
+    // All entries are staged before the first write; one checked save per book.
+    // Reuse the existing optimistic checks and compensating multi-book writer.
+    await saveCollectionUndo(states,{load:loadWorldInfo,save:saveSidePromptLorebookChecked,assertCurrent:dateCollection.assertCurrent});
+    Object.assign(lorebookValidation.data,primary);
+    if (settings.moduleSettings.refreshEditor !== false) for (const name of names) {
+      try { await reloadEditor(name); } catch (error) { console.warn('Archive Lore: saved date memories, editor refresh failed',error); }
+    }
+    return {success:true,entryTitle:memoryResult.extractedTitle,lorebookName:lorebookValidation.name,
+      memoryCount:memories.length+copiedCount,copiedCount,copiedResults:names.slice(1).map(lorebookName=>({lorebookName}))};
+  });
 }
 
 function compileSceneForCatchupPreflight(sceneRequest, unhideBeforeMemory) {
@@ -3994,9 +4047,9 @@ async function addMemoryToManualGroupLorebooks(memoryResult, lorebookValidation,
       continue;
     }
 
-    const lorebookData = target.lorebookName === lorebookValidation.name
+    const lorebookData = options.stagedBooks?.get(target.lorebookName) || (target.lorebookName === lorebookValidation.name
       ? lorebookValidation.data
-      : await loadWorldInfo(target.lorebookName);
+      : await loadWorldInfo(target.lorebookName));
     if (!lorebookData) {
       const memberNames = formatManualGroupMemberNames(getManualGroupCopyTargetMembers(target), target.lorebookName);
       throw new Error(__st_t_tag`Failed to load manual lorebook "${target.lorebookName}" for ${memberNames}.`);
@@ -4010,12 +4063,14 @@ async function addMemoryToManualGroupLorebooks(memoryResult, lorebookValidation,
     inclusionGroup,
     canonicalLorebookName: lorebookValidation.name,
   });
+  Object.assign(baseEntryMetadata, options.entryMetadata || {});
   Object.assign(baseEntryMetadata, buildManualGroupRoleMetadata("group"));
   if (Array.isArray(options.narratorParticipantIds)) {
     baseEntryMetadata.STMB_narratorParticipantIds = [...options.narratorParticipantIds];
   }
 
   const addResult = await addMemoryToLorebook(memoryResult, lorebookValidation, {
+    stageOnly: options.stageOnly,
     updateHighestMemoryProcessed: false,
     ...(options.primaryAddOptions || {}),
     inclusionGroup,
@@ -4056,10 +4111,12 @@ async function addMemoryToManualGroupLorebooks(memoryResult, lorebookValidation,
         deepClone(targetMemoryResult || memoryResult),
         { valid: true, name: target.lorebookName, data: lorebookDataByName.get(target.lorebookName) },
         {
+          stageOnly: options.stageOnly,
           inclusionGroup,
           entryTitle: targetMemoryResult ? undefined : addResult.entryTitle,
           characterFilterNames,
           entryMetadata: {
+            ...(options.entryMetadata || {}),
             ...getCanonicalMemoryCopyMetadata({
               inclusionGroup,
               canonicalLorebookName: lorebookValidation.name,
@@ -4091,10 +4148,11 @@ async function addMemoryToManualGroupLorebooks(memoryResult, lorebookValidation,
       copiedResults.push(copyResult);
     }
 
-    if (canonicalEntry) {
+    if (canonicalEntry && !options.stageOnly) {
       await saveWorldInfo(lorebookValidation.name, lorebookValidation.data, true);
     }
   } catch (error) {
+    if (options.stageOnly) throw error; // Discard staged copies; no external writes occurred.
     try {
       await rollbackManualGroupLorebookWrites(writtenEntries, lorebookDataByName, inclusionGroup);
     } catch (rollbackError) {
@@ -5609,7 +5667,12 @@ async function executeMemoryGeneration(
       sceneData.sceneEnd,
     );
     compiledScene = compileScene(sceneRequest);
-    if (effectiveSettings.dateCollection) compiledScene.metadata.archiveLoreCollectionDate = effectiveSettings.dateCollection.date;
+    if (effectiveSettings.dateCollection) {
+      const ranges=effectiveSettings.dateCollection.ranges;
+      for (const range of ranges) if (!compiledScene.messages.some(m=>m.id>=range.start && m.id<=range.end))
+        throw Error(`날짜별 구간 #${range.start}–#${range.end}에 포함할 본문이 없습니다. 숨긴 메시지 포함 설정이나 수집 범위를 확인해 주세요.`);
+      compiledScene.metadata.archiveLoreDateRanges = ranges;
+    }
     if (globalThis.archiveLoreFork) captureIntervalScene(compiledScene, { chat, compileScene, createSceneRequest });
     const promptContext = memoryOriginSnapshot.sceneContext;
     compiledScene.metadata = {
@@ -5778,7 +5841,7 @@ async function executeMemoryGeneration(
           lorebookValidation,
           effectiveSettings,
           nextRetryCount,
-          null,
+          effectiveSettings.dateCollection ? stmbTask : null,
           manualGroupLorebookValidation,
           generationRetryState,
         );
@@ -5833,10 +5896,6 @@ async function executeMemoryGeneration(
     throwIfStmbStopped(runEpoch);
     effectiveSettings.dateCollection?.assertCurrent();
 
-    if (effectiveSettings.dateCollection) {
-      finalMemoryResult.extractedTitle = effectiveSettings.dateCollection.date || '날짜 미상';
-      finalMemoryResult.titleFormat = ARCHIVE_LORE_TITLE_FORMAT;
-    }
     // Add to lorebook silently
     const saveContext = memoryOriginSnapshot.sceneContext;
     const resolvedManualGroupLorebooks =
@@ -5866,8 +5925,16 @@ async function executeMemoryGeneration(
           })
         : null;
 
-    const addResult =
-      shouldWriteManualGroupLorebooks
+    const addResult = effectiveSettings.dateCollection
+      ? await saveArchiveDateMemories({memoryResult:finalMemoryResult,lorebookValidation,settings,sceneData,
+          dateCollection:effectiveSettings.dateCollection,automaticGroupAddOptions,
+          groupOptions:shouldWriteManualGroupLorebooks ? {
+            ...resolvedManualGroupLorebooks,
+            ...getMultiCharacterWriteOptions(resolvedManualGroupLorebooks,finalMemoryResult,saveContext),
+            copyTargets:characterFocusedMemories?.copyTargets || copyTargets,
+            characterMemoryResultsByLorebookName:characterFocusedMemories?.characterMemoryResultsByLorebookName,
+          } : null})
+      : shouldWriteManualGroupLorebooks
         ? await addMemoryToManualGroupLorebooks(
             finalMemoryResult,
             lorebookValidation,
@@ -5892,7 +5959,7 @@ async function executeMemoryGeneration(
 
     // Run side prompts that are enabled to run with memories
     if (globalThis.archiveLoreFork) collectionReceipt = recordCollectionResult(memoryOriginSnapshot.chatKey, {
-      range: {sceneStart:sceneData.sceneStart,sceneEnd:sceneData.sceneEnd}, memoryCount:1+(addResult.copiedCount||0),
+      range: {sceneStart:sceneData.sceneStart,sceneEnd:sceneData.sceneEnd}, memoryCount:addResult.memoryCount || 1+(addResult.copiedCount||0),
       hide:addResult.autoHideResult, side:{updated:0,failed:0}, complete:false,
     });
     try {
@@ -5905,8 +5972,7 @@ async function executeMemoryGeneration(
         model: connDbg.model,
         temperature: connDbg.temperature,
       });
-      if (!effectiveSettings.dateCollection || effectiveSettings.dateCollection.last) await runAfterMemory(
-        effectiveSettings.dateCollection?.sideScene || compiledScene, profileSettings, {
+      await runAfterMemory(compiledScene, profileSettings, {
         parentJobId:collectionReceipt?.id || '',
         onSummary:summary=>{if(collectionReceipt)collectionReceipt.side=summary;},
         chatRef: memoryOriginSnapshot.chatRef,
@@ -5984,7 +6050,7 @@ async function executeMemoryGeneration(
     console.error("STMemoryBooks: Error creating memory:", error);
 
     // Determine if we should retry
-    const shouldRetry = retryCount < maxRetries && isRetryableError(error);
+    const shouldRetry = !collectionReceipt && retryCount < maxRetries && isRetryableError(error);
 
     if (shouldRetry) {
       // Show retry notification and attempt again
@@ -6057,6 +6123,7 @@ async function executeMemoryGeneration(
             ? `${compiledScene.metadata.sceneStart}-${compiledScene.metadata.sceneEnd}`
             : `${sceneData.sceneStart}-${sceneData.sceneEnd}`,
       };
+      if (effectiveSettings.dateCollection) lastFailedAIContext = null; // Single-memory JSON repair cannot safely split a batch.
       const failureMessage =
         __st_t_tag`AI failed to generate valid memory${codeTag}: ${error.message}${retryMsg}`;
       const rawResponseLinkLabel = translate(

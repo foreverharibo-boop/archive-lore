@@ -13,6 +13,19 @@ function side(uid,prior=null,start=2,end=3) {
         compiledScene:{metadata:{sceneStart:start,sceneEnd:end,chatId:'chat'}}});return entry;
 }
 const plan=books=>planCollectionUndo(books,{chatId:'chat',messages,checkpoint:3});
+test('date collection undo removes the entire batch and its side, preserving earlier memories',()=>{
+    const batch={id:'batch-1',start:0,end:3},at='2026-11-09T12:00:00Z';
+    const data={entries:{
+        0:{...memory(0,0,1),STMB_dateCollection:batch,STMB_collectedAt:at},
+        1:{...memory(1,2,3),STMB_dateCollection:batch,STMB_collectedAt:at},
+        2:side(2,null,0,3),3:memory(3,0,0),
+    }};
+    const result=plan([{name:'book',data}]);
+    assert.deepEqual(result.range,{start:0,end:3});assert.equal(result.checkpoint,-1);
+    assert.deepEqual(Object.keys(result.states[0].data.entries),['3']);assert.equal(Object.keys(data.entries).length,4);
+    const repeat=structuredClone(data);repeat.entries[4]={...memory(4,0,1),STMB_dateCollection:{...batch,id:'another-batch'},STMB_collectedAt:at};
+    assert.throws(()=>plan([{name:'book',data:repeat}]),/여러 번/);
+});
 test('undo deletes new memory/new side, restores overwritten side and preserves unrelated entries and source books',()=>{
     const prior={uid:2,comment:'Relationship (STMB SidePrompt)',content:'Previous record',disable:true};
     const newSide=side(3);newSide.STMB_sidePromptRegeneration.templateKey='plans';

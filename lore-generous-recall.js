@@ -4,6 +4,7 @@ import { reviewCandidates, reviewBatches, selectorMemories } from './lore-retrie
 import { fitFocusedInjection } from './lore-focus-injection.js';
 import { normalizeSelectionFocus, orderFocusedUnits, selectionFocusPrompt } from './lore-selection-focus.js';
 import { mapOrdered } from './lore-parallel.js';
+import { OUTCOME_SELECTION_PROMPT, outcomeContext } from './lore-outcome-context.js';
 
 const unitKey = u => JSON.stringify([u.entryId, u.index]);
 
@@ -24,6 +25,7 @@ export function parseGenerousSelections(response, offered, selectionFocus = []) 
         if (!row || !allowed.has(row.id) || seen.has(row.id) || ![2,3].includes(row.priority))
             throw Error('넉넉한 주입 선별 형식이 올바르지 않아.');
         seen.add(row.id);
+        outcomeContext(row, allowed);
         if (row.contextIds !== undefined && (!Array.isArray(row.contextIds) || row.contextIds.length > 8
             || row.contextIds.some(id => !allowed.has(id) || allowed.get(id).entryId !== allowed.get(row.id).entryId)))
             throw Error('기억 선별의 연결 문장 형식이 올바르지 않아.');
@@ -31,7 +33,10 @@ export function parseGenerousSelections(response, offered, selectionFocus = []) 
     return rows.map(row => ({
         ...allowed.get(row.id), priority:row.priority, selectionFormat:'generous',
         focusMatches:normalizeSelectionFocus(row.focusMatches).filter(id => selectionFocus.includes(id)),
-        requiredContext:[...new Set(row.contextIds || [])].filter(id => id !== row.id).map(id => allowed.get(id)),
+        requiredContext:[...new Map([
+            ...[...new Set(row.contextIds || [])].filter(id => id !== row.id).map(id => allowed.get(id)),
+            ...outcomeContext(row, allowed),
+        ].map(unit=>[unit.id,unit])).values()],
     }));
 }
 
@@ -46,7 +51,7 @@ export async function generousRecall({candidates, chunks, config, latestUser, di
         notify('관련 기억을 넉넉하게 고르는 중');
         for(let attempt=0;attempt<2;attempt++){
             signal.throwIfAborted();
-            const response=await ask(config.prompts.select+selectionFocusPrompt(config.selectionFocus)+GENEROUS_SELECTION_PROMPT
+            const response=await ask(config.prompts.select+selectionFocusPrompt(config.selectionFocus)+GENEROUS_SELECTION_PROMPT+OUTCOME_SELECTION_PROMPT
                 +(attempt?'\nThe previous response was invalid. Return a selections array with valid supplied IDs, priority 2 or 3 and same-entry contextIds. Do not include explanations.':''),
                 {latestUser,dialogue,questions,memories:selectorMemories(batch),batch:index+1,batchCount:batches.length,
                     injectionBudgetTokens:config.injectionTokens,...(config.selectionFocus.length?{selectionFocus:config.selectionFocus}:{})},signal,6000);

@@ -22,6 +22,37 @@ function fixture() {
         set key(v){key=v;},set failSave(v){failSave=v;},set failEmbed(v){failEmbed=v;},set config(v){config={...config,...v};}};
 }
 const memory=()=>JSON.stringify({entries:[{title:'병원 약속',content:'두 사람은 병원에 함께 가기로 약속했다.',keywords:['병원']}],sideChanges:[]});
+for(const generousRecall of [false,true])test(`completed return is atomic with a selected side fact, generous=${generousRecall}`,async()=>{
+    const f=fixture();
+    f.config={mode:'questions',generousRecall,injectionTokens:3000,prompts:{questions:'Custom planner',select:'Custom selector'}};
+    f.book={entries:{
+        0:{uid:0,comment:'Expenses',content:'Morgan paid to clean the borrowed raincoat.'},
+        1:{uid:1,comment:'Monday',content:'Morgan brought the coat back to Lee. Lee took the hanger and put the coat in his locker.'},
+        2:{uid:2,comment:'Excluded',content:'PRIVATE unrelated outcome.',STMB_sidePromptHistory:{templateKey:'private'}},
+    }};
+    f.config={excludedSidePromptKeys:['private']};
+    let planners=0,selectors=0;
+    f.host.ask=async(_profile,system,data)=>{
+        assert(!JSON.stringify(data).includes('PRIVATE'));
+        if(system.startsWith('Custom planner')){
+            planners++;assert.match(system,/EVENT STATUS SEARCH/);
+            return '{"questions":["What happened to the borrowed raincoat, including its return?"]}';
+        }
+        selectors++;assert(system.startsWith('Custom selector'));
+        assert.match(system,/EVENT OUTCOME CONTINUITY/);
+        const cost=data.memories.find(u=>u.text.includes('paid'));
+        const outcomes=data.memories.filter(u=>u.text.includes('brought')||u.text.includes('hanger'));
+        return JSON.stringify({selections:[{id:cost.id,priority:3,reason:'Expense context',outcomeIds:outcomes.map(u=>u.id)}]});
+    };
+    await f.controller.index();
+    const saved=structuredClone(f.book),documentCalls=f.calls.filter(c=>c==='document').length;
+    const result=await f.controller.recall();
+    assert.equal(planners,1);assert.equal(selectors,1);
+    assert(result.text.includes('paid'));assert(result.text.includes('brought'));assert(result.text.includes('locker'));
+    assert(result.guidance.includes('never replay a completed errand'));
+    assert(result.tokens<=3000);assert.deepEqual(f.book,saved);
+    assert.equal(f.calls.filter(c=>c==='document').length,documentCalls);
+});
 for(const mode of ['dialogue','questions','embedding'])test(`generous recall includes related background, respects side exclusions and bypasses plain embedding in ${mode}`,async()=>{
     const f=fixture();f.config={mode,generousRecall:true,candidateCount:2,excludedSidePromptKeys:['private'],selectionFocus:['meaning'],injectionTokens:3000};
     f.book={entries:{0:{uid:0,content:'They had a reassuring hospital visit.'},1:{uid:1,content:'She liked having him beside her at the hospital.'},2:{uid:2,content:'PRIVATE record.',STMB_sidePromptHistory:{templateKey:'private'}}}};

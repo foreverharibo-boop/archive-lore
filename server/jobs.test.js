@@ -102,6 +102,30 @@ test('server recall preserves selection emphasis in persisted jobs, AI requests 
     const logs=await readLogs(f.service,f.user,'test-key');
     assert(logs.every(r=>r.events.length<=10));assert(logs.some(r=>r.events.some(e=>e.stage==='selection.validated')));
 });
+test('server recall persists cross-entry completion dependencies for client budgeting',async t=>{
+    const f=fixture(t);
+    atomic(f.book,{entries:{
+        0:{uid:0,comment:'Expense',content:'Morgan paid to clean the borrowed coat.'},
+        1:{uid:1,comment:'Return',content:'Lee received the coat and put it in his locker.'},
+    }});
+    const input=f.input();
+    let job=await f.service.submit(f.user,'index',input,randomUUID());
+    assert.equal((await done(f.service,f.user,job.id)).status,'completed');
+    f.replies.push(payload=>{
+        const system=payload.messages.find(m=>m.role==='system').content;
+        const data=JSON.parse(payload.messages.find(m=>m.role==='user').content);
+        assert.match(system,/EVENT OUTCOME CONTINUITY/);
+        const cost=data.memories.find(u=>u.text.includes('paid')),outcome=data.memories.find(u=>u.text.includes('received'));
+        return JSON.stringify({selections:[{id:cost.id,priority:3,reason:'Expense',outcomeIds:[outcome.id]}]});
+    });
+    job=await f.service.submit(f.user,'recall',input,randomUUID());
+    const result=await done(f.service,f.user,job.id);
+    assert.equal(result.status,'completed',result.message);assert.equal(f.calls.length,1);
+    assert(result.result.text.includes('locker'));
+    const saved=json(path.join(f.root,'archive-lore-server','jobs',job.id+'.json'));
+    const cost=saved.result.lastRecall.units.find(u=>u.text.includes('paid'));
+    assert(cost.requiredContext.some(u=>u.text.includes('received')));
+});
 test('server generous recall persists its option and finishes underfilled without another review',async t=>{
     const f=fixture(t);atomic(f.book,{entries:{0:{uid:0,content:'The hospital visit reassured her.'},1:{uid:1,content:'She liked having him beside her at the hospital.'}}});
     const input=f.input();input.settings.generousRecall=true;input.settings.candidateCount=1;

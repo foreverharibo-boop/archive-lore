@@ -3,6 +3,7 @@
 import { normalizeSideSearchExclusions } from './lore-side-search.js';
 import { normalizeSides } from './lore-side-config.js';
 import { normalizeSelectionFocus } from './lore-selection-focus.js';
+import { outcomeContext } from './lore-outcome-context.js';
 import { fingerprintChatMessage } from './chatSelection.js';
 import { COLLECT_PROMPT, SIDE_PROMPT, QUESTIONS_PROMPT, SELECT_PROMPT, LEGACY_QUESTIONS, LEGACY_SELECT, PREVIOUS_QUESTIONS, PREVIOUS_SELECT, PREVIOUS_EVENT_SELECT, PREVIOUS_ENGLISH_QUESTIONS, PREVIOUS_COMPARISON_SELECT, PREVIOUS_BACKGROUND_QUESTIONS } from './lore-prompts.js';
 import { LEGACY_COLLECT, LEGACY_SIDE } from './lore-prompts-v1.js';
@@ -251,6 +252,7 @@ export function selectedUnits(response, offered, selectionFocus = []) {
     const ranked = Array.isArray(data.selections);
     const rows = ranked ? data.selections : data.ids.map(id=>({id,priority:2,reason:'legacy ordered selection'}));
     for (const row of rows) {
+        outcomeContext(row, allowed);
         if (row?.contextIds !== undefined && (!Array.isArray(row.contextIds) || row.contextIds.length > 8
             || row.contextIds.some(id => !allowed.has(id) || allowed.get(id).entryId !== allowed.get(row.id)?.entryId)))
             throw new Error('기억 선별의 연결 문장 형식이 올바르지 않아.');
@@ -260,7 +262,10 @@ export function selectedUnits(response, offered, selectionFocus = []) {
         if (!row || !allowed.has(row.id) || seen.has(row.id)
             || ![2,3].includes(row.priority) || typeof row.reason !== 'string' || !row.reason.trim()) return false;
         seen.add(row.id); return true;
-    }).map(row=>({...allowed.get(row.id),priority:row.priority,reason:row.reason.trim().slice(0,240),selectionFormat:ranked?'ranked':'legacy',...(selectionFocus.length?{focusMatches:normalizeSelectionFocus(row.focusMatches).filter(id=>selectionFocus.includes(id))}:{}),requiredContext:[...new Set(row.contextIds || [])].filter(id=>id!==row.id).map(id=>allowed.get(id))}))
+    }).map(row=>({...allowed.get(row.id),priority:row.priority,reason:row.reason.trim().slice(0,240),selectionFormat:ranked?'ranked':'legacy',...(selectionFocus.length?{focusMatches:normalizeSelectionFocus(row.focusMatches).filter(id=>selectionFocus.includes(id))}:{}),requiredContext:[...new Map([
+        ...[...new Set(row.contextIds || [])].filter(id=>id!==row.id).map(id=>allowed.get(id)),
+        ...outcomeContext(row, allowed),
+    ].map(unit=>[unit.id,unit])).values()]}))
         .sort((a,b)=>b.priority-a.priority).slice(0,24);
 }
 export function formatInjection(units) {

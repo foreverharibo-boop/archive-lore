@@ -16,6 +16,7 @@ import { withAbort } from './lore-cancellation.js';
 import { mapOrdered } from './lore-parallel.js';
 import { generousRecall } from './lore-generous-recall.js';
 import { errorInfo, observer } from './lore-telemetry.js';
+import { OUTCOME_QUESTION_PROMPT, OUTCOME_SELECTION_PROMPT } from './lore-outcome-context.js';
 
 const QUESTION_SCHEMA = '\nReturn ONLY JSON: {"questions":["question"]}. The questions key is required, with one to six nonblank strings of at most 2000 characters each. Always generate at least one context-grounded retrieval question, including for ordinary scene actions. When no factual answer is missing, ask what recorded experience, feeling, preference or agreement could inform this scene without assuming such a record exists. Never return an empty questions array, {} or omit questions.';
 
@@ -275,7 +276,7 @@ export function createLoreController(host) {
             let questions = [];
             if (chunks.length && config.mode === 'questions') {
                 notify('최근 대화에서 검색 질문 만드는 중');
-                const system=config.prompts.questions + focusQuestionPrompt(config.selectionFocus) + QUESTION_SCHEMA;
+                const system=config.prompts.questions + focusQuestionPrompt(config.selectionFocus) + OUTCOME_QUESTION_PROMPT + QUESTION_SCHEMA;
                 const data={latestUser:focus.latestUser,dialogue:recent.text,...(config.selectionFocus.length?{selectionFocus:config.selectionFocus}:{})};
                 for(let attempt=0;attempt<2;attempt++){
                     assertCurrent(snapshot,signal);
@@ -348,7 +349,7 @@ export function createLoreController(host) {
                         let response, accepted;
                         for (let attempt=0;attempt<2;attempt++) {
                             response = await askTracked(config.searchProfile || config.profile,
-                                config.prompts.select + '\nReturn ONLY JSON: {"selections":[{"id":"u0","priority":3,"reason":"specific missing fact needed now","contextIds":[]}]}. Use priority 3 for facts relevant under the selection instructions, 2 for indispensable supporting context. Omit everything else. At most 24 selections in usefulness order. For no needed facts return {"selections":[]}. For each fact include contextIds (up to 8 IDs from the same entry) for sentences required to identify the owner, speaker, referent, conditions, negation, or a contrasting counterpart. Read nearby sentences before selecting. If two people have similar objects, include the distinguishing facts for each relevant owner; never assume their properties match. Before responding check that your excerpts do not change attribution or omit a qualification. Omit a fact if the supplied context cannot disambiguate it. These dependent sentences are retained together or omitted together; do not invent connective text.' + selectionFocusPrompt(config.selectionFocus),
+                                config.prompts.select + '\nReturn ONLY JSON: {"selections":[{"id":"u0","priority":3,"reason":"specific missing fact needed now","contextIds":[]}]}. Use priority 3 for facts relevant under the selection instructions, 2 for indispensable supporting context. Omit everything else. At most 24 selections in usefulness order. For no needed facts return {"selections":[]}. For each fact include contextIds (up to 8 IDs from the same entry) for sentences required to identify the owner, speaker, referent, conditions, negation, or a contrasting counterpart. Read nearby sentences before selecting. If two people have similar objects, include the distinguishing facts for each relevant owner; never assume their properties match. Before responding check that your excerpts do not change attribution or omit a qualification. Omit a fact if the supplied context cannot disambiguate it. These dependent sentences are retained together or omitted together; do not invent connective text.' + selectionFocusPrompt(config.selectionFocus) + OUTCOME_SELECTION_PROMPT,
                                 { latestUser:focus.latestUser, dialogue: recent.text, questions, memories: selectorMemories(batch),
                                     batch:index+1,batchCount:batches.length,maxSelections:24,injectionBudgetTokens:config.injectionTokens,
                                     ...(config.selectionFocus.length?{selectionFocus:config.selectionFocus}:{}) }, signal, 3000);

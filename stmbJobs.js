@@ -532,6 +532,37 @@ export function subscribeToStmbJobs(listener) {
     return () => jobListeners.delete(listener);
 }
 
+// Catch-up needs completion, not merely queue acceptance. Keep references while
+// observing so a long chain of after-memory jobs can outlive the history limit.
+export function awaitStmbJobCompletion(queuedJob) {
+    if (!queuedJob?.id || !queuedJob.chatKey) return Promise.resolve(false);
+    return new Promise(resolve => {
+        const tracked = new Map();
+        const check = () => {
+            const store = jobStores.get(queuedJob.chatKey);
+            const jobs = [...getRunningJobs(store), ...(store?.queue || []), ...(store?.recentHistory || [])];
+            const root = tracked.get(queuedJob.id) || jobs.find(job => job.id === queuedJob.id);
+            if (!root) { finish(false); return; }
+            tracked.set(root.id, root);
+            let added;
+            do {
+                added = false;
+                for (const job of jobs) {
+                    if (!tracked.has(job.id) && tracked.has(job.parentJobId)) {
+                        tracked.set(job.id, job); added = true;
+                    }
+                }
+            } while (added);
+            const family = [...tracked.values()];
+            if (family.some(job => !TERMINAL_STATES.has(job.state))) return;
+            finish(family.every(job => job.state === 'completed'));
+        };
+        const finish = success => { jobListeners.delete(check); resolve(success); };
+        jobListeners.add(check);
+        check();
+    });
+}
+
 export function hasActiveStmbJobs(chatKey = null) {
     if (chatKey) {
         const store = jobStores.get(String(chatKey));

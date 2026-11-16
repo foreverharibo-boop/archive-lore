@@ -272,6 +272,7 @@ import { validateLorebookRequirement } from "./lorebookValidation.js";
 import { getRegexScripts } from "../../../extensions/regex/engine.js";
 import {
   areStmbJobsEnabled,
+  awaitStmbJobCompletion,
   awaitStmbJobApproval,
   cancelAllStmbJobs,
   cancelStmbJobsForChat,
@@ -1756,7 +1757,7 @@ async function runSceneMemoryRange(startId, endId, options = {}) {
     );
   }
 
-  return (await initiateMemoryCreation(null, options.dateCollection)) === true;
+  return (await initiateMemoryCreation(null, options.dateCollection, options)) === true;
 }
 
 async function collectArchiveDates({ start, end, ranges, onProgress }) {
@@ -2010,7 +2011,7 @@ async function handleSceneMemoryCommand(namedArgs, unnamedArgs) {
 async function handleStmbCatchupCommand(namedArgs) {
   if (guardPendingProgress()) return "";
   try {
-    if (isProcessingMemory) {
+    if (isMemoryProcessing()) {
       toastr.info(
         translate(
           "Memory creation is already in progress",
@@ -2122,6 +2123,10 @@ async function handleStmbCatchupCommand(namedArgs) {
       chunks.push({ start: chunkStart, end: chunkEnd });
     }
 
+    const sourceChat = chat, sourceKey = getStmbChatKey(), stopEpoch = getStmbStopEpoch();
+    const source = dateCollectionSource(chat, startId, endId);
+    const canContinue = () => chat === sourceChat && getStmbChatKey() === sourceKey
+      && getStmbStopEpoch() === stopEpoch && dateCollectionSource(chat, startId, endId) === source;
     const settings = initializeSettings();
     const interactiveBlocker = await validateStmbCatchupNonInteractive(
       settings,
@@ -2147,11 +2152,12 @@ async function handleStmbCatchupCommand(namedArgs) {
         translate("STMemoryBooks", "index.toast.title"),
       );
 
-      const success = await runSceneMemoryRange(chunk.start, chunk.end, {
+      const success = canContinue() && await runSceneMemoryRange(chunk.start, chunk.end, {
         showSceneToast: false,
+        waitForQueuedCompletion: true,
       });
 
-      if (!success) {
+      if (!success || !canContinue()) {
         toastr.error(
           __st_t_tag`STMB catch-up stopped at messages ${chunk.start}-${chunk.end}.`,
           translate("STMemoryBooks", "index.toast.title"),
@@ -7209,7 +7215,7 @@ async function showConsolidationRecoveryPopup() {
   await shown;
 }
 
-async function initiateMemoryCreation(selectedProfileIndex = null, dateCollection = null) {
+async function initiateMemoryCreation(selectedProfileIndex = null, dateCollection = null, options = {}) {
   if (archiveDateCollection && dateCollection?.batch !== archiveDateCollection) return false;
   dateCollection?.assertCurrent();
   if(globalThis.archiveLoreUndoing){toastr.info('되돌리기가 끝난 뒤 수집해 줘.','Archive Lore');return false;}
@@ -7404,12 +7410,13 @@ async function initiateMemoryCreation(selectedProfileIndex = null, dateCollectio
         return false;
       }
       if (guardPendingProgress(job.chatKey)) return false;
-      enqueueStmbJob(job);
+      const queued = enqueueStmbJob(job);
+      if (!queued) return false;
       toastr.info(
         translate("Memory job queued.", "STMemoryBooks_Jobs_MemoryQueued"),
         "STMemoryBooks",
       );
-      return true;
+      return options.waitForQueuedCompletion ? await awaitStmbJobCompletion(queued) : true;
     }
 
     // Execute the main process with retry logic

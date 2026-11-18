@@ -1802,7 +1802,7 @@ async function saveArchiveDateMemories({memoryResult,lorebookValidation,settings
     }
     const stagedBooks=new Map(states.map(s=>[s.name,s.data]));
     const primary=stagedBooks.get(lorebookValidation.name);
-    if (!settings.moduleSettings.allowSceneOverlap && findOverlappingMemoryInLorebook(primary,sceneData))
+    if (!settings.moduleSettings.allowSceneOverlap && findOverlappingMemoryInLorebook(primary,sceneData,memoryResult.metadata?.chatId))
       throw Error('수집 중 같은 범위의 기억이 저장되어 중복 저장을 멈췄습니다.');
     const batchMetadata={id:globalThis.crypto?.randomUUID?.() || `dates-${Date.now()}-${Math.random().toString(36).slice(2)}`,start:sceneData.sceneStart,end:sceneData.sceneEnd};
     let copiedCount=0;
@@ -5955,7 +5955,7 @@ async function executeMemoryGeneration(
             const data=await loadWorldInfo(lorebookValidation.name);
             effectiveSettings.dateCollection?.assertCurrent();
             if(!data?.entries)throw Error('저장할 로어북을 다시 불러오지 못했어.');
-            if(!settings.moduleSettings.allowSceneOverlap && findOverlappingMemoryInLorebook(data,sceneData))throw Error('수집 중 같은 범위의 기억이 저장됐어. 중복 저장을 멈췄어.');
+            if(!settings.moduleSettings.allowSceneOverlap && findOverlappingMemoryInLorebook(data,sceneData,compiledScene.metadata?.chatId))throw Error('수집 중 같은 범위의 기억이 저장됐어. 중복 저장을 멈췄어.');
             return addMemoryToLorebook(finalMemoryResult,{...lorebookValidation,data},automaticGroupAddOptions);
           });
 
@@ -6375,11 +6375,16 @@ async function buildQueuedMemoryJob(
   };
 }
 
-function findOverlappingMemoryInLorebook(lorebookData, sceneData) {
+function findOverlappingMemoryInLorebook(lorebookData, sceneData, chatId) {
+  // Message numbers are local to a chat. Unattributed legacy memories cannot
+  // establish a duplicate, and queued saves must use their captured chat ID.
+  const sourceChatId = String(chatId ?? "").trim();
+  if (!sourceChatId || sourceChatId === "unknown") return null;
   const allMemories = identifyMemoryEntries(lorebookData);
   const ns = Number(sceneData.sceneStart);
   const ne = Number(sceneData.sceneEnd);
   for (const mem of allMemories) {
+    if (String(mem.entry.STMB_chatId ?? "").trim() !== sourceChatId) continue;
     const existingRange = getRangeFromMemoryEntry(mem.entry);
     if (!existingRange || existingRange.start === null || existingRange.end === null) continue;
     const s = Number(existingRange.start);
@@ -6682,7 +6687,7 @@ async function executeQueuedMemoryJob(job, jobContext) {
       throw new Error(`Lorebook "${lorebookName}" could not be loaded.`);
     }
     if (!settings.moduleSettings?.allowSceneOverlap) {
-      const overlap = findOverlappingMemoryInLorebook(freshLorebook, sceneData);
+      const overlap = findOverlappingMemoryInLorebook(freshLorebook, sceneData, compiledScene.metadata?.chatId);
       if (overlap) {
         const error = new Error(`Scene overlaps with existing memory: "${overlap.title}" (messages ${overlap.start}-${overlap.end})`);
         error.name = "StmbJobNeedsReview";
@@ -7334,39 +7339,18 @@ async function initiateMemoryCreation(selectedProfileIndex = null, dateCollectio
       return false;
     }
 
-    const allMemories = identifyMemoryEntries(lorebookValidation.data);
-    const newStart = sceneData.sceneStart;
-    const newEnd = sceneData.sceneEnd;
-
     if (!settings.moduleSettings.allowSceneOverlap) {
-      for (const mem of allMemories) {
-        const existingRange = getRangeFromMemoryEntry(mem.entry);
-
-        if (
-          existingRange &&
-          existingRange.start !== null &&
-          existingRange.end !== null
-        ) {
-          const s = Number(existingRange.start);
-          const e = Number(existingRange.end);
-          const ns = Number(newStart);
-          const ne = Number(newEnd);
-          // Detailed overlap diagnostics
-          console.debug(
-            `STMemoryBooks: OverlapCheck new=[${ns}-${ne}] existing="${mem.title}" [${s}-${e}] cond1(ns<=e)=${ns <= e} cond2(ne>=s)=${ne >= s}`,
-          );
-          if (ns <= e && ne >= s) {
-            console.error(
-              `STMemoryBooks: Scene overlap detected with memory: ${mem.title} [${s}-${e}] vs new [${ns}-${ne}]`,
-            );
-            toastr.error(
-              __st_t_tag`Scene overlaps with existing memory: "${mem.title}" (messages ${s}-${e})`,
-              "STMemoryBooks",
-            );
-            isProcessingMemory = false;
-            return false;
-          }
-        }
+      const overlap = findOverlappingMemoryInLorebook(
+        lorebookValidation.data, sceneData, memoryOriginSnapshot.sceneContext?.chatId,
+      );
+      if (overlap) {
+        const { title, start, end } = overlap;
+        toastr.error(
+          __st_t_tag`Scene overlaps with existing memory: "${title}" (messages ${start}-${end})`,
+          "STMemoryBooks",
+        );
+        isProcessingMemory = false;
+        return false;
       }
     }
 

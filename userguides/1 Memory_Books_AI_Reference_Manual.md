@@ -2,6 +2,10 @@
 
 The active browser entry is `archive-lore-fork.js`. It loads the original Memory Books bundle (`index.build.js`) for collection, clips, side prompts, consolidation, compaction, regeneration, profiles, automatic collection, hiding and recovery. The Korean home has three tabs: 기억 수집, 저장된 기억, 설정. Only the active tab is shown. Existing actions retain short explanations, and original profile/detail controls are collapsed under 설정 → 고급 설정 · 원본 메모리북. The original duplicate footer actions are omitted in the fork home; scene clearing is available within the selected-range details. `archive-lore.js` runs as a search/embedding companion, with its former collection scheduler and dashboard disabled. Rebuild native changes with `npm install --ignore-scripts` and `npm run build:fork`.
 
+## Collection overlap checks
+
+Message ranges are compared only against memories whose `STMB_chatId` matches the source chat. A new chat can collect messages starting at 0 into an existing book without colliding with another chat's ranges. This applies before generation and at ordinary, queued and date-batch saves; queued saves use the captured source chat rather than whichever chat is currently open. Memories with missing or `unknown` chat IDs are not treated as duplicates by range alone. Their content is preserved. The existing **장면 중첩 허용** setting still permits overlapping ranges within the same chat when enabled.
+
 ## Installation and feature groups
 
 Update the Archive Lore extension and reload SillyTavern. Do not enable a separate original Memory Books installation alongside this fork: both use native `STMemoryBooks` settings, commands, events and UI identifiers. Disable that separate extension before enabling this one. Existing Memory Books books and settings remain native; standalone Archive Lore data needs the temporary importer below.

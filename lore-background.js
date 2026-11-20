@@ -57,6 +57,14 @@ export function createBackgroundRecall(host) {
     }
     function cancel(){const p=pending;pending=null;if(!p)return;p.abort.abort();void host.call('/reply/cancel',{ticket:p.ticket}).catch(()=>{});}
     return {prepare,capture,attach,cancel,
+        bindSettings(events,event){
+            // Bind the native request before reviewers (e.g. ttotto) clone or
+            // augment its messages. Keep the strict identity/slot checks; the
+            // ticket stays on the same payload as later listeners edit it.
+            const listener=data=>attach(data);
+            if(typeof events.makeFirst==='function')events.makeFirst(event,listener);
+            else events.on(event,listener);
+        },
         detach(){if(!pending?.attached)cancel();else pending=null;},
         async completed(){
             const p=pending;if(!p)return;pending=null;

@@ -389,7 +389,7 @@ function init() {
     globalThis.archiveLoreSearch={subscribe:listener=>{searchViewListeners.add(listener);return ()=>searchViewListeners.delete(listener);},openSettings:()=>ui.openSettings(),controller,settings,saveSettings,books,target,loadBook,saveBook,store:vectorStore,diagnostics:diagnosticView,context:chatContext,clearPrompts,injectionRecorder};
     globalThis.archiveLoreInterceptor=intercept;
     if(event_types.GENERATE_AFTER_DATA)eventSource.on(event_types.GENERATE_AFTER_DATA,(data,dryRun)=>{backgroundRecall.capture(data,dryRun);void injectionRecorder.commit(dryRun);});
-    if(event_types.CHAT_COMPLETION_SETTINGS_READY)eventSource.on(event_types.CHAT_COMPLETION_SETTINGS_READY,data=>backgroundRecall.attach(data));
+    if(event_types.CHAT_COMPLETION_SETTINGS_READY)backgroundRecall.bindSettings(eventSource,event_types.CHAT_COMPLETION_SETTINGS_READY);
     eventSource.on(event_types.WORLDINFO_ENTRIES_LOADED,nativePolicy);
     eventSource.on(event_types.WORLDINFO_UPDATED,()=>controller.invalidateEmbeddingCounts());
     for(const event of [event_types.CHAT_CHANGED,event_types.MESSAGE_EDITED,event_types.MESSAGE_DELETED,event_types.MESSAGE_SWIPED,event_types.MESSAGE_RECEIVED])if(event)eventSource.on(event,()=>controller.invalidateEmbeddingCounts());

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {EventEmitter} from 'node:events';
 import {createBackgroundRecall} from './lore-background.js';
 import {reserveReplySlots,replaceReplySlots} from './lore-reply-slots.js';
 import {normalizeSettings} from './lore-core.js';
@@ -57,6 +58,29 @@ test('only native final message objects receive metadata; changed messages preve
     assert.equal(cloned.__silly_relay_prepare.ticket,'','a swallowed host-event error still leaves a blocked ticket');
     const request={messages:prompt.filter(Boolean)};f.background.attach(request);assert.equal(request.__silly_relay_prepare.provider,'archive-lore');
     f.context.messages.push({mes:'Changed',is_user:true});assert.throws(()=>f.background.attach(request));
+});
+for(const reviewerFirst of [true,false])test(`native ticket binding precedes reviewer cloning (reviewer registered first: ${reviewerFirst})`,async()=>{
+    const f=fixture(),slots=await f.background.prepare('normal');
+    const prompt=[{role:'system',content:slots.text},{role:'system',content:slots.guidance},{role:'user',content:'Hello'}];
+    f.background.capture({prompt});
+    const events=new EventEmitter();events.makeFirst=events.prependListener;
+    const reviewer=data=>{
+        data.messages=data.messages.map(message=>({...message,content:Array.isArray(message.content)?message.content.map(part=>({...part})):message.content}));
+        data.messages.push({role:'system',content:'Reviewer rules'});
+    };
+    if(reviewerFirst)events.on('settings',reviewer);
+    f.background.bindSettings(events,'settings');
+    if(!reviewerFirst)events.on('settings',reviewer);
+    const request={messages:prompt.filter(Boolean)};
+    events.emit('settings',request);
+    assert.equal(request.__silly_relay_prepare.ticket,f.calls[0].data.ticket);
+    assert.notEqual(request.messages[0],prompt[0]);
+    const replaced=replaceReplySlots(request,request.__silly_relay_prepare.ticket,{memory:'Selected memory',guidance:'Recall guidance'});
+    assert.equal(replaced.messages[0].content,'Selected memory');
+    assert.equal(replaced.messages.at(-1).content,'Reviewer rules');
+    assert.equal(prompt.length,3);
+    const helper={messages:[{role:'user',content:'Unrelated helper'}]};
+    events.emit('settings',helper);assert(!helper.__silly_relay_prepare);
 });
 test('stop during capability check cannot leave a late ticket or affect a new attempt',async()=>{
     const f=fixture(),hold=gate();f.host.relay=()=>({supports:()=>hold.promise});

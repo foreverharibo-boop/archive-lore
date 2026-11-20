@@ -49,12 +49,22 @@ const call=async(route,body)=>{const response=await fetch('/archive-api'+route,{
 const background=createBackgroundRecall({settings:()=>data.settings,context:()=>data.context,
     relay:()=>({enabled:()=>true,supports:async provider=>(await (await fetch('/api/plugins/silly-relay/status')).json()).preparations.includes(provider)}),
     supported:()=>true,tokenizer:async()=> 'fixture',input:async(_k,options)=>({...data,options}),call,countTokens:async t=>Math.ceil(t.length/3),accept:()=>{}});
+// Reproduce ttotto's SETTINGS_READY behavior: registered before Archive Lore,
+// it clones outbound messages and then adds its rules. ST logs listener errors
+// and continues dispatch, so a late identity check used to send an empty ticket.
+const listeners=[payload=>{
+    payload.messages=payload.messages.map(message=>({...message,
+        content:Array.isArray(message.content)?message.content.map(part=>({...part})):message.content}));
+    payload.messages.push({role:'system',content:'Reviewer: preserve character voice.'});
+}];
+background.bindSettings({on:(_event,listener)=>listeners.push(listener),makeFirst:(_event,listener)=>listeners.unshift(listener)},'settings');
 const transport=createTransport({origin:location.origin,enabled:()=>true,fetchImpl:fetch,shouldRelay:()=>true,
     prepareRecovery:async request=>{localStorage.setItem('job',request.id);return true;},onEvent:type=>{if(type==='accepted')window.accepted=true;}});
 window.run=async()=>{const result=await background.prepare('normal');const messages=[{role:'system',content:'Preset: stay in character.'},
     {role:'system',content:result.core},{role:'system',content:result.text},{role:'system',content:result.guidance},
     ...(data.settings.keywordActivation?[{role:'system',content:${JSON.stringify(nativeLore)}}]:[]),{role:'user',content:data.context.messages[0].mes}];
-    background.capture({prompt:messages});const payload={model:'RP model',temperature:.7,messages};background.attach(payload);
+    background.capture({prompt:messages});const payload={model:'RP model',temperature:.7,messages};
+    for(const listener of listeners)try{listener(payload);}catch(error){window.hookError=error.message;}
     const response=await transport.fetch('/api/backends/chat-completions/generate',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(payload)});window.answer=await response.text();};window.ready=true;
 </script>`;
 const server=http.createServer(async(req,res)=>{try{
@@ -84,6 +94,7 @@ try{
     const page=await browser.newPage();page.on('pageerror',e=>errors.push(e.message));await page.goto(origin);await page.waitForFunction(()=>window.ready);
     await page.evaluate(()=>{window.run().catch(e=>window.failure=e.message);});
     await page.waitForFunction(()=>window.accepted||window.failure);assert.equal(await page.evaluate(()=>window.failure),undefined);
+    assert.equal(await page.evaluate(()=>window.hookError),undefined);
     for(let i=0;i<200&&!entered;i++)await new Promise(r=>setTimeout(r,10));assert(entered);assert.equal(calls.length,0);
     const jobId=await page.evaluate(()=>localStorage.getItem('job'));
     await browser.close();release();
@@ -91,7 +102,8 @@ try{
     assert.equal(state.state,'completed',state.error);assert.equal(selections,1);assert.equal(calls.length,1);
     const sent=calls[0];assert.equal(sent.model,'RP model');assert.equal(sent.temperature,.7);
     assert.equal(sent.messages[0].content,'Preset: stay in character.');assert.equal(sent.messages[1].content,'They are married.');
-    assert(sent.messages[2].content.includes('hospital'));assert.equal(sent.messages.at(-1).content,messages[0].mes);assert(!JSON.stringify(sent).includes('AL_memory_'));assert(!sent.__silly_relay_prepare);
+    assert(sent.messages[2].content.includes('hospital'));assert.equal(sent.messages.at(-2).content,messages[0].mes);assert(!JSON.stringify(sent).includes('AL_memory_'));assert(!sent.__silly_relay_prepare);
+    assert.equal(sent.messages.at(-1).content,'Reviewer: preserve character voice.');
     assert.deepEqual(sent.messages.filter(m=>m.content===nativeLore),keywordActivation?[{role:'system',content:nativeLore}]:[]);
     browser=await chromium.launch({headless:true,args,executablePath:process.env.CHROMIUM_EXECUTABLE_PATH||undefined});
     const reopened=await browser.newPage();await reopened.goto(origin);await reopened.waitForFunction(()=>window.ready);

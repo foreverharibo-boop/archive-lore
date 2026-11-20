@@ -481,7 +481,7 @@ test('server diagnostics share one ten-stage ring across jobs and never write di
     const restarted=createJobService(f.dependencies);assert.deepEqual(await restarted.logList(f.user),[]);
 });
 
-for(const generousRecall of [false,true])test(`Relay preparation survives repeated 35-reference overflow without losing source: generous=${generousRecall}`,async t=>{
+for(const generousRecall of [false,true])for(const correct of [false,true])test(`Relay enforces context limits after one repair: generous=${generousRecall}, correct=${correct}`,async t=>{
     const f=fixture(t);
     const lines=Array.from({length:36},(_,i)=>`Recorded hospital visit detail ${i}.`);
     atomic(f.book,{entries:{0:{uid:0,comment:'Hospital visit',content:lines.join('\n')}}});
@@ -493,20 +493,30 @@ for(const generousRecall of [false,true])test(`Relay preparation survives repeat
     const overflow=payload=>{
         const data=JSON.parse(payload.messages.find(m=>m.role==='user').content);
         assert.equal(data.memories.length,36);
+        assert.deepEqual(data.selectionLimits,{contextIds:32,outcomeIds:8});
         if(f.calls.length===2)assert.equal(data.selectionRepair.details.problems[0].code,'too-many-references');
-        return JSON.stringify({selections:[{id:data.memories[0].id,priority:3,reason:'Hospital visit context',contextIds:data.memories.slice(1).map(u=>u.id)}]});
+        return JSON.stringify({selections:[{id:data.memories[0].id,priority:3,reason:'Hospital visit context',contextIds:data.memories.slice(1,correct&&f.calls.length===2?33:36).map(u=>u.id)}]});
     };
     f.replies.push(overflow,overflow);
     const bridge=createReplyBridge({service,countMessages:async(_u,_m,m)=>Math.ceil(JSON.stringify(m).length/3)});t.after(()=>bridge.close());
     const ticket='d'.repeat(32);bridge.prepareInput(f.user,{ticket,input});
     const slots=await reserveReplySlots(ticket,3000,text=>Math.ceil(text.length/3));
-    const out=await bridge.prepare({user:f.user,ticket,jobId:'relay-overflow',payload:{messages:[{role:'system',content:slots.text},{role:'system',content:slots.guidance}]},signal:new AbortController().signal});
-    assert.equal(bridge.get(f.user,ticket).state,'completed');assert.equal(f.calls.length,2);
-    for(const line of lines)assert(out.messages[0].content.includes(line));
-    assert(!JSON.stringify(out).includes('AL_memory_'));
-    const job=service.get(f.user,bridge.get(f.user,ticket).jobId);
-    assert.equal(job.status,'completed');assert.equal(job.result.lastRecall.units.length,36);
-    assert(job.result.lastRecall.tokens<=3000);assert.equal(fs.readFileSync(f.book,'utf8'),originalBook);
+    const payload={messages:[{role:'system',content:slots.text},{role:'system',content:slots.guidance}]};
+    const pending=bridge.prepare({user:f.user,ticket,jobId:'relay-overflow',payload,signal:new AbortController().signal});
+    if(correct){
+        const out=await pending;
+        assert.equal(bridge.get(f.user,ticket).state,'completed');
+        for(const line of lines.slice(0,33))assert(out.messages[0].content.includes(line));
+        assert(!JSON.stringify(out).includes('AL_memory_'));
+        const job=service.get(f.user,bridge.get(f.user,ticket).jobId);
+        assert.equal(job.status,'completed');assert.equal(job.result.lastRecall.units.length,33);
+        assert(job.result.lastRecall.tokens<=3000);
+    } else {
+        await assert.rejects(pending,/too-many-references/);
+        assert.equal(bridge.get(f.user,ticket).state,'error');
+        assert.equal(payload.messages[0].content,slots.text);
+    }
+    assert.equal(f.calls.length,2);assert.equal(fs.readFileSync(f.book,'utf8'),originalBook);
     const audit=JSON.stringify(await readLogs(service,f.user,'test-key'));
-    assert.match(audit,/연결 개수 초과 복구/);assert.match(audit,/전체 ID 재검증/);
+    assert.doesNotMatch(audit,/연결 개수 초과 복구/);
 });

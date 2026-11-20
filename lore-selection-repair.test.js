@@ -49,32 +49,33 @@ for(const [name,parse] of [['normal',selectedUnits],['generous',parseGenerousSel
 }
 
 for (const [name,parse] of [['normal',selectedUnits],['generous',parseGenerousSelections]]) {
-    for (const count of [35,135]) test(`${name}: repeated ${count}-reference overflow retains complete source and atomic budget`,async()=>{
+    for (const count of [33,35,135]) test(`${name}: ${count} references fail on every attempt without overflow bypass`,async()=>{
         const {validateSelectionAttempt}=await import('./lore-selection-repair.js');
         const units=Array.from({length:count+1},(_,i)=>({id:`u${i}`,entryId:'visit',index:i,title:'Visit',text:`Recorded visit detail ${i}.`}));
         const raw=JSON.stringify({selections:[{id:'u0',priority:3,reason:'Visit context',contextIds:units.slice(1).map(u=>u.id)}]});
-        assert.throws(()=>validateSelectionAttempt(parse,raw,units,[],false),/too-many-references/);
-        const result=validateSelectionAttempt(parse,raw,units,[],true);
-        assert.equal(result.contextOverflowRecovered,true);
+        for (const formerRecoveryFlag of [false,true])
+            assert.throws(()=>validateSelectionAttempt(parse,raw,units,[],formerRecoveryFlag),/too-many-references/);
+        assert.throws(()=>parse(raw,units,[],{allowContextOverflow:true}),/too-many-references/);
+    });
+    test(`${name}: exactly 32 context references preserve original text and atomic budget`,async()=>{
+        const {validateSelectionAttempt}=await import('./lore-selection-repair.js');
+        const units=Array.from({length:33},(_,i)=>({id:`u${i}`,entryId:'visit',index:i,title:'Visit',text:`Recorded visit detail ${i}.`}));
+        const raw=JSON.stringify({selections:[{id:'u0',priority:3,reason:'Visit context',contextIds:units.slice(1).map(u=>u.id)}]});
+        const result=validateSelectionAttempt(parse,raw,units,[]);
+        assert.equal(result.contextOverflowRecovered,false);
         assert.deepEqual(result.accepted[0].requiredContext,units.slice(1));
         const full=await fitInjection(result.accepted,100000,t=>t.length);
-        assert.equal(full.units.length,count+1);
+        assert.equal(full.units.length,33);
         for (const u of units) assert(full.text.includes(u.text));
         assert.equal((await fitInjection(result.accepted,full.tokens-1,t=>t.length)).text,'');
     });
-    test(`${name}: overflow recovery revalidates later rows, outcomes, types and batch bounds`,async()=>{
-        const {validateSelectionAttempt}=await import('./lore-selection-repair.js');
-        const units=Array.from({length:40},(_,i)=>({id:`u${i}`,entryId:'visit',index:i,title:'Visit',text:`Fact ${i}.`}));
-        const first={id:'u0',priority:3,reason:'Visit',contextIds:units.slice(1,36).map(u=>u.id)};
-        const parseRows=rows=>validateSelectionAttempt(parse,JSON.stringify({selections:rows}),units,[],true);
-        for (const bad of [
-            {id:'u38',priority:2,reason:'Unknown context',contextIds:['missing']},
-            {id:'u38',priority:2,reason:'Invalid type',contextIds:'u39'},
-            {id:'u38',priority:2,reason:'Unknown outcome',outcomeIds:['missing']},
-            {id:'u38',priority:2,reason:'Too many outcomes',outcomeIds:units.slice(0,9).map(u=>u.id)},
-        ]) assert.throws(()=>parseRows([first,bad]));
-        assert.throws(()=>parseRows([{...first,contextIds:[...first.contextIds,'missing']}]),/연결 문장/);
-        assert.throws(()=>parseRows([{...first,contextIds:Array(41).fill('u1')}]),/too-many-references/);
-        assert.equal(parseRows([{...first,contextIds:['u1']}]).contextOverflowRecovered,false);
-    });
 }
+
+test('over-limit arrays are rejected before reference-by-reference lookup',async()=>{
+    const {linkedSelectionUnits}=await import('./lore-selection-repair.js');
+    let lookups=0;
+    const allowed=new Map([['u0',{id:'u0'}]]);
+    allowed.has=()=>{lookups++;return true;};
+    assert.throws(()=>linkedSelectionUnits({id:'u0',contextIds:Array(135).fill('u1')},allowed,{field:'contextIds',limit:32}),/too-many-references/);
+    assert.equal(lookups,0);
+});

@@ -726,3 +726,28 @@ for(const mode of ['dialogue','questions','embedding'])for(const generousRecall 
     assert.equal(f.calls.filter(c=>typeof c==='object').length,mode==='embedding'?0:mode==='questions'?2:1);
     assert.equal(f.calls.filter(c=>c==='document').length,0);
 });
+
+for(const generousRecall of [false,true])for(const correct of [false,true])test(`context count stays strict across repair, generous=${generousRecall}, correct=${correct}`,async()=>{
+    const f=fixture();f.config={generousRecall,injectionTokens:3000};
+    f.book={entries:{0:{uid:0,content:Array.from({length:40},(_,i)=>`Hospital detail number ${i}.`).join(' ')}}};
+    await f.controller.index();let calls=0,originalMemories;
+    f.host.ask=async(_p,system,data)=>{
+        calls++;
+        assert.match(system,/HARD OUTPUT LIMITS/);
+        assert.match(system,/Count each array BEFORE returning JSON/);
+        assert.deepEqual(data.selectionLimits,{contextIds:32,outcomeIds:8});
+        assert(data.memories.length>=36);
+        if(calls===1){assert(!data.selectionRepair);originalMemories=structuredClone(data.memories);}
+        else {
+            assert.equal(calls,2);assert.deepEqual(data.memories,originalMemories);
+            assert.deepEqual(data.selectionRepair.details.problems,[{code:'too-many-references',count:35,limit:32}]);
+        }
+        const refs=data.memories.slice(1,calls===2&&correct?33:36).map(u=>u.id);
+        return JSON.stringify({selections:[{id:data.memories[0].id,priority:3,reason:'Visit context',contextIds:refs}]});
+    };
+    if(correct){
+        const result=await f.controller.recall();assert.equal(result.units.length,33);assert(result.tokens<=3000);
+        for(const unit of originalMemories.slice(0,33))assert(result.text.includes(unit.text));
+    } else await assert.rejects(f.controller.recall(),/too-many-references/);
+    assert.equal(calls,2);
+});

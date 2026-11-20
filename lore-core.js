@@ -247,7 +247,7 @@ export function reviewUnits(candidates) {
     }
     return units;
 }
-export function selectedUnits(response, offered, selectionFocus = []) {
+export function selectedUnits(response, offered, selectionFocus = [], {allowContextOverflow = false} = {}) {
     const data = parseJson(response);
     const allowed = new Map(offered.map(u => [u.id, u]));
     if (!data || (!Array.isArray(data.selections) && !Array.isArray(data.ids))) throw new Error('기억 선별 응답 형식이 올바르지 않아.');
@@ -255,7 +255,7 @@ export function selectedUnits(response, offered, selectionFocus = []) {
     const rows = ranked ? data.selections : data.ids.map(id=>({id,priority:2,reason:'legacy ordered selection'}));
     for (const row of rows) {
         outcomeContext(row, allowed);
-        linkedSelectionUnits(row, allowed, {field:'contextIds',limit:MAX_EVENT_CONTEXT});
+        linkedSelectionUnits(row, allowed, {field:'contextIds',limit:allowContextOverflow ? Math.max(MAX_EVENT_CONTEXT,allowed.size) : MAX_EVENT_CONTEXT});
     }
     const seen = new Set();
     return rows.filter(row=>{

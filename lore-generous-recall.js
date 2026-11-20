@@ -5,7 +5,7 @@ import { fitFocusedInjection } from './lore-focus-injection.js';
 import { normalizeSelectionFocus, orderFocusedUnits, selectionFocusPrompt, EVENT_CONTEXT_SELECTION_PROMPT, MAX_EVENT_CONTEXT } from './lore-selection-focus.js';
 import { mapOrdered } from './lore-parallel.js';
 import { OUTCOME_SELECTION_PROMPT, outcomeContext } from './lore-outcome-context.js';
-import { linkedSelectionUnits, SELECTION_REFERENCE_RULES, SELECTION_REPAIR_PROMPT, selectionRepairFeedback } from './lore-selection-repair.js';
+import { linkedSelectionUnits, SELECTION_REFERENCE_RULES, SELECTION_REPAIR_PROMPT, selectionRepairFeedback, validateSelectionAttempt } from './lore-selection-repair.js';
 
 const unitKey = u => JSON.stringify([u.entryId, u.index]);
 
@@ -18,7 +18,7 @@ For each selected unit include contextIds (up to 32 source IDs in this batch, in
 Return ONLY JSON: {"selections":[{"id":"u0","priority":2,"contextIds":[]}]}.
 Return only selected IDs, priorities and contextIds, plus focusMatches when selectionFocus is supplied (only checked categories supported by the source). Do NOT output inclusion/exclusion reasons, explanations, rejected IDs or a review of every unit. For no related material return {"selections":[]}. There is no minimum fill quota and no second review to fill unused space.`;
 
-export function parseGenerousSelections(response, offered, selectionFocus = []) {
+export function parseGenerousSelections(response, offered, selectionFocus = [], {allowContextOverflow = false} = {}) {
     const rows = parseJson(response)?.selections;
     const allowed = new Map(offered.map(u => [u.id, u])), seen = new Set();
     if (!Array.isArray(rows)) throw Error('넉넉한 주입 선별 형식이 올바르지 않아.');
@@ -27,7 +27,7 @@ export function parseGenerousSelections(response, offered, selectionFocus = []) 
             throw Error('넉넉한 주입 선별 형식이 올바르지 않아.');
         seen.add(row.id);
         outcomeContext(row, allowed);
-        linkedSelectionUnits(row, allowed, {field:'contextIds',limit:MAX_EVENT_CONTEXT});
+        linkedSelectionUnits(row, allowed, {field:'contextIds',limit:allowContextOverflow ? Math.max(MAX_EVENT_CONTEXT,allowed.size) : MAX_EVENT_CONTEXT});
     }
     return rows.map(row => ({
         ...allowed.get(row.id), priority:row.priority, selectionFormat:'generous',
@@ -57,8 +57,8 @@ export async function generousRecall({candidates, chunks, config, latestUser, di
                     ...(repair?{selectionRepair:repair}:{}),
                     injectionBudgetTokens:config.injectionTokens,...(config.selectionFocus.length?{selectionFocus:config.selectionFocus}:{})},signal,6000);
             try {
-                const accepted=parseGenerousSelections(response,batch,config.selectionFocus);
-                await log('selection.validated',{policy:'generous-related-v2',batch:index+1,batchCount:batches.length,attempt:attempt+1,offered:batch,accepted});
+                const {accepted,contextOverflowRecovered}=validateSelectionAttempt(parseGenerousSelections,response,batch,config.selectionFocus,attempt===1);
+                await log('selection.validated',{policy:'generous-related-v2',batch:index+1,batchCount:batches.length,attempt:attempt+1,contextOverflowRecovered,offered:batch,accepted});
                 return accepted;
             } catch(error) {
                 signal.throwIfAborted();

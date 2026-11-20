@@ -480,3 +480,33 @@ test('server diagnostics share one ten-stage ring across jobs and never write di
     const text=JSON.stringify(runs);assert(text.includes('Hospital memory.'));assert(!text.includes(fullMemory));assert(!text.includes('\"messages\":'));assert(!text.includes('private-embedding-key'));
     const restarted=createJobService(f.dependencies);assert.deepEqual(await restarted.logList(f.user),[]);
 });
+
+for(const generousRecall of [false,true])test(`Relay preparation survives repeated 35-reference overflow without losing source: generous=${generousRecall}`,async t=>{
+    const f=fixture(t);
+    const lines=Array.from({length:36},(_,i)=>`Recorded hospital visit detail ${i}.`);
+    atomic(f.book,{entries:{0:{uid:0,comment:'Hospital visit',content:lines.join('\n')}}});
+    const originalBook=fs.readFileSync(f.book,'utf8');
+    const service=createJobService({...f.dependencies,countTokens:async(_u,_m,text)=>Math.ceil(text.length/3)});
+    const input=f.input();input.settings=normalizeSettings({...input.settings,serverEnabled:true,relayEnabled:true,generousRecall,injectionTokens:3000});
+    input.options={generationType:'normal',replyTokenizer:'fixture'};
+    const index=await service.submit(f.user,'index',input,randomUUID());assert.equal((await done(service,f.user,index.id)).status,'completed');
+    const overflow=payload=>{
+        const data=JSON.parse(payload.messages.find(m=>m.role==='user').content);
+        assert.equal(data.memories.length,36);
+        if(f.calls.length===2)assert.equal(data.selectionRepair.details.problems[0].code,'too-many-references');
+        return JSON.stringify({selections:[{id:data.memories[0].id,priority:3,reason:'Hospital visit context',contextIds:data.memories.slice(1).map(u=>u.id)}]});
+    };
+    f.replies.push(overflow,overflow);
+    const bridge=createReplyBridge({service,countMessages:async(_u,_m,m)=>Math.ceil(JSON.stringify(m).length/3)});t.after(()=>bridge.close());
+    const ticket='d'.repeat(32);bridge.prepareInput(f.user,{ticket,input});
+    const slots=await reserveReplySlots(ticket,3000,text=>Math.ceil(text.length/3));
+    const out=await bridge.prepare({user:f.user,ticket,jobId:'relay-overflow',payload:{messages:[{role:'system',content:slots.text},{role:'system',content:slots.guidance}]},signal:new AbortController().signal});
+    assert.equal(bridge.get(f.user,ticket).state,'completed');assert.equal(f.calls.length,2);
+    for(const line of lines)assert(out.messages[0].content.includes(line));
+    assert(!JSON.stringify(out).includes('AL_memory_'));
+    const job=service.get(f.user,bridge.get(f.user,ticket).jobId);
+    assert.equal(job.status,'completed');assert.equal(job.result.lastRecall.units.length,36);
+    assert(job.result.lastRecall.tokens<=3000);assert.equal(fs.readFileSync(f.book,'utf8'),originalBook);
+    const audit=JSON.stringify(await readLogs(service,f.user,'test-key'));
+    assert.match(audit,/연결 개수 초과 복구/);assert.match(audit,/전체 ID 재검증/);
+});

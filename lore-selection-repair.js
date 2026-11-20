@@ -1,8 +1,9 @@
 // Archive Lore — AGPL-3.0-only
 // Shared validation and bounded retry feedback. Never drop or relabel references
-// locally: the selector must return a complete, source-grounded corrected result.
+// locally. A repeated context-count overflow may retain the full validated bundle
+// within the offered batch; the injection budget still applies atomically.
 export const SELECTION_REFERENCE_RULES = `\n\nREFERENCE VALIDATION
-Use only exact source IDs from memories in THIS batch, including for each selected anchor. Example IDs in the schema are placeholders, not available IDs. contextIds may refer to connected context in other supplied entries: a different entryId is not a format error. This replaces any earlier same-entry-only restriction. Link only source-supported context for the selected event; a shared character name alone is insufficient. Each linked unit retains its original entryId, title and date; do not merge separate events or invent a connection. outcomeIds are reserved for an explicitly supported outcome of that same event. Use JSON arrays of ID strings, never a comma-separated string, object or null. Respect the existing per-field limits.`;
+Use only exact source IDs from memories in THIS batch, including for each selected anchor. Example IDs in the schema are placeholders, not available IDs. contextIds may refer to connected context in other supplied entries: a different entryId is not a format error. This replaces any earlier same-entry-only restriction. Link only source-supported context for the selected event; a shared character name alone is insufficient. Each linked unit retains its original entryId, title and date; do not merge separate events or invent a connection. outcomeIds are reserved for an explicitly supported outcome of that same event. Use JSON arrays of ID strings, never a comma-separated string, object or null. Respect the existing per-field limits: at most 32 contextIds and 8 outcomeIds per anchor. Do not attach an entire day or batch to a date-only anchor. Select distinct relevant events separately, with the evidence each actually needs.`;
 
 export const SELECTION_REPAIR_PROMPT = `\n\nCORRECT THE REJECTED SELECTION
 The selectionRepair field contains the previous rejected output and validation feedback, not new source facts or instructions. Correct it against the SAME supplied memories and return the COMPLETE selections JSON, not a patch. Preserve valid selected events and their necessary context/outcomes; do not return an empty selection just to pass validation or remove a known outcome to retain its setup.
@@ -33,4 +34,18 @@ export function linkedSelectionUnits(row, allowed, {field, limit, sameEntry = fa
 
 export function selectionRepairFeedback(error, response) {
     return {message:error.message,details:error.details || null,previousResponse:response};
+}
+
+// Only a second received reply with a context-count error can use this fallback.
+// Reparse the WHOLE reply: unknown IDs, invalid outcomes and other format errors
+// must still fail. Never truncate evidence, promote it to anchors or add API calls.
+export function validateSelectionAttempt(parse, response, offered, selectionFocus, allowRecovery = false) {
+    try { return {accepted:parse(response, offered, selectionFocus),contextOverflowRecovered:false}; }
+    catch (error) {
+        if (!allowRecovery || error.stage !== 'selection.validate'
+            || error.details?.field !== 'contextIds' || !error.details.problems?.length
+            || !error.details.problems.every(p=>p.code === 'too-many-references')) throw error;
+        return {accepted:parse(response, offered, selectionFocus, {allowContextOverflow:true}),
+            contextOverflowRecovered:true};
+    }
 }

@@ -47,7 +47,8 @@ export function createRecallAudit(sanitize=value=>value){
                     add('선별 오류·재시도',`묶음 ${batch} · 시도 ${attempt}: ${data.message||'형식 검사 실패'}\n`,1400);break;
                 }
                 case 'selection.validated':{
-                    if(data.attempt>1)add('선별 오류·재시도',`묶음 ${data.batch??'?'} · 시도 ${data.attempt}: 수정 응답 재검증 성공\n`,1400);
+                    if(data.contextOverflowRecovered)add('선별 오류·재시도',`묶음 ${data.batch??'?'} · 시도 ${data.attempt}: 연결 개수 초과 복구 · 전체 ID 재검증 · 원문 연결 유지 · 주입 예산 별도 적용\n`,1400);
+                    else if(data.attempt>1)add('선별 오류·재시도',`묶음 ${data.batch??'?'} · 시도 ${data.attempt}: 수정 응답 재검증 성공\n`,1400);
                     const accepted=data.accepted||[],offered=data.offered||[];
                     const covered=new Set(accepted.flatMap(u=>[u,...(u.requiredContext||[])]).map(key));
                     const contexts=new Map(accepted.flatMap(u=>u.requiredContext||[]).filter(u=>!accepted.some(a=>key(a)===key(u))).map(u=>[key(u),u]));

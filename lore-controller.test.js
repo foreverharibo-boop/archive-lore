@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { createLoreController } from './lore-controller.js';
 import { DEFAULTS, NS, sourceRange } from './lore-core.js';
 import { createDiagnostics } from './lore-diagnostics.js';
+import { completionText } from './lore-api.js';
 function fixture() {
     let book={entries:{}}, key='chat-a', failSave=false, failEmbed=false;
     let config={...DEFAULTS,cacheNamespace:'test'}, replies=[], calls=[], cache=new Map();
@@ -420,18 +421,47 @@ for(const generousRecall of [false,true])test(`selection repair identifies the b
         const outcome=data.memories.find(u=>u.text.includes('returned'));
         if(calls===1){
             assert(!data.selectionRepair);memories=structuredClone(data.memories);
-            first=JSON.stringify({selections:[{id:start.id,priority:3,reason:'Coat status',contextIds:[context.id,outcome.id]}]});
+            first=JSON.stringify({selections:[{id:start.id,priority:3,reason:'Coat status',contextIds:[context.id,'unoffered-id']} ]});
             return first;
         }
         assert.equal(calls,2);assert.match(system,/CORRECT THE REJECTED SELECTION/);
         assert.deepEqual(data.memories,memories);assert.equal(data.selectionRepair.previousResponse,first);
         assert.equal(data.selectionRepair.details.anchorId,start.id);
-        assert.deepEqual(data.selectionRepair.details.problems,[{code:'different-entry',id:outcome.id}]);
+        assert.deepEqual(data.selectionRepair.details.problems,[{code:'id-not-in-batch',id:'unoffered-id'}]);
         return JSON.stringify({selections:[{id:start.id,priority:3,reason:'Coat status',contextIds:[context.id],outcomeIds:[outcome.id]}]});
     };
     const result=await f.controller.recall();assert.equal(calls,2);assert.deepEqual(f.book,before);
     assert(result.text.includes('borrowed'));assert(result.text.includes('agreed'));assert(result.text.includes('returned'));
-    const preview=await d.preview();assert.match(preview,/different-entry/);assert.match(preview,/수정 응답 재검증 성공/);
+    const preview=await d.preview();assert.match(preview,/id-not-in-batch/);assert.match(preview,/수정 응답 재검증 성공/);
+});
+
+for(const generousRecall of [false,true])test(`cross-category context survives recall without a repair, generous=${generousRecall}`,async()=>{
+    const f=fixture();f.config={generousRecall,injectionTokens:3000};
+    f.book={entries:{0:{uid:0,comment:'Agreements',content:'Lee agreed to meet Morgan on Saturday.'},1:{uid:1,comment:'Plans',content:'Morgan plans to wait at the station.'}}};
+    await f.controller.index();let calls=0;
+    f.host.ask=async(_p,system,data)=>{
+        calls++;assert.match(system,/different entryId is not a format error/);
+        const a=data.memories.find(u=>u.text.includes('agreed')),b=data.memories.find(u=>u.text.includes('plans'));
+        return JSON.stringify({selections:[{id:a.id,priority:2,reason:'Meeting plan',contextIds:[b.id]}]});
+    };
+    const result=await f.controller.recall();assert.equal(calls,1);
+    assert(result.text.includes('Agreements\nLee agreed'));assert(result.text.includes('Plans\nMorgan plans'));
+    assert.equal(result.selected.size,2);assert(result.tokens<=3000);
+});
+
+for(const generousRecall of [false,true])test(`recall retries truncated questions and selection with larger ceilings, generous=${generousRecall}`,async()=>{
+    const f=fixture();f.config={mode:'questions',generousRecall};
+    f.book={entries:{0:{uid:0,content:'Lee visited the station.'}}};await f.controller.index();
+    const limits={questions:[],selection:[]};
+    f.host.ask=async(_p,_system,data,_signal,tokens)=>{
+        const phase=data.memories?'selection':'questions';limits[phase].push(tokens);
+        if(limits[phase].length===1)return completionText({choices:[{finish_reason:'length',message:{content:'{"selections":['}}]});
+        if(phase==='questions')return '{"questions":["What happened at the station?"]}';
+        return JSON.stringify({selections:[{id:data.memories[0].id,priority:3,reason:'Prior visit',contextIds:[]}]});
+    };
+    const result=await f.controller.recall();
+    assert.deepEqual(limits,{questions:[1200,6000],selection:[6000,12000]});
+    assert(result.text.includes('Lee visited the station.'));assert(result.tokens<=3000);
 });
 
 for(const generousRecall of [false,true])test(`failed selection repair stays bounded and exposes the failing batch without injecting partial memory, generous=${generousRecall}`,async()=>{

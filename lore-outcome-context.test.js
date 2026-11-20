@@ -34,8 +34,7 @@ for (const [mode,parse] of [['normal',selectedUnits],['generous',parseGenerousSe
         for(const outcomeIds of [['missing'],['u1',null],'u1',Array(9).fill('u1')]) {
             assert.throws(()=>parse(response([{...root,outcomeIds}]),offered),/연결 문장/);
         }
-        // Existing same-entry context restriction remains intact.
-        assert.throws(()=>parse(response([{...root,contextIds:['u1']}]),offered),/연결 문장/);
+        assert.throws(()=>parse(response([{...root,contextIds:['missing']}]),offered),/연결 문장/);
     });
     test(`${mode}: same-entry context and outcomes deduplicate without fabricating status`,async()=>{
         const selected=parse(response([{id:'u1',priority:3,reason:'Return',contextIds:['u2'],outcomeIds:['u1','u2','u2']}]),offered);

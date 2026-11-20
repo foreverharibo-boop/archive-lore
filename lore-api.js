@@ -18,7 +18,7 @@ export async function digest(value) {
 }
 export function completionText(result) {
     const finish = result?.choices?.[0]?.finish_reason || result?.candidates?.[0]?.finishReason;
-    if (['length', 'MAX_TOKENS'].includes(finish)) throw new Error('AI 응답이 출력 한도에서 잘렸어. 범위를 줄여서 다시 수집해 줘.');
+    if (['length', 'MAX_TOKENS'].includes(finish)) throw Object.assign(new Error('AI 응답이 출력 한도에서 잘렸어. 출력 토큰 한도를 늘려 다시 시도해 줘.'),{code:'OUTPUT_TRUNCATED',finishReason:finish});
     if (typeof result === 'string') return result;
     const text = result?.choices?.[0]?.message?.content ?? result?.content ?? result?.text
         ?? result?.candidates?.[0]?.content?.parts?.filter(x => !x.thought).map(x => x.text || '').join('');

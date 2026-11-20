@@ -14,7 +14,7 @@ GENEROUS RELATED MEMORY MODE
 For this mode, the following relevance and output rules replace earlier restrictions to indispensable facts, a small selection count, or a terse answer. Preserve all other source-fidelity and user exclusions.
 Select related source units generously from the FIRST review. Priority 3: directly addresses the present request. Priority 2: related background that can enrich this scene or keep character reactions consistent, including connected experiences, preferences, promises, feelings with their recorded reasons, and distinctive event details. Priority 2 does NOT require a priority-3 fact and does NOT need to be indispensable. Do not reject related material merely because the current reply is possible without it, it is old, or enough other facts have already been selected. Do not stop after 24 units. The program fills the token budget from the selected related pool.
 Omit unrelated, redundant or uninterpretable units without listing them. A shared character name alone does not establish relevance; a different date or location alone does not disprove a concrete connection. Never invent connections to fill space.
-For each selected unit include contextIds (up to 32 IDs from the SAME entry in this batch) for the event's circumstances, meaningful dialogue, reasons, reactions, conditions and outcome, including owner, speaker, chronology and negation. These sentences are retained together or omitted together. Do not include unrelated sentences as context. Never rewrite or summarize the original text. Preserve uncertainty and distinguish past events from current status.
+For each selected unit include contextIds (up to 32 source IDs in this batch, including connected records in other entries) for the event's circumstances, meaningful dialogue, reasons, reactions, conditions and outcome, including owner, speaker, chronology and negation. These sentences are retained together or omitted together with their original entry titles and dates. Do not include unrelated sentences as context. Never rewrite or summarize the original text. Preserve uncertainty and distinguish past events from current status.
 Return ONLY JSON: {"selections":[{"id":"u0","priority":2,"contextIds":[]}]}.
 Return only selected IDs, priorities and contextIds, plus focusMatches when selectionFocus is supplied (only checked categories supported by the source). Do NOT output inclusion/exclusion reasons, explanations, rejected IDs or a review of every unit. For no related material return {"selections":[]}. There is no minimum fill quota and no second review to fill unused space.`;
 
@@ -27,7 +27,7 @@ export function parseGenerousSelections(response, offered, selectionFocus = []) 
             throw Error('넉넉한 주입 선별 형식이 올바르지 않아.');
         seen.add(row.id);
         outcomeContext(row, allowed);
-        linkedSelectionUnits(row, allowed, {field:'contextIds',limit:MAX_EVENT_CONTEXT,sameEntry:true});
+        linkedSelectionUnits(row, allowed, {field:'contextIds',limit:MAX_EVENT_CONTEXT});
     }
     return rows.map(row => ({
         ...allowed.get(row.id), priority:row.priority, selectionFormat:'generous',

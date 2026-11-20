@@ -41,13 +41,13 @@ test('related background survives without an essential fact and is not limited t
     assert.equal(fitted.units.length,30);assert(fitted.tokens<=3000);
     for(const original of units)assert(fitted.text.includes(original.text));
 });
-test('same-entry attribution dependencies stay atomic and unknown/cross-entry references are rejected',async()=>{
+test('attribution dependencies stay atomic and unknown references are rejected',async()=>{
     const units=[unit('u0',0),unit('u1',1),unit('u2',0,'other')];
     const rows=[{id:'u0',priority:2,contextIds:['u1']},{id:'u1',priority:2,contextIds:['u0']}];
     const parsed=parseGenerousSelections(JSON.stringify({selections:rows}),units);
     const one=await fitFocusedInjection(parsed,{injectionTokens:formatInjection([units[0]]).length,selectionFocus:[]},text=>text.length);
     assert.equal(one.units.length,0);
-    for(const contextIds of [['u2'],['unknown']]){
+    for(const contextIds of [['unknown']]){
         rows[0].contextIds=contextIds;assert.throws(()=>parseGenerousSelections(JSON.stringify({selections:rows}),units),/연결 문장/);
     }
 });

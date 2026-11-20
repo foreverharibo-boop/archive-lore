@@ -12,7 +12,6 @@ const offered=[
 const anchor={id:'u84',priority:3,reason:'Coat status',contextIds:['u85'],outcomeIds:['u86']};
 for(const [name,parse] of [['normal',selectedUnits],['generous',parseGenerousSelections]]){
     for(const [field,refs,code] of [
-        ['contextIds',['u86'],'different-entry'],
         ['contextIds',['u0'],'id-not-in-batch'],
         ['contextIds','u85','expected-array'],
         ['contextIds',null,'expected-array'],
@@ -36,5 +35,15 @@ for(const [name,parse] of [['normal',selectedUnits],['generous',parseGenerousSel
         for(const u of offered)assert(full.text.includes(u.text));
         const tight=await fitInjection(selected,full.tokens-1,t=>t.length);
         assert.equal(tight.text,'');
+    });
+    test(`${name}: cross-entry context preserves source labels, deduplicates, and stays atomic`,async()=>{
+        const before=structuredClone(offered);
+        const selected=parse(JSON.stringify({selections:[{...anchor,contextIds:['u85','u86','u86']}]}),offered);
+        assert.deepEqual(selected[0].requiredContext.map(u=>u.id),['u85','u86']);
+        const full=await fitInjection(selected,10000,t=>t.length);
+        assert(full.text.includes('Day\nLee borrowed a coat.\nThe owner agreed to lend it.'));
+        assert(full.text.includes('Return\nLee returned the coat.'));
+        assert.deepEqual(offered,before);
+        assert.equal((await fitInjection(JSON.parse(JSON.stringify(full.units)),full.tokens-1,t=>t.length)).text,'');
     });
 }

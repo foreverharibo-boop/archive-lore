@@ -255,7 +255,7 @@ export function selectedUnits(response, offered, selectionFocus = []) {
     const rows = ranked ? data.selections : data.ids.map(id=>({id,priority:2,reason:'legacy ordered selection'}));
     for (const row of rows) {
         outcomeContext(row, allowed);
-        linkedSelectionUnits(row, allowed, {field:'contextIds',limit:MAX_EVENT_CONTEXT,sameEntry:true});
+        linkedSelectionUnits(row, allowed, {field:'contextIds',limit:MAX_EVENT_CONTEXT});
     }
     const seen = new Set();
     return rows.filter(row=>{

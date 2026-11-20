@@ -18,6 +18,7 @@ import { generousRecall } from './lore-generous-recall.js';
 import { errorInfo, observer } from './lore-telemetry.js';
 import { OUTCOME_QUESTION_PROMPT, OUTCOME_SELECTION_PROMPT } from './lore-outcome-context.js';
 import { SELECTION_REFERENCE_RULES, SELECTION_REPAIR_PROMPT, selectionRepairFeedback } from './lore-selection-repair.js';
+import { recallOutput } from './lore-recall-output.js';
 
 const QUESTION_SCHEMA = '\nReturn ONLY JSON: {"questions":["question"]}. The questions key is required, with one to six nonblank strings of at most 2000 characters each. Always generate at least one context-grounded retrieval question, including for ordinary scene actions. When no factual answer is missing, ask what recorded experience, feeling, preference or agreement could inform this scene without assuming such a record exists. Never return an empty questions array, {} or omit questions.';
 
@@ -254,6 +255,8 @@ export function createLoreController(host) {
     }
     async function recall(options = {}) {
         return job('필요한 기억 찾는 중', async signal => {
+            const askRecall=(profile,system,data,requestSignal,tokens,phase='selectionMs')=>recallOutput(
+                limit=>askTracked(profile,system,data,requestSignal,limit,phase),tokens,requestSignal,log,phase);
             lastRecall=null;
             const started=Date.now();timings={questionMs:0,embeddingMs:0,selectionMs:0};
             const snapshot = structuredClone(host.context()), config = settings();
@@ -284,7 +287,7 @@ export function createLoreController(host) {
                     assertCurrent(snapshot,signal);
                     // Only retry a received but malformed plan, never transport errors
                     // or cancellations. Keep the retry in this same search job.
-                    const response=await askTracked(config.searchProfile || config.profile,
+                    const response=await askRecall(config.searchProfile || config.profile,
                         system+(attempt?'\nYour previous response did not match the required JSON format. Re-evaluate the supplied dialogue and return the required questions object, with one to six nonblank questions. An empty list is invalid; explore potentially useful past context for this scene without inventing an event.':''),
                         data,signal,1200,'questionMs');
                     try{
@@ -335,7 +338,7 @@ export function createLoreController(host) {
                     const selectionStarted=Date.now();
                     const result=await generousRecall({candidates,
                         chunks:reviewChunks,config,latestUser:focus.latestUser,dialogue:recent.text,questions,
-                        ask:(system,data,signal,maxTokens)=>askTracked(config.searchProfile || config.profile,system,data,signal,maxTokens),
+                        ask:(system,data,signal,maxTokens)=>askRecall(config.searchProfile || config.profile,system,data,signal,maxTokens),
                         countTokens:host.countTokens,signal,log,notify});
                     fitted=result;candidateTotal=result.candidateTotal;
                     timings.selectionRequestMs=timings.selectionMs;
@@ -350,7 +353,7 @@ export function createLoreController(host) {
                         notify('검색된 기억에서 필요한 원문 고르는 중');
                         let response, accepted, repair, acceptedAttempt;
                         for (let attempt=0;attempt<2;attempt++) {
-                            response = await askTracked(config.searchProfile || config.profile,
+                            response = await askRecall(config.searchProfile || config.profile,
                                 config.prompts.select + '\nReturn ONLY JSON: {"selections":[{"id":"u0","priority":3,"reason":"concrete relevance to this scene","contextIds":[],"outcomeIds":[]}]}. Use priority 3 for direct answers and continuity constraints, 2 for useful connected background. Return at most 48 main event anchors in usefulness order; connected context IDs are separate. For no useful related context return {"selections":[]}.' + selectionFocusPrompt(config.selectionFocus) + OUTCOME_SELECTION_PROMPT + EVENT_CONTEXT_SELECTION_PROMPT + SELECTION_REFERENCE_RULES + (repair ? SELECTION_REPAIR_PROMPT : ''),
                                 { latestUser:focus.latestUser, dialogue: recent.text, questions, memories: selectorMemories(batch),
                                     batch:index+1,batchCount:batches.length,maxSelections:MAX_EVENT_SELECTIONS,injectionBudgetTokens:config.injectionTokens,

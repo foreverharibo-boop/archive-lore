@@ -123,7 +123,7 @@ test('attribution dependencies survive together or are dropped together, includi
     assert(full.text.includes('Her ring'));assert(full.text.includes('His ring'));
     const small=await fitInjection(full.units,full.tokens-1,t=>t.length);
     assert.equal(small.text,'');assert.equal(small.units.length,0);
-    assert.throws(()=>selectedUnits(JSON.stringify({selections:[{id:'u0',priority:3,reason:'x',contextIds:['u2']}]}),offered),/연결 문장/);
+    assert.throws(()=>selectedUnits(JSON.stringify({selections:[{id:'u0',priority:3,reason:'x',contextIds:['missing']}]}),offered),/연결 문장/);
     const both=selectedUnits(JSON.stringify({selections:[{id:'u0',priority:3,reason:'her ring',contextIds:['u1']},{id:'u1',priority:3,reason:'his ring',contextIds:['u0']}]}),offered);
     const result=await fitInjection(both,1000,t=>t.length);assert.equal(result.units.length,2);
     assert.equal((await fitInjection(result.units,1000,t=>t.length)).text,result.text);

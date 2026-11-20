@@ -8,6 +8,7 @@ import { randomUUID } from 'node:crypto';
 import { createJobService } from './jobs.js';
 import { createReplyBridge } from './reply-bridge.js';
 import { createBackgroundRecall } from '../lore-background.js';
+import { reserveReplySlots } from '../lore-reply-slots.js';
 import { applyNativePolicy, normalizeSettings } from '../lore-core.js';
 import { invokeBackend } from './backend.js';
 import { atomic,json,inside } from './storage.js';
@@ -190,12 +191,12 @@ for(const generousRecall of [false,true])test(`server recall repairs rejected re
     f.replies.push(payload=>{
         const data=JSON.parse(payload.messages.find(m=>m.role==='user').content);offered=data.memories;
         const cost=offered.find(u=>u.text.includes('paid')),outcome=offered.find(u=>u.text.includes('received'));
-        rejected=JSON.stringify({selections:[{id:cost.id,priority:3,reason:'Expense and return',contextIds:[outcome.id]}]});
+        rejected=JSON.stringify({selections:[{id:cost.id,priority:3,reason:'Expense and return',contextIds:['missing-id']}]});
         return rejected;
     },payload=>{
         const data=JSON.parse(payload.messages.find(m=>m.role==='user').content);
         assert.deepEqual(data.memories,offered);assert.equal(data.selectionRepair.previousResponse,rejected);
-        assert.equal(data.selectionRepair.details.problems[0].code,'different-entry');
+        assert.equal(data.selectionRepair.details.problems[0].code,'id-not-in-batch');
         const cost=offered.find(u=>u.text.includes('paid')),outcome=offered.find(u=>u.text.includes('received'));
         return JSON.stringify({selections:[{id:cost.id,priority:3,reason:'Expense and return',contextIds:[],outcomeIds:[outcome.id]}]});
     });
@@ -206,7 +207,29 @@ for(const generousRecall of [false,true])test(`server recall repairs rejected re
     const saved=json(path.join(f.root,'archive-lore-server','jobs',job.id+'.json'));
     assert(saved.result.lastRecall.units.find(u=>u.text.includes('paid')).requiredContext.some(u=>u.text.includes('received')));
     const logs=JSON.stringify(await readLogs(f.service,f.user,'test-key'));
-    assert.match(logs,/different-entry/);assert.match(logs,/수정 응답 재검증 성공/);
+    assert.match(logs,/id-not-in-batch/);assert.match(logs,/수정 응답 재검증 성공/);
+});
+for(const generousRecall of [false,true])test(`Relay preparation survives truncated selection and cross-entry context: generous=${generousRecall}`,async t=>{
+    const f=fixture(t);
+    atomic(f.book,{entries:{0:{uid:0,comment:'Agreements',content:'Lee agreed to meet Morgan on Saturday.'},1:{uid:1,comment:'Plans',content:'Morgan plans to wait at the station.'}}});
+    const service=createJobService({...f.dependencies,countTokens:async(_u,_m,text)=>Math.ceil(text.length/3)});
+    const input=f.input();input.settings=normalizeSettings({...input.settings,serverEnabled:true,relayEnabled:true,generousRecall});
+    input.options={generationType:'normal',replyTokenizer:'fixture'};
+    const index=await service.submit(f.user,'index',input,randomUUID());assert.equal((await done(service,f.user,index.id)).status,'completed');
+    f.replies.push({choices:[{finish_reason:'length',message:{content:'{"selections":['}}]},payload=>{
+        const data=JSON.parse(payload.messages.find(m=>m.role==='user').content);
+        const a=data.memories.find(u=>u.text.includes('agreed')),b=data.memories.find(u=>u.text.includes('plans'));
+        return JSON.stringify({selections:[{id:a.id,priority:3,reason:'Meeting arrangements',contextIds:[b.id]}]});
+    });
+    const bridge=createReplyBridge({service,countMessages:async(_u,_m,m)=>Math.ceil(JSON.stringify(m).length/3)});t.after(()=>bridge.close());
+    const ticket='c'.repeat(32);bridge.prepareInput(f.user,{ticket,input});
+    const slots=await reserveReplySlots(ticket,3000,text=>Math.ceil(text.length/3));
+    const out=await bridge.prepare({user:f.user,ticket,jobId:'relay-job',payload:{messages:[{role:'system',content:slots.text},{role:'system',content:slots.guidance}]},signal:new AbortController().signal});
+    assert.equal(bridge.get(f.user,ticket).state,'completed');assert.deepEqual(f.calls.map(c=>c.max_tokens),[6000,12000]);
+    assert.match(out.messages[0].content,/Agreements\nLee agreed/);assert.match(out.messages[0].content,/Plans\nMorgan plans/);
+    assert(!JSON.stringify(out).includes('AL_memory_'));
+    const job=service.get(f.user,bridge.get(f.user,ticket).jobId);
+    assert.equal(job.status,'completed');assert.equal(job.backgroundReply,true);assert.equal(job.result.selected.length,2);
 });
 test('server generous recall persists its option and finishes underfilled without another review',async t=>{
     const f=fixture(t);atomic(f.book,{entries:{0:{uid:0,content:'The hospital visit reassured her.'},1:{uid:1,content:'She liked having him beside her at the hospital.'}}});

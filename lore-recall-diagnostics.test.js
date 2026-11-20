@@ -84,6 +84,20 @@ test('full selected and rejected source units and exact final slots survive prev
     assert.equal(formatDiagnosticPreview(transported),text);
     assert(text.length>24000);assert(text.includes('END 59'));
 });
+test('selection failure evidence survives the ten-event ring and server summary round trips with secrets redacted',async()=>{
+    const secret='private-selector-key',d=createDiagnostics({secrets:()=>[secret]}),t=d.begin();
+    await t.event('selection.invalid',{batch:2,batchCount:2,attempt:2,message:'Invalid reference',
+        details:{field:'contextIds',anchorId:'u84',problems:[{code:'id-not-in-batch',id:'u0'}]},
+        offered:[{id:'u84',entryId:'day'}],response:JSON.stringify({selections:[{id:'u84',reason:secret,contextIds:['u0']}]})});
+    for(let i=0;i<20;i++)await t.event('request',{model:'test'});
+    await t.finish('error');const text=await d.preview();
+    assert.match(text,/묶음 2\/2 · 시도 2/);assert.match(text,/id-not-in-batch/);assert.match(text,/u84 · day/);
+    assert.match(text,/REDACTED/);assert(!text.includes(secret));assert(!text.includes('[주입 준비 완료]'));
+    const transported=JSON.parse(JSON.stringify(await d.list()));
+    for(const run of transported)for(const event of run.events)event.data=diagnosticSummary(diagnosticSummary(event.data));
+    assert.equal(formatDiagnosticPreview(transported),text);
+});
+
 test('reserved reply placeholders are never presented as installed memory originals',async()=>{
     const d=createDiagnostics(),t=d.begin();await t.event('injection.reserved',{slots:[{name:'memory',text:'SECRET RESERVATION MARKER'}]});
     const text=await d.preview();assert(!text.includes('SECRET RESERVATION MARKER'));assert(!text.includes('실제 주입 슬롯에 등록한 원문 전체'));assert.match(text,/설치 완료 아님/);

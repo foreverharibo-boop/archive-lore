@@ -17,6 +17,7 @@ import { mapOrdered } from './lore-parallel.js';
 import { generousRecall } from './lore-generous-recall.js';
 import { errorInfo, observer } from './lore-telemetry.js';
 import { OUTCOME_QUESTION_PROMPT, OUTCOME_SELECTION_PROMPT } from './lore-outcome-context.js';
+import { SELECTION_REFERENCE_RULES, SELECTION_REPAIR_PROMPT, selectionRepairFeedback } from './lore-selection-repair.js';
 
 const QUESTION_SCHEMA = '\nReturn ONLY JSON: {"questions":["question"]}. The questions key is required, with one to six nonblank strings of at most 2000 characters each. Always generate at least one context-grounded retrieval question, including for ordinary scene actions. When no factual answer is missing, ask what recorded experience, feeling, preference or agreement could inform this scene without assuming such a record exists. Never return an empty questions array, {} or omit questions.';
 
@@ -347,22 +348,24 @@ export function createLoreController(host) {
                     const selectionStarted=Date.now();
                     const batchSelections=await mapOrdered(batches,config.selectionConcurrency,async(batch,index,signal)=>{
                         notify('검색된 기억에서 필요한 원문 고르는 중');
-                        let response, accepted;
+                        let response, accepted, repair, acceptedAttempt;
                         for (let attempt=0;attempt<2;attempt++) {
                             response = await askTracked(config.searchProfile || config.profile,
-                                config.prompts.select + '\nReturn ONLY JSON: {"selections":[{"id":"u0","priority":3,"reason":"concrete relevance to this scene","contextIds":[],"outcomeIds":[]}]}. Use priority 3 for direct answers and continuity constraints, 2 for useful connected background. Return at most 48 main event anchors in usefulness order; connected context IDs are separate. For no useful related context return {"selections":[]}.' + selectionFocusPrompt(config.selectionFocus) + OUTCOME_SELECTION_PROMPT + EVENT_CONTEXT_SELECTION_PROMPT,
+                                config.prompts.select + '\nReturn ONLY JSON: {"selections":[{"id":"u0","priority":3,"reason":"concrete relevance to this scene","contextIds":[],"outcomeIds":[]}]}. Use priority 3 for direct answers and continuity constraints, 2 for useful connected background. Return at most 48 main event anchors in usefulness order; connected context IDs are separate. For no useful related context return {"selections":[]}.' + selectionFocusPrompt(config.selectionFocus) + OUTCOME_SELECTION_PROMPT + EVENT_CONTEXT_SELECTION_PROMPT + SELECTION_REFERENCE_RULES + (repair ? SELECTION_REPAIR_PROMPT : ''),
                                 { latestUser:focus.latestUser, dialogue: recent.text, questions, memories: selectorMemories(batch),
                                     batch:index+1,batchCount:batches.length,maxSelections:MAX_EVENT_SELECTIONS,injectionBudgetTokens:config.injectionTokens,
+                                    ...(repair?{selectionRepair:repair}:{}),
                                     ...(config.selectionFocus.length?{selectionFocus:config.selectionFocus}:{}) }, signal, 6000);
-                            try { accepted=selectedUnits(response,batch,config.selectionFocus);break; }
+                            try { accepted=selectedUnits(response,batch,config.selectionFocus);acceptedAttempt=attempt+1;break; }
                             catch(error) {
                                 signal.throwIfAborted();
-                                await log('selection.invalid',{batch:index+1,attempt:attempt+1,message:error.message,response});
+                                await log('selection.invalid',{batch:index+1,batchCount:batches.length,attempt:attempt+1,message:error.message,details:error.details,response,offered:batch});
                                 if(attempt===1){error.category='response-format';error.stage='selection.validate';throw error;}
+                                repair=selectionRepairFeedback(error,response);
                                 notify('선별 응답 형식 다시 확인 중');
                             }
                         }
-                        await log('selection.validated',{batch:index+1,batchCount:batches.length,maxSelections:MAX_EVENT_SELECTIONS,offered:batch,rawResponse:response,accepted,rejectedOrUnselected:batch.filter(u=>!accepted.some(a=>a.id===u.id))});
+                        await log('selection.validated',{batch:index+1,batchCount:batches.length,attempt:acceptedAttempt,maxSelections:MAX_EVENT_SELECTIONS,offered:batch,rawResponse:response,accepted,rejectedOrUnselected:batch.filter(u=>!accepted.some(a=>a.id===u.id))});
                         return accepted;
                     },signal);
                     // API durations overlap in parallel mode. Report wall time separately.

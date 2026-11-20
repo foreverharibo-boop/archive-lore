@@ -5,6 +5,7 @@ import { fitFocusedInjection } from './lore-focus-injection.js';
 import { normalizeSelectionFocus, orderFocusedUnits, selectionFocusPrompt, EVENT_CONTEXT_SELECTION_PROMPT, MAX_EVENT_CONTEXT } from './lore-selection-focus.js';
 import { mapOrdered } from './lore-parallel.js';
 import { OUTCOME_SELECTION_PROMPT, outcomeContext } from './lore-outcome-context.js';
+import { linkedSelectionUnits, SELECTION_REFERENCE_RULES, SELECTION_REPAIR_PROMPT, selectionRepairFeedback } from './lore-selection-repair.js';
 
 const unitKey = u => JSON.stringify([u.entryId, u.index]);
 
@@ -26,9 +27,7 @@ export function parseGenerousSelections(response, offered, selectionFocus = []) 
             throw Error('넉넉한 주입 선별 형식이 올바르지 않아.');
         seen.add(row.id);
         outcomeContext(row, allowed);
-        if (row.contextIds !== undefined && (!Array.isArray(row.contextIds) || row.contextIds.length > MAX_EVENT_CONTEXT
-            || row.contextIds.some(id => !allowed.has(id) || allowed.get(id).entryId !== allowed.get(row.id).entryId)))
-            throw Error('기억 선별의 연결 문장 형식이 올바르지 않아.');
+        linkedSelectionUnits(row, allowed, {field:'contextIds',limit:MAX_EVENT_CONTEXT,sameEntry:true});
     }
     return rows.map(row => ({
         ...allowed.get(row.id), priority:row.priority, selectionFormat:'generous',
@@ -49,20 +48,23 @@ export async function generousRecall({candidates, chunks, config, latestUser, di
         units:offered.length,batches:batches.length,concurrency:config.selectionConcurrency});
     const results=await mapOrdered(batches,config.selectionConcurrency,async(batch,index,signal)=>{
         notify('관련 기억을 넉넉하게 고르는 중');
+        let repair;
         for(let attempt=0;attempt<2;attempt++){
             signal.throwIfAborted();
-            const response=await ask(config.prompts.select+selectionFocusPrompt(config.selectionFocus)+GENEROUS_SELECTION_PROMPT+OUTCOME_SELECTION_PROMPT+EVENT_CONTEXT_SELECTION_PROMPT
-                +(attempt?'\nThe previous response was invalid. Return a selections array with valid supplied IDs, priority 2 or 3 and same-entry contextIds. Do not include explanations.':''),
+            const response=await ask(config.prompts.select+selectionFocusPrompt(config.selectionFocus)+GENEROUS_SELECTION_PROMPT+OUTCOME_SELECTION_PROMPT+EVENT_CONTEXT_SELECTION_PROMPT+SELECTION_REFERENCE_RULES
+                +(repair?SELECTION_REPAIR_PROMPT:''),
                 {latestUser,dialogue,questions,memories:selectorMemories(batch),batch:index+1,batchCount:batches.length,
+                    ...(repair?{selectionRepair:repair}:{}),
                     injectionBudgetTokens:config.injectionTokens,...(config.selectionFocus.length?{selectionFocus:config.selectionFocus}:{})},signal,6000);
             try {
                 const accepted=parseGenerousSelections(response,batch,config.selectionFocus);
-                await log('selection.validated',{policy:'generous-related-v2',batch:index+1,offered:batch,accepted});
+                await log('selection.validated',{policy:'generous-related-v2',batch:index+1,batchCount:batches.length,attempt:attempt+1,offered:batch,accepted});
                 return accepted;
             } catch(error) {
                 signal.throwIfAborted();
-                await log('selection.invalid',{policy:'generous-related-v2',batch:index+1,attempt:attempt+1,message:error.message});
-                if(attempt===1)throw error;
+                await log('selection.invalid',{policy:'generous-related-v2',batch:index+1,batchCount:batches.length,attempt:attempt+1,message:error.message,details:error.details,response,offered:batch});
+                if(attempt===1){error.category='response-format';error.stage='selection.validate';throw error;}
+                repair=selectionRepairFeedback(error,response);
             }
         }
     },signal);

@@ -126,6 +126,37 @@ test('server recall persists cross-entry completion dependencies for client budg
     const cost=saved.result.lastRecall.units.find(u=>u.text.includes('paid'));
     assert(cost.requiredContext.some(u=>u.text.includes('received')));
 });
+for(const generousRecall of [false,true])test(`server recall repairs rejected references and persists corrected evidence: generous=${generousRecall}`,async t=>{
+    const f=fixture(t);
+    atomic(f.book,{entries:{
+        0:{uid:0,comment:'Expense',content:'Morgan paid to clean the borrowed coat.'},
+        1:{uid:1,comment:'Return',content:'Lee received the coat and put it in his locker.'},
+    }});
+    const input=f.input();input.settings.generousRecall=generousRecall;
+    let job=await f.service.submit(f.user,'index',input,randomUUID());
+    assert.equal((await done(f.service,f.user,job.id)).status,'completed');
+    let rejected,offered;
+    f.replies.push(payload=>{
+        const data=JSON.parse(payload.messages.find(m=>m.role==='user').content);offered=data.memories;
+        const cost=offered.find(u=>u.text.includes('paid')),outcome=offered.find(u=>u.text.includes('received'));
+        rejected=JSON.stringify({selections:[{id:cost.id,priority:3,reason:'Expense and return',contextIds:[outcome.id]}]});
+        return rejected;
+    },payload=>{
+        const data=JSON.parse(payload.messages.find(m=>m.role==='user').content);
+        assert.deepEqual(data.memories,offered);assert.equal(data.selectionRepair.previousResponse,rejected);
+        assert.equal(data.selectionRepair.details.problems[0].code,'different-entry');
+        const cost=offered.find(u=>u.text.includes('paid')),outcome=offered.find(u=>u.text.includes('received'));
+        return JSON.stringify({selections:[{id:cost.id,priority:3,reason:'Expense and return',contextIds:[],outcomeIds:[outcome.id]}]});
+    });
+    job=await f.service.submit(f.user,'recall',input,randomUUID());
+    const result=await done(f.service,f.user,job.id);
+    assert.equal(result.status,'completed',result.message);assert.equal(f.calls.length,2);
+    assert.match(result.result.text,/paid/);assert.match(result.result.text,/locker/);
+    const saved=json(path.join(f.root,'archive-lore-server','jobs',job.id+'.json'));
+    assert(saved.result.lastRecall.units.find(u=>u.text.includes('paid')).requiredContext.some(u=>u.text.includes('received')));
+    const logs=JSON.stringify(await readLogs(f.service,f.user,'test-key'));
+    assert.match(logs,/different-entry/);assert.match(logs,/수정 응답 재검증 성공/);
+});
 test('server generous recall persists its option and finishes underfilled without another review',async t=>{
     const f=fixture(t);atomic(f.book,{entries:{0:{uid:0,content:'The hospital visit reassured her.'},1:{uid:1,content:'She liked having him beside her at the hospital.'}}});
     const input=f.input();input.settings.generousRecall=true;input.settings.candidateCount=1;

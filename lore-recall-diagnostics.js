@@ -37,7 +37,17 @@ export function createRecallAudit(sanitize=value=>value){
                     set('후보 밖 기록',sampled(outside,1000),1200);break;
                 }
                 case 'selection.plan':set('선별 계획',`정책 ${data.policy} · 원문 ${data.units}단위 · ${data.batches}묶음 · 동시 처리 ${data.concurrency}`,500);break;
+                case 'selection.invalid':{
+                    const batch=data.batch??'?',attempt=data.attempt??'?';
+                    const response=String(data.response??'');
+                    detail(`selection-error:${batch}`,`[선별 형식 오류 · 묶음 ${batch}/${data.batchCount??'?'} · 시도 ${attempt}]\n${data.message||''}\n`+
+                        `[검사 상세]\n${JSON.stringify(data.details||{},null,2)}\n`+
+                        `[해당 묶음의 허용 ID · 항목별]\n`+(data.offered||[]).map(u=>`${u.id} · ${u.entryId}`).join('\n')+
+                        `\n[마지막 실패 응답 · 미검증, 주입되지 않음]\n${response.slice(0,32000)}${response.length>32000?'\n… 실패 응답 표시 32,000자 한도':''}`);
+                    add('선별 오류·재시도',`묶음 ${batch} · 시도 ${attempt}: ${data.message||'형식 검사 실패'}\n`,1400);break;
+                }
                 case 'selection.validated':{
+                    if(data.attempt>1)add('선별 오류·재시도',`묶음 ${data.batch??'?'} · 시도 ${data.attempt}: 수정 응답 재검증 성공\n`,1400);
                     const accepted=data.accepted||[],offered=data.offered||[];
                     const covered=new Set(accepted.flatMap(u=>[u,...(u.requiredContext||[])]).map(key));
                     const contexts=new Map(accepted.flatMap(u=>u.requiredContext||[]).filter(u=>!accepted.some(a=>key(a)===key(u))).map(u=>[key(u),u]));

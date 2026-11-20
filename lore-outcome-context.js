@@ -1,4 +1,5 @@
 // Archive Lore — AGPL-3.0-only
+import { linkedSelectionUnits } from './lore-selection-repair.js';
 // Appended at runtime so existing custom prompts receive continuity constraints
 // without overwriting their saved text or adding another model request.
 export const OUTCOME_QUESTION_PROMPT = `\n\nEVENT STATUS SEARCH
@@ -11,10 +12,5 @@ For each selected fact, add outcomeIds: up to 8 supplied unit IDs establishing t
 The selected fact and its outcomeIds are retained together or omitted together under the shared token budget. Prefer a supported final-status fact as a priority-3 selection itself when it prevents a continuity error; include its necessary source context. Do not sacrifice a known outcome to keep an earlier setup. If no outcome is supplied, use an empty outcomeIds array; never invent one, claim the task is pending, or assume another batch will supply it. Output only the existing selections JSON with the additional optional outcomeIds field; all other format rules remain in force.`;
 
 export function outcomeContext(row, allowed) {
-    if (row?.outcomeIds === undefined) return [];
-    if (!Array.isArray(row.outcomeIds) || row.outcomeIds.length > 8
-        || row.outcomeIds.some(id => !allowed.has(id))) {
-        throw new Error('기억 선별의 연결 문장 형식이 올바르지 않아.');
-    }
-    return [...new Set(row.outcomeIds)].filter(id => id !== row.id).map(id => allowed.get(id));
+    return linkedSelectionUnits(row, allowed, {field:'outcomeIds',limit:8});
 }

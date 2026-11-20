@@ -4,6 +4,7 @@ import { normalizeSideSearchExclusions } from './lore-side-search.js';
 import { normalizeSides } from './lore-side-config.js';
 import { normalizeSelectionFocus, MAX_EVENT_CONTEXT, MAX_EVENT_SELECTIONS } from './lore-selection-focus.js';
 import { outcomeContext } from './lore-outcome-context.js';
+import { linkedSelectionUnits } from './lore-selection-repair.js';
 import { fingerprintChatMessage } from './chatSelection.js';
 import { COLLECT_PROMPT, SIDE_PROMPT, QUESTIONS_PROMPT, SELECT_PROMPT, LEGACY_QUESTIONS, LEGACY_SELECT, PREVIOUS_QUESTIONS, PREVIOUS_SELECT, PREVIOUS_EVENT_SELECT, PREVIOUS_ENGLISH_QUESTIONS, PREVIOUS_COMPARISON_SELECT, PREVIOUS_BACKGROUND_QUESTIONS, PREVIOUS_BACKGROUND_SELECT } from './lore-prompts.js';
 import { LEGACY_COLLECT, LEGACY_SIDE } from './lore-prompts-v1.js';
@@ -254,9 +255,7 @@ export function selectedUnits(response, offered, selectionFocus = []) {
     const rows = ranked ? data.selections : data.ids.map(id=>({id,priority:2,reason:'legacy ordered selection'}));
     for (const row of rows) {
         outcomeContext(row, allowed);
-        if (row?.contextIds !== undefined && (!Array.isArray(row.contextIds) || row.contextIds.length > MAX_EVENT_CONTEXT
-            || row.contextIds.some(id => !allowed.has(id) || allowed.get(id).entryId !== allowed.get(row.id)?.entryId)))
-            throw new Error('기억 선별의 연결 문장 형식이 올바르지 않아.');
+        linkedSelectionUnits(row, allowed, {field:'contextIds',limit:MAX_EVENT_CONTEXT,sameEntry:true});
     }
     const seen = new Set();
     return rows.filter(row=>{

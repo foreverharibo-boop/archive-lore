@@ -407,6 +407,54 @@ test('malformed selector responses get one retry; valid empty selection does not
     }
 });
 
+for(const generousRecall of [false,true])test(`selection repair identifies the bad link and preserves the full corrected event, generous=${generousRecall}`,async()=>{
+    const f=fixture(),d=createDiagnostics();f.host.diagnostics=d;
+    f.config={generousRecall,injectionTokens:3000};
+    f.book={entries:{0:{uid:0,content:'Lee borrowed a coat. The owner agreed to lend it.'},1:{uid:1,content:'Lee returned the coat.'}}};
+    await f.controller.index();d.clear();const before=structuredClone(f.book);
+    let calls=0,first,memories;
+    f.host.ask=async(_p,system,data)=>{
+        calls++;
+        const start=data.memories.find(u=>u.text.includes('borrowed'));
+        const context=data.memories.find(u=>u.text.includes('agreed'));
+        const outcome=data.memories.find(u=>u.text.includes('returned'));
+        if(calls===1){
+            assert(!data.selectionRepair);memories=structuredClone(data.memories);
+            first=JSON.stringify({selections:[{id:start.id,priority:3,reason:'Coat status',contextIds:[context.id,outcome.id]}]});
+            return first;
+        }
+        assert.equal(calls,2);assert.match(system,/CORRECT THE REJECTED SELECTION/);
+        assert.deepEqual(data.memories,memories);assert.equal(data.selectionRepair.previousResponse,first);
+        assert.equal(data.selectionRepair.details.anchorId,start.id);
+        assert.deepEqual(data.selectionRepair.details.problems,[{code:'different-entry',id:outcome.id}]);
+        return JSON.stringify({selections:[{id:start.id,priority:3,reason:'Coat status',contextIds:[context.id],outcomeIds:[outcome.id]}]});
+    };
+    const result=await f.controller.recall();assert.equal(calls,2);assert.deepEqual(f.book,before);
+    assert(result.text.includes('borrowed'));assert(result.text.includes('agreed'));assert(result.text.includes('returned'));
+    const preview=await d.preview();assert.match(preview,/different-entry/);assert.match(preview,/수정 응답 재검증 성공/);
+});
+
+for(const generousRecall of [false,true])test(`failed selection repair stays bounded and exposes the failing batch without injecting partial memory, generous=${generousRecall}`,async()=>{
+    const f=fixture(),secret='private-test-credential',d=createDiagnostics({secrets:()=>[secret]});f.host.diagnostics=d;
+    f.config={generousRecall};f.book={entries:{0:{uid:0,content:'A recorded visit.'}}};await f.controller.index();d.clear();
+    let calls=0;
+    f.host.ask=async(_p,_s,data)=>{calls++;return JSON.stringify({selections:[{id:data.memories[0].id,priority:2,reason:secret,contextIds:['u999']} ]});};
+    await assert.rejects(f.controller.recall(),error=>error.stage==='selection.validate');
+    assert.equal(calls,2);assert.equal(f.controller.state().lastRecall,null);
+    const preview=await d.preview();assert.match(preview,/묶음 1\/1 · 시도 2/);assert.match(preview,/u999/);
+    assert.match(preview,/id-not-in-batch/);assert.match(preview,/미검증, 주입되지 않음/);
+    assert(!preview.includes(secret));assert(!preview.includes('[주입 준비 완료]'));
+});
+
+for(const generousRecall of [false,true])test(`canceling selection repair discards late model output, generous=${generousRecall}`,async()=>{
+    const f=fixture();f.config={generousRecall};f.book={entries:{0:{uid:0,content:'A recorded visit.'}}};await f.controller.index();
+    let calls=0;
+    f.host.ask=async(_p,_s,data)=>{calls++;if(calls===1)return JSON.stringify({selections:[{id:data.memories[0].id,priority:2,reason:'Visit',contextIds:['missing']}]});
+        f.controller.cancel();return JSON.stringify({selections:[{id:data.memories[0].id,priority:2,reason:'Visit'}]});};
+    await assert.rejects(f.controller.recall(),error=>error.name==='AbortError');
+    assert.equal(calls,2);assert.equal(f.controller.state().lastRecall,null);
+});
+
 test('cached server indexing yields to other requests and does not reread context for every chunk',async()=>{
     const f=fixture();let reads=0,yields=0;
     f.book={entries:Object.fromEntries(Array.from({length:105},(_,uid)=>[uid,{uid,content:'Fact '+uid}]))};

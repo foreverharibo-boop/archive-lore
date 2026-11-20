@@ -12,9 +12,12 @@ export function createBackgroundRecall(host) {
         const config=host.settings();
         // No plugin probes, extra requests or prompt changes on the public path.
         if(!config.serverEnabled || !config.relayEnabled)return null;
-        if(!host.supported(type)||config.keywordActivation){
-            await trace?.event('relay.fallback',{reason:'unsupported-generation-or-keyword-policy'});return null;
+        if(!host.supported(type)){
+            await trace?.event('relay.fallback',{reason:'unsupported-generation'});return null;
         }
+        // ST assembles keyword-triggered lore before Relay accepts the prompt.
+        // Preserve it while the server fills the reserved recall slots. Selected
+        // IDs are not known yet, so overlapping native/AI memories may coexist.
         const p={ticket:makeId(),generation:host.generation?.(),key:host.context().key,settings:signature(),abort:new AbortController(),attached:false};
         pending=p;
         const check=()=>{p.abort.signal.throwIfAborted();if(!valid(p))throw new DOMException('서버 답변 준비 중 설정 또는 채팅이 바뀌었어.','AbortError');};

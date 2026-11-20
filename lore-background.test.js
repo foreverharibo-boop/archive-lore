@@ -64,9 +64,28 @@ test('stop during capability check cannot leave a late ticket or affect a new at
     f.background.cancel();hold.resolve(true);await rejected;
     assert(!f.calls.some(c=>c.route==='/reply/prepare'));
 });
-test('unsupported group/keyword mode uses existing recall instead of partial background handling',async()=>{
+test('unsupported generation uses existing recall instead of partial background handling',async()=>{
     const f=fixture();f.host.supported=()=>false;f.host.relay=()=>assert.fail();
     assert.equal(await f.background.prepare('normal'),null);
+});
+for(const type of ['normal','regenerate','swipe'])test(`keyword activation keeps background handoff for ${type}`,async()=>{
+    const f=fixture();f.host.settings().keywordActivation=true;
+    const slots=await f.background.prepare(type);
+    assert(slots.deferred);assert.equal(f.calls[0].data.input.settings.keywordActivation,true);
+    const native={role:'system',content:'Native keyword lore remains in its original position.'};
+    const prompt=[native,{role:'system',content:slots.text},{role:'system',content:slots.guidance}];
+    f.background.capture({prompt});const request={messages:prompt};f.background.attach(request);
+    assert.equal(request.__silly_relay_prepare.ticket,f.calls[0].data.ticket);
+    assert.equal(request.messages[0],native);
+    f.background.detach();assert(!f.calls.some(c=>c.route==='/reply/cancel'));
+});
+test('changing keyword activation after preparation prevents stale handoff',async()=>{
+    const f=fixture();f.host.settings().keywordActivation=true;
+    const slots=await f.background.prepare('normal');
+    const prompt=[{role:'system',content:slots.text},{role:'system',content:slots.guidance}];
+    f.background.capture({prompt});f.host.settings().keywordActivation=false;
+    assert.throws(()=>f.background.attach({messages:prompt}),/설정이 바뀌/);
+    f.background.cancel();
 });
 test('relay completion retains its generation identity across a later generation',async()=>{
     const f=fixture(),hold=gate();let generation=1,accepted;

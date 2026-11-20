@@ -130,7 +130,7 @@ export function createJobService({sanitize,ask,embedRequest=embed,countTokens}) 
     return {
         replySnapshot(user,input){
             const s=state(user);validate(s,input,'recall');
-            if(input.chat.group || !input.settings.serverEnabled || !input.settings.relayEnabled || input.settings.keywordActivation)
+            if(input.chat.group || !input.settings.serverEnabled || !input.settings.relayEnabled)
                 throw Error('서버 답변 연동 설정을 확인해 줘.');
             const live=readChat(s,input).messages;
             if(live.length!==input.context.messages.length)throw Error('대화가 바뀌어서 서버 답변을 중단했어.');

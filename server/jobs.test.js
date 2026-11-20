@@ -6,6 +6,9 @@ import os from 'node:os';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { createJobService } from './jobs.js';
+import { createReplyBridge } from './reply-bridge.js';
+import { createBackgroundRecall } from '../lore-background.js';
+import { applyNativePolicy, normalizeSettings } from '../lore-core.js';
 import { invokeBackend } from './backend.js';
 import { atomic,json,inside } from './storage.js';
 const sanitize=s=>s.replace(/[<>:"/\\|?*\x00-\x1f]/g,'');
@@ -25,6 +28,54 @@ function fixture(t){
 const jsonLines=file=>fs.readFileSync(file,'utf8').trim().split('\n').map(l=>JSON.parse(l));
 async function readLogs(service,user,key){let text='';for await(const chunk of await service.logStream(user,key))text+=chunk;return JSON.parse(text);}
 const memory=()=>JSON.stringify({entries:[{title:'Hospital',content:'They agreed to visit and arrived at the hospital.',keywords:['hospital']}],sideChanges:[]});
+for(const keywordActivation of [false,true])test(`background recall preserves native lore after client detaches: keywords=${keywordActivation}`,{timeout:5000},async t=>{
+    const f=fixture(t),source='They agreed to visit the hospital together.';
+    atomic(f.book,{entries:{0:{uid:0,key:['hospital'],content:source},1:{uid:1,constant:true,content:'Core relationship.'}}});
+    const originalBook=fs.readFileSync(f.book,'utf8');
+    const service=createJobService({...f.dependencies,countTokens:async(_u,_m,text)=>Math.ceil(text.length/3)});
+    const input=f.input();input.settings=normalizeSettings({...input.settings,enabled:true,serverEnabled:true,relayEnabled:true,keywordActivation,mode:'dialogue'});
+    const indexed=await service.submit(f.user,'index',input,randomUUID());assert.equal((await done(service,f.user,indexed.id)).status,'completed');
+    const bridge=createReplyBridge({service,countMessages:async(_u,_m,messages)=>Math.ceil(JSON.stringify(messages).length/3)});t.after(()=>bridge.close());
+    let enter,release;const entered=new Promise(r=>enter=r),hold=new Promise(r=>release=r);t.after(()=>release());
+    f.replies.push(async payload=>{enter();await hold;const data=JSON.parse(payload.messages.find(m=>m.role==='user').content);
+        return JSON.stringify({selections:[{id:data.memories[0].id,priority:3,reason:'Hospital agreement'}]});});
+    const background=createBackgroundRecall({settings:()=>input.settings,context:()=>input.context,
+        supported:()=>true,relay:()=>({supports:async()=>true,enabled:()=>true}),tokenizer:async()=> 'fixture',countTokens:async text=>Math.ceil(text.length/3),
+        input:async(_kind,options)=>({...input,options}),call:async(route,data)=>{
+            if(route==='/reply/prepare')return bridge.prepareInput(f.user,data);
+            if(route==='/reply/cancel')return bridge.cancel(f.user,data.ticket);
+            assert.fail('Unexpected browser call after handoff: '+route);
+        }});
+    const slots=await background.prepare('normal');assert(slots.deferred);
+    const lists={chat:[{world:'Book',uid:0,key:['hospital'],content:source}]};
+    applyNativePolicy(lists,{...input.settings,books:input.books,messages:input.context.messages,selected:slots.selected});
+    assert.equal(!!lists.chat[0].disable,!keywordActivation);
+    const native=keywordActivation?[{role:'system',content:'Native lore: '+source}]:[];
+    const prompt=[{role:'system',content:'Preset'},...native,{role:'system',content:slots.core},{role:'system',content:slots.text},{role:'system',content:slots.guidance},{role:'user',content:'Current hospital scene'}];
+    background.capture({prompt});const payload={messages:prompt,model:'RP model',temperature:.7};background.attach(payload);
+    const ticket=payload.__silly_relay_prepare.ticket,signal=new AbortController().signal;
+    const pending=bridge.prepare({user:f.user,ticket,jobId:'relay',payload,signal});
+    await entered;background.detach();release();const prepared=await pending;
+    assert.equal(bridge.get(f.user,ticket).state,'completed');assert.equal(f.calls.length,1);
+    const memory=prepared.messages.find(m=>m.content.startsWith('[Archive Lore — recalled records;'));
+    assert(memory?.content.includes(source));assert(!JSON.stringify(prepared).includes('AL_memory_'));
+    assert.deepEqual(prepared.messages.filter(m=>m.content.startsWith('Native lore:')),native);
+    assert.equal(prepared.model,'RP model');assert.equal(prepared.temperature,.7);
+    assert.equal(prepared.messages[0].content,'Preset');assert.equal(prepared.messages.at(-1).content,'Current hospital scene');
+    assert(prepared.messages.some(m=>m.content==='Core relationship.'));
+    assert.equal(fs.readFileSync(f.book,'utf8'),originalBook);
+});
+test('keyword support does not bypass disabled relay or group guards',t=>{
+    const f=fixture(t);
+    for(const setting of ['serverEnabled','relayEnabled']){
+        const input=f.input();Object.assign(input.settings,{serverEnabled:true,relayEnabled:true,keywordActivation:true,[setting]:false});
+        assert.throws(()=>f.service.replySnapshot(f.user,input),/서버 답변 연동 설정/);
+    }
+    const group=f.input();group.chat={id:'group',group:true};
+    Object.assign(group.settings,{serverEnabled:true,relayEnabled:true,keywordActivation:true});
+    atomic(path.join(f.user.directories.groupChats,'group.jsonl'),f.messages.map(m=>JSON.stringify(m)).join('\n')+'\n');
+    assert.throws(()=>f.service.replySnapshot(f.user,group),/서버 답변 연동 설정/);
+});
 test('completed jobs release full chat inputs from RAM but preserve result and request-ID replay on disk',async t=>{
     const f=fixture(t);f.replies.push(memory());const requestId=randomUUID();
     const submitted=await f.service.submit(f.user,'collect',f.input(),requestId);

@@ -1,4 +1,8 @@
 {
+  "ArchiveLore_CollectionOrder100": "Reihenfolge beim Sammeln immer auf 100 setzen",
+  "ArchiveLore_CollectionOrder100Help": "Gilt für normale, automatische und nach Datum gruppierte Sammlungen und überschreibt die Reihenfolge im Profil. Vorhandene Einträge bleiben unverändert.",
+  "ArchiveLore_CollectionNoKeywords": "Beim Sammeln keine Schlüsselwörter erzeugen",
+  "ArchiveLore_CollectionNoKeywordsHelp": "Neue Sammlungen fordern keine Schlüsselwörter an und werden ohne Schlüsselwörter gespeichert. Schlüsselwörter vorhandener Einträge bleiben unverändert.",
   "ArchiveLore_GenerousRecall": "Mehr relevante Erinnerungen einfügen",
   "ArchiveLore_BackgroundReply": "Antworten über Relay auf dem Server fortsetzen",
   "ArchiveLore_BackgroundReplyKeywordHelp": "Optional: Beide Server-Plugins und Relay-Verbindungserhalt sind erforderlich. Normale Einzelchats unterstützen auch Schlüsselwortaktivierung. Deren Inhalte bleiben erhalten und können sich mit KI-Erinnerungen überschneiden. Das Speicherlimit wird vorab reserviert. Prüfung und Chat-Speicherung erfolgen nach der Rückkehr.",

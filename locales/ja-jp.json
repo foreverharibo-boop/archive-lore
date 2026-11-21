@@ -1,4 +1,8 @@
 {
+  "ArchiveLore_CollectionOrder100": "収集時の順序を常に100に固定",
+  "ArchiveLore_CollectionOrder100Help": "通常・自動・日付別の収集で、プロファイルの順序設定より優先します。既存項目の順序は変更しません。",
+  "ArchiveLore_CollectionNoKeywords": "収集時にキーワードを生成しない",
+  "ArchiveLore_CollectionNoKeywordsHelp": "新しい収集ではキーワードの生成を要求せず、空のキーワードで保存します。既存項目のキーワードは変更しません。",
   "ArchiveLore_GenerousRecall": "関連する記憶を多めに注入",
   "ArchiveLore_BackgroundReply": "Relayで返信生成までサーバーで続行",
   "ArchiveLore_BackgroundReplyKeywordHelp": "任意機能：両方のサーバープラグインとRelayの接続維持が必要です。通常の1対1チャットでキーワード発動も併用できます。その内容は保持され、AIが選んだ記憶と重複する場合があります。注入上限分を事前に確保します。検証とチャット保存は復帰後に続行します。",

@@ -1,4 +1,8 @@
 {
+  "ArchiveLore_CollectionOrder100": "收集時一律將順序固定為100",
+  "ArchiveLore_CollectionOrder100Help": "適用於一般、自動及按日期收集，優先於設定檔的順序設定。不更改既有項目的順序。",
+  "ArchiveLore_CollectionNoKeywords": "收集時不產生關鍵字",
+  "ArchiveLore_CollectionNoKeywordsHelp": "新收集不要求產生關鍵字，並以空白關鍵字儲存。不更改既有項目的關鍵字。",
   "ArchiveLore_GenerousRecall": "注入更多相關記憶",
   "ArchiveLore_BackgroundReply": "透過 Relay 在伺服器上繼續產生回覆",
   "ArchiveLore_BackgroundReplyKeywordHelp": "選用功能：需要兩個伺服器外掛並開啟 Relay 連線維持。一般一對一聊天可同時使用關鍵字觸發。關鍵字加入的內容會保留，可能與 AI 選出的記憶重複。預先保留記憶注入上限。審核及聊天儲存會在返回後繼續。",

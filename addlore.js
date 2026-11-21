@@ -1,5 +1,6 @@
 import { ARCHIVE_LORE_TITLE_FORMAT, isArchiveLoreDateFormat, archiveLoreDateTitle } from './lore-native-title.js';
 import { maintainArchiveDisplayOrder } from './lore-display-order.js';
+import { collectionOptions, applyCollectionEntryOptions } from './lore-collection-options.js';
 import { advanceCollectionCheckpoint } from './lore-native-progress.js';
 import { applyAutoHideRanges } from './lore-auto-hide.js';
 // Copyright (C) 2024–2026 Aiko Hanasaki
@@ -634,6 +635,7 @@ export async function addMemoryToLorebook(memoryResult, lorebookValidation, opti
             delete newEntry.characterFilter;
         }
         if(globalThis.archiveLoreFork) {
+            applyCollectionEntryOptions(newEntry, collectionOptions(settings.moduleSettings, true));
             maintainArchiveDisplayOrder(lorebookValidation.data, newEntry);
             newEntry.STMB_collectedAt = new Date().toISOString();
             if (options.stageOnly) {
@@ -675,7 +677,7 @@ export async function addMemoryToLorebook(memoryResult, lorebookValidation, opti
             autoHideResult,
             entryTitle: entryTitle,
             lorebookName: lorebookValidation.name,
-            keywordCount: memoryResult.suggestedKeys?.length || 0,
+            keywordCount: newEntry.key?.length || 0,
             message: i18n('addlore.result.added', 'Memory successfully added to "{{lorebookName}}"', { lorebookName: lorebookValidation.name })
         };
         

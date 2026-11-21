@@ -6,6 +6,7 @@ import vm from 'node:vm';
 import dirtyJson from 'dirty-json';
 import {withCollectionDate,DATE_COLLECTION_JSON_SCHEMA,validateDateCollectionResponse,splitDateMemoryResult} from './lore-date-collection.js';
 import {withArchiveLoreTitle,ARCHIVE_LORE_TITLE_FORMAT} from './lore-native-title.js';
+import {collectionOptions,withoutCollectionKeywords,collectionSchemaWithoutKeywords,applyCollectionMemoryOptions} from './lore-collection-options.js';
 const source=fs.readFileSync(new URL('./stmemory.js',import.meta.url),'utf8');
 const extract=name=>{const a=source.search(new RegExp(`(?:export )?(?:async )?function ${name}\\(`));assert(a>=0,name);return source.slice(a,source.indexOf('\n}',a)+2).replace(/^export /,'');};
 const ranges=[{start:0,end:1,date:'2028-11-12'},{start:2,end:3,date:'2028-11-13'}];
@@ -13,6 +14,7 @@ const response={memories:[{id:0,content:'Detailed events A.',keywords:['A']},{id
 function harness() {
  const calls=[];
  const scope={archiveLoreFork:true,console:{debug(){},warn(){}},dirtyJson,
+   collectionOptions,withoutCollectionKeywords,collectionSchemaWithoutKeywords,applyCollectionMemoryOptions,
    withCollectionDate,withArchiveLoreTitle,DATE_COLLECTION_JSON_SCHEMA,validateDateCollectionResponse,splitDateMemoryResult,
    AIResponseError:class extends Error{},TokenWarningError:class extends Error{},InvalidProfileError:class extends Error{},
    extension_settings:{STMemoryBooks:{moduleSettings:{maxTokens:30000}}},oai_settings:{},MODULE_NAME:'test',
@@ -48,4 +50,50 @@ test('ordinary single-memory generation retains original JSON schema and result'
  const h=harness();delete h.scene.metadata.archiveLoreDateRanges;
  h.scope.sendRawCompletionRequest=async(request)=>{h.calls.push(request);return{text:JSON.stringify({content:'Normal memory',title:'Normal title',keywords:['normal']}),full:{}};};
  const result=await h.run();assert.equal(h.calls[0].jsonSchema.name,'stmb_memory');assert.equal(result.content,'Normal memory');assert.equal(result.dateMemories,undefined);
+});
+
+for (const dated of [false, true]) for (const structured of [false, true]) test(`collection toggles override profiles and discard model keywords (${dated ? 'dates' : 'single'}, structured=${structured})`, async () => {
+ const h=harness();
+ if(!dated) delete h.scene.metadata.archiveLoreDateRanges;
+ Object.assign(h.scope.extension_settings.STMemoryBooks.moduleSettings,{archiveLoreCollectionOrder100:true,archiveLoreCollectionNoKeywords:true});
+ Object.assign(h.profile,{orderMode:'reverse',reverseStart:9000,skipStructuredOutput:!structured});
+ const before=structuredClone(h.profile);
+ h.scope.sendRawCompletionRequest=async request=>{h.calls.push(request);return {text:JSON.stringify(dated?response:{content:'All detailed events.',title:'Title',keywords:['unwanted']}),full:{}};};
+ const result=await h.run();
+ assert.match(h.calls[0].prompt,/Do not generate activation keywords/);
+ assert.match(h.calls[0].prompt,/"keywords": \[\]/);
+ if(structured){
+  const schema=h.calls[0].jsonSchema.value;
+  assert.equal((dated?schema.properties.memories.items:schema).properties.keywords.maxItems,0);
+ }else assert.equal(h.calls[0].jsonSchema,null);
+ for(const item of dated?result.dateMemories:[result]) {
+  assert.equal(item.suggestedKeys.length,0);assert.equal(item.lorebook.key.length,0);
+  assert.equal(item.lorebookSettings.orderMode,'manual');assert.equal(item.lorebookSettings.orderValue,100);
+  assert(item.content.includes(dated?'Detailed events':'All detailed events'));
+ }
+ assert.deepEqual(h.profile,before);
+ // Turning the options off must restore the profile and original shared schema.
+ h.scope.extension_settings.STMemoryBooks.moduleSettings.archiveLoreCollectionNoKeywords=false;
+ h.scope.extension_settings.STMemoryBooks.moduleSettings.archiveLoreCollectionOrder100=false;
+ const normal=await h.run();
+ assert.doesNotMatch(h.calls.at(-1).prompt,/COLLECTION KEYWORD OVERRIDE/);
+ assert.equal((dated?normal.dateMemories[0]:normal).suggestedKeys.length,1);
+ assert.equal(normal.lorebookSettings.orderMode,'reverse');
+ if(structured){const schema=h.calls.at(-1).jsonSchema.value;assert.equal((dated?schema.properties.memories.items:schema).properties.keywords.maxItems,undefined);}
+});
+
+test('keyword suppression survives structured-output fallback',async()=>{
+ const h=harness();h.scope.extension_settings.STMemoryBooks.moduleSettings.archiveLoreCollectionNoKeywords=true;
+ h.scope.sendRawCompletionRequest=async request=>{h.calls.push(request);if(h.calls.length===1)throw Error('json_schema is unsupported');return{text:JSON.stringify(response),full:{}};};
+ const result=await h.run();assert.equal(h.calls.length,2);assert.equal(h.calls[1].jsonSchema,null);
+ assert.match(h.calls[1].prompt,/COLLECTION KEYWORD OVERRIDE/);
+ assert(result.dateMemories.every(m=>m.suggestedKeys.length===0));
+});
+
+test('shared settings do not alter original Memory Books behavior when fork is disabled',async()=>{
+ const h=harness();h.scope.archiveLoreFork=false;delete h.scene.metadata.archiveLoreDateRanges;
+ Object.assign(h.scope.extension_settings.STMemoryBooks.moduleSettings,{archiveLoreCollectionOrder100:true,archiveLoreCollectionNoKeywords:true});
+ h.profile.orderMode='auto';h.scope.sendRawCompletionRequest=async request=>{h.calls.push(request);return{text:JSON.stringify({content:'Original memory',title:'Title',keywords:['keep']}),full:{}};};
+ const result=await h.run();assert.equal(result.suggestedKeys[0],'keep');assert.equal(result.lorebookSettings.orderMode,'auto');
+ assert.doesNotMatch(h.calls[0].prompt,/COLLECTION KEYWORD OVERRIDE/);
 });

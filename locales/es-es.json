@@ -1,4 +1,8 @@
 {
+  "ArchiveLore_CollectionOrder100": "Fijar siempre el orden en 100 al recopilar",
+  "ArchiveLore_CollectionOrder100Help": "Se aplica a la recopilación normal, automática y por fecha, con prioridad sobre el orden del perfil. No cambia el orden de las entradas existentes.",
+  "ArchiveLore_CollectionNoKeywords": "No generar palabras clave al recopilar",
+  "ArchiveLore_CollectionNoKeywordsHelp": "Las nuevas recopilaciones no solicitan palabras clave y se guardan sin ellas. No cambia las palabras clave de las entradas existentes.",
   "ArchiveLore_GenerousRecall": "Incluir más recuerdos relacionados",
   "ArchiveLore_BackgroundReply": "Continuar las respuestas en el servidor mediante Relay",
   "ArchiveLore_BackgroundReplyKeywordHelp": "Opcional: requiere ambos plugins del servidor y la retención de conexión de Relay. Los chats individuales también admiten activación por palabras clave. Ese contenido se conserva y puede coincidir con recuerdos seleccionados por la IA. Se reserva el límite de memoria. La revisión y el guardado continúan al volver.",

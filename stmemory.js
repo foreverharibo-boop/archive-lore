@@ -1,5 +1,6 @@
 import { withCollectionDate, DATE_COLLECTION_JSON_SCHEMA, validateDateCollectionResponse, splitDateMemoryResult } from './lore-date-collection.js';
 import { withArchiveLoreTitle } from './lore-native-title.js';
+import { collectionOptions, withoutCollectionKeywords, collectionSchemaWithoutKeywords, applyCollectionMemoryOptions } from './lore-collection-options.js';
 // Copyright (C) 2024–2026 Aiko Hanasaki
 // SPDX-License-Identifier: AGPL-3.0-only
 
@@ -1233,6 +1234,7 @@ async function generateMemoryWithAI(promptString, profile, options = {}) {
         }
 
         const useStructuredOutput = shouldUseStructuredOutput(profile, apiType);
+        const responseSchema = options.dateRanges ? DATE_COLLECTION_JSON_SCHEMA : MEMORY_RESPONSE_JSON_SCHEMA;
         const requestOptions = {
             model: conn.model,
             prompt: promptString,
@@ -1244,7 +1246,7 @@ async function generateMemoryWithAI(promptString, profile, options = {}) {
             extra: extra,
             reverseProxy: !!conn.reverseProxy,
             signal,
-            jsonSchema: useStructuredOutput ? (options.dateRanges ? DATE_COLLECTION_JSON_SCHEMA : MEMORY_RESPONSE_JSON_SCHEMA) : null,
+            jsonSchema: useStructuredOutput ? (profile.archiveLoreCollectionOptions?.skipKeywords ? collectionSchemaWithoutKeywords(responseSchema) : responseSchema) : null,
             useChatCompletionService: profile?.useChatCompletionService === true && apiType !== 'full-manual',
             chatCompletionPreset: profile?.chatCompletionPreset || '',
             archiveLoreConnectionProfileId: profile?.archiveLoreConnectionProfileId || '',
@@ -1336,6 +1338,7 @@ async function generateMemoryWithAI(promptString, profile, options = {}) {
 export async function createMemory(compiledScene, profile, options = {}) {
     if (compiledScene?.metadata) applyGroupMemoryPolicy(compiledScene, {}, compiledScene.metadata);
     profile = getGroupMemoryProfile(profile, {}, compiledScene?.metadata);
+    if (globalThis.archiveLoreFork) profile = { ...profile, archiveLoreCollectionOptions: collectionOptions(extension_settings.STMemoryBooks?.moduleSettings, true) };
     
     try {
         validateInputs(compiledScene, profile);
@@ -1413,7 +1416,8 @@ export async function createMemory(compiledScene, profile, options = {}) {
             }
         };
         
-        return dateRanges ? splitDateMemoryResult(memoryResult,response,dateRanges) : memoryResult;
+        const result = dateRanges ? splitDateMemoryResult(memoryResult,response,dateRanges) : memoryResult;
+        return globalThis.archiveLoreFork ? applyCollectionMemoryOptions(result, profile.archiveLoreCollectionOptions) : result;
         
     } catch (error) {
         if (isStmbStopError(error)) {
@@ -1652,8 +1656,9 @@ async function buildPrompt(compiledScene, profile) {
         stmbPromptTarget: metadata?.stmbPromptTarget || profile?.stmbPromptTarget || '',
     };
     const basePrompt = await getEffectivePrompt(promptProfile);
-    const systemPrompt = globalThis.archiveLoreFork
+    let systemPrompt = globalThis.archiveLoreFork
         ? withCollectionDate(metadata.archiveLoreDateRanges ? basePrompt : withArchiveLoreTitle(basePrompt, profile.titleFormat), metadata) : basePrompt;
+    if (globalThis.archiveLoreFork && profile.archiveLoreCollectionOptions?.skipKeywords) systemPrompt = withoutCollectionKeywords(systemPrompt);
     
     // Use substituteParams to allow for standard macros like {{char}} and {{user}}
     const groupName = metadata.groupName || metadata.characterName || '';

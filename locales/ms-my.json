@@ -1,4 +1,8 @@
 {
+  "ArchiveLore_CollectionOrder100": "Sentiasa tetapkan susunan kepada 100 semasa pengumpulan",
+  "ArchiveLore_CollectionOrder100Help": "Terpakai pada pengumpulan biasa, automatik dan mengikut tarikh, mengatasi susunan profil. Susunan entri sedia ada tidak berubah.",
+  "ArchiveLore_CollectionNoKeywords": "Jangan jana kata kunci semasa pengumpulan",
+  "ArchiveLore_CollectionNoKeywordsHelp": "Pengumpulan baharu tidak meminta kata kunci dan disimpan tanpa kata kunci. Kata kunci entri sedia ada tidak berubah.",
   "ArchiveLore_GenerousRecall": "Sertakan lebih banyak ingatan berkaitan",
   "ArchiveLore_BackgroundReply": "Teruskan balasan pada pelayan melalui Relay",
   "ArchiveLore_BackgroundReplyKeywordHelp": "Pilihan: memerlukan kedua-dua pemalam pelayan dan pengekalan sambungan Relay. Sembang satu dengan satu turut menyokong pencetus kata kunci. Kandungannya dikekalkan dan mungkin bertindih dengan ingatan pilihan AI. Had ingatan diperuntukkan dahulu. Semakan dan penyimpanan sembang diteruskan selepas kembali.",

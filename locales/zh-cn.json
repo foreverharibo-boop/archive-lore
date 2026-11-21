@@ -1,4 +1,8 @@
 {
+  "ArchiveLore_CollectionOrder100": "收集时始终将顺序固定为100",
+  "ArchiveLore_CollectionOrder100Help": "适用于普通、自动和按日期收集，优先于配置文件的顺序设置。不更改已有条目的顺序。",
+  "ArchiveLore_CollectionNoKeywords": "收集时不生成关键词",
+  "ArchiveLore_CollectionNoKeywordsHelp": "新收集不请求生成关键词，并保存为空关键词。不更改已有条目的关键词。",
   "ArchiveLore_GenerousRecall": "注入更多相关记忆",
   "ArchiveLore_BackgroundReply": "通过 Relay 在服务器上继续生成回复",
   "ArchiveLore_BackgroundReplyKeywordHelp": "可选功能：需要两个服务器插件并开启 Relay 连接保持。普通一对一聊天可同时使用关键词触发。关键词加入的内容会保留，可能与 AI 选出的记忆重复。提前预留记忆注入上限。审核和聊天保存将在返回后继续。",

@@ -24,6 +24,15 @@ The native memory UI controls collection and side prompts. Search settings contr
 
 After a selected book is saved/edited, optional automatic embedding waits for current work/generation to finish and indexes pending chunks. Existing matching cached vectors are reused. The server plugin remains optional and handles Archive Lore retrieval, selection and embedding. **Native Memory Books collection, side prompts and maintenance run in the browser in this version; closing the browser is not supported for those jobs.** Do not assume old standalone server collection controls apply to the new native actions.
 
+## Collection order and keyword overrides
+
+Archive Lore → **일반·고급 설정** includes two independent, opt-in collection controls (both default to off):
+
+- **수집 시 순서를 항상 100으로 고정** (`archiveLoreCollectionOrder100`): newly collected memories use insertion order `100`, overriding the collection profile's automatic, reverse, or manual order. Internal memory numbering and editor display order are preserved.
+- **수집 시 키워드 생성 안 함** (`archiveLoreCollectionNoKeywords`): collection requests instruct the model to return `keywords: []`. Structured-output schemas also constrain the keyword array to be empty. Generated keywords are discarded from previews/results and the final saved entry, including providers that ignore the instruction or use plain-text fallback.
+
+These controls apply to ordinary, automatic, range/catch-up and date-grouped collection, including group copies and repaired collection saves. They do not bulk-edit existing entries, change saved profiles, or change side-prompt/clip/consolidation settings. Turning them off restores the profile's behavior for future collections. They are active only in the Archive Lore extension, including its original-layout view; the original Memory Books extension ignores these extra settings. Keyword-free entries have no native keyword triggers; Archive Lore AI retrieval can still select their content.
+
 ## Optional Relay background replies and concurrent selection
 
 The browser extension remains usable without either server plugin. `serverEnabled` and the new `relayEnabled` both default to false. Existing Relay users need no Archive Lore installation: Relay invokes a preparer only when a final reply explicitly includes that provider's ticket. This is optional installation, not a restriction that prevents other users from installing their own server plugin.

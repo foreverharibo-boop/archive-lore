@@ -1,4 +1,8 @@
 {
+  "ArchiveLore_CollectionOrder100": "Selalu tetapkan urutan ke 100 saat mengumpulkan",
+  "ArchiveLore_CollectionOrder100Help": "Berlaku untuk pengumpulan biasa, otomatis, dan per tanggal, mengesampingkan urutan profil. Urutan entri yang sudah ada tidak berubah.",
+  "ArchiveLore_CollectionNoKeywords": "Jangan buat kata kunci saat mengumpulkan",
+  "ArchiveLore_CollectionNoKeywordsHelp": "Pengumpulan baru tidak meminta kata kunci dan disimpan tanpa kata kunci. Kata kunci entri yang sudah ada tidak berubah.",
   "ArchiveLore_GenerousRecall": "Sertakan lebih banyak ingatan terkait",
   "ArchiveLore_BackgroundReply": "Lanjutkan balasan di server melalui Relay",
   "ArchiveLore_BackgroundReplyKeywordHelp": "Opsional: memerlukan kedua plugin server dan fitur pertahankan koneksi Relay. Obrolan satu lawan satu juga mendukung pemicu kata kunci. Kontennya dipertahankan dan dapat tumpang tindih dengan memori pilihan AI. Batas memori dicadangkan. Pemeriksaan dan penyimpanan obrolan dilanjutkan saat kembali.",

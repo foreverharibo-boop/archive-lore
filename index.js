@@ -1,4 +1,5 @@
 import { validateDateRanges, dateCollectionSource, runDateCollection } from './lore-date-collection.js';
+import { mountCollectionPreferences } from './lore-collection-options.js';
 import { ARCHIVE_LORE_TITLE_FORMAT } from './lore-native-title.js';
 import { mountInjectionPreference } from './lore-injection-view.js';
 import { applyAutoHideRanges } from './lore-auto-hide.js';
@@ -11601,6 +11602,7 @@ async function showGeneralSettingsPopup(options = {}) {
     markStmbPopup(popup);
     if(globalThis.archiveLoreFork){
         mountSceneButtonPreference(popup.dlg,{settings:initializeSettings(),save:saveSettingsDebounced});
+        mountCollectionPreferences(popup.dlg,{settings:initializeSettings(),save:saveSettingsDebounced,translate});
         mountInjectionPreference(popup.dlg,{settings:initializeSettings(),save:saveSettingsDebounced,changed:()=>globalThis.archiveLoreSearch?.refreshInjectionMenu?.()});
     }
     setupSettingsEventListeners(popup);

@@ -9,12 +9,14 @@ import {fingerprintRollbackEntry,applySidePromptRestoration} from './memoryRollb
 import {buildSidePromptRegenerationSnapshot} from './memoryRegeneration.js';
 import {isArchiveLoreDateFormat, ARCHIVE_LORE_TITLE_FORMAT} from './lore-native-title.js';
 import {maintainArchiveDisplayOrder} from './lore-display-order.js';
+import {collectionOptions,applyCollectionEntryOptions} from './lore-collection-options.js';
 
 const src=fs.readFileSync(new URL('./addlore.js',import.meta.url),'utf8');
 function extract(name) {const a=src.search(new RegExp('(?:export )?(?:async )?function '+name+'\\('));return src.slice(a,src.indexOf('\n}',a)+2).replace(/^export /,'');}
 function harness() {
     const state={disk:{entries:{}},cache:new Map(),writes:0,notifications:0,progress:0,fail:false};
     const scope={getContext:()=>({chat:[]}),applySavedMemoryAutoHide:async()=>true,structuredClone,console:{warn(){},error(){}},Date,archiveLoreFork:true,
+        collectionOptions,applyCollectionEntryOptions,
         SIDE_PROMPT_HISTORY_KEY,resolveSidePromptHistory,validateSidePromptHistoryRequest,formatSidePromptVersionTitle,fingerprintRollbackEntry,
         getRequestHeaders:()=>({}),worldInfoCache:state.cache,eventSource:{emit:async()=>{}},event_types:{WORLDINFO_UPDATED:'update'},
         fetch:async(_url,options)=>{state.writes++;if(state.fail)return {ok:false,status:500,statusText:'failed'};state.disk=JSON.parse(options.body).data;return {ok:true};},
@@ -29,6 +31,27 @@ function harness() {
     vm.createContext(scope);vm.runInContext(['createLorebookEntryAtEnd','saveSidePromptLorebookChecked','applySidePromptHistory','upsertLorebookEntryByTitle','upsertLorebookEntriesBatch','addMemoryToLorebook'].map(extract).join('\n'),scope);
     return {state,scope};
 }
+
+for(const stageOnly of [false,true]) test(`collection overrides apply at final save, including repaired/preview results and date staging (${stageOnly})`,async()=>{
+ const {state,scope}=harness(),data={entries:{9:{uid:9,order:24,key:['existing'],content:'Existing memory'}}};
+ const original=structuredClone(data.entries[9]);
+ Object.assign(scope.extension_settings.STMemoryBooks.moduleSettings,{archiveLoreCollectionOrder100:true,archiveLoreCollectionNoKeywords:true});
+ scope.populateLorebookEntry=(entry,m,title)=>Object.assign(entry,{comment:title,content:m.content,key:m.suggestedKeys,keysecondary:['secondary'],order:9000,stmemorybooks:true});
+ const memory={content:'Complete memory',suggestedKeys:['generated'],titleFormat:ARCHIVE_LORE_TITLE_FORMAT,metadata:{}};
+ const result=await scope.addMemoryToLorebook(memory,{valid:true,name:'book',data},{stageOnly,entryMetadata:{order:700,key:['preview keyword']}});
+ assert.equal(result.success,true);assert.equal(data.entries[0].order,100);
+ assert.equal(data.entries[0].key.length,0);assert.equal(data.entries[0].keysecondary.length,0);
+ assert.equal(data.entries[0].content,memory.content);assert.equal(data.entries[0].STMB_memoryNumber,1);
+ assert.deepEqual(data.entries[9],original);assert.deepEqual(memory.suggestedKeys,['generated']);
+ if(!stageOnly){assert.equal(result.keywordCount,0);assert.equal(state.disk.entries[0].order,100);}
+ // The controls are independent and disabling them restores profile behavior.
+ scope.extension_settings.STMemoryBooks.moduleSettings.archiveLoreCollectionOrder100=false;
+ const next=await scope.addMemoryToLorebook(memory,{valid:true,name:'book',data},{stageOnly});
+ assert.equal(next.success,true);assert.equal(data.entries[1].order,9000);assert.equal(data.entries[1].key.length,0);
+ scope.extension_settings.STMemoryBooks.moduleSettings.archiveLoreCollectionNoKeywords=false;
+ assert.equal((await scope.addMemoryToLorebook(memory,{valid:true,name:'book',data},{stageOnly})).success,true);
+ assert.equal(data.entries[2].key[0],'generated');assert.equal(data.entries[2].order,9000);
+});
 const template={key:'relationship',name:'Relationship',settings:{}};
 test('staging multiple date entries makes no server, cache, progress, hide or notification changes',async()=>{
     const {state,scope}=harness(),data={entries:{}};

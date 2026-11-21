@@ -1,4 +1,8 @@
 {
+  "ArchiveLore_CollectionOrder100": "Sempre fixar a ordem em 100 ao coletar",
+  "ArchiveLore_CollectionOrder100Help": "Aplica-se à coleta normal, automática e por data, com prioridade sobre a ordem do perfil. Não altera a ordem das entradas existentes.",
+  "ArchiveLore_CollectionNoKeywords": "Não gerar palavras-chave ao coletar",
+  "ArchiveLore_CollectionNoKeywordsHelp": "Novas coletas não solicitam palavras-chave e são salvas sem elas. Não altera as palavras-chave das entradas existentes.",
   "ArchiveLore_GenerousRecall": "Incluir mais memórias relacionadas",
   "ArchiveLore_BackgroundReply": "Continuar respostas no servidor pelo Relay",
   "ArchiveLore_BackgroundReplyKeywordHelp": "Opcional: requer os dois plugins de servidor e a retenção de conexão do Relay. Conversas individuais também permitem ativação por palavras-chave. Esse conteúdo é preservado e pode coincidir com memórias selecionadas pela IA. O limite de memória é reservado. Revisão e salvamento continuam ao retornar.",

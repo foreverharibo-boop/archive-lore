@@ -14,6 +14,7 @@ import { embed,completionText } from '../lore-api.js';
 import { consolidationView } from '../lore-maintenance.js';
 import { normalizeCompletionRequest } from '../completionCompatibility.js';
 import { observer } from '../lore-telemetry.js';
+import { requestSelectionOutput } from '../lore-selection-output.js';
 globalThis.crypto ||= webcrypto;
 export function createJobService({sanitize,ask,embedRequest=embed,countTokens}) {
     const users=new Map(),vectorStores=new Map(),diagnosticSessions=new Map();
@@ -86,7 +87,7 @@ export function createJobService({sanitize,ask,embedRequest=embed,countTokens}) 
     function backup(s,job,file,raw){const dir=inside(s.root,'backups',job.id);fs.mkdirSync(dir,{recursive:true,mode:0o700});atomic(inside(dir,randomUUID()+'.bak'),raw);}
     async function run(s,job) {
         job.status='running';job.started=new Date().toISOString();save(s,job);
-        const input=job.input, config=normalizeSettings(input.settings),expected=new Map();
+        const input=job.input, config=normalizeSettings(input.settings),expected=new Map(),unsupportedSelectionRoutes=new Set();
         const secrets=[config.embeddingKey,...Object.values(config.embeddingKeys||{}),...Object.values(input.templates||{}).map(t=>t.proxy_password).filter(Boolean)];
         const clean=text=>secrets.filter(Boolean).reduce((v,key)=>v.split(key).join('[REDACTED]'),String(text));
         const session=diagnosticSession(s.user);
@@ -103,9 +104,12 @@ export function createJobService({sanitize,ask,embedRequest=embed,countTokens}) 
             ask:async(profile,system,data,signal,tokens,observe)=>{const template=profile===config.searchProfile&&config.searchProfile?input.templates.search:input.templates.collection;
                 const log=observer(observe,secrets),payload=normalizeCompletionRequest({...template,stream:false,temperature:.2,max_tokens:tokens,max_completion_tokens:undefined,max_output_tokens:undefined,max_new_tokens:undefined,json_schema:undefined,messages:[{role:'system',content:system},{role:'user',content:JSON.stringify(data)}]});
                 await log('profile.resolved',{requestedProfile:profile||'current',transport:'server',model:template.model,source:template.chat_completion_source,template});
-                await log('ai.transport.prepared',{payload});const response=await ask(s.user,payload,signal,log);
-                await log('ai.transport.response',{response});
-                try{return completionText(response);}catch(error){error.category='response-format';error.stage='ai.extract';throw error;}},
+                return requestSelectionOutput({data,signal,log,unsupported:unsupportedSelectionRoutes,route:profile||'current',request:async schema=>{
+                    const requestPayload={...payload,json_schema:schema};
+                    await log('ai.transport.prepared',{payload:requestPayload});const response=await ask(s.user,requestPayload,signal,log);
+                    await log('ai.transport.response',{response});
+                    try{return completionText(response);}catch(error){error.category='response-format';error.stage='ai.extract';throw error;}
+                }});},
             countTokens:async text=>{if(input.options?.replyTokenizer){if(!countTokens)throw Error('서버 토크나이저 연결이 없어.');return countTokens(s.user,input.options.replyTokenizer,text);}return estimateTokens(text);},diagnostics,profileInfo:()=>Object.entries(input.templates||{}).map(([role,p])=>({role,model:p.model,source:p.chat_completion_source})),
             hideRange:async(range)=>{const chat=readChat(s,input),source=sourceRange(chat.messages,range.start,range.end);for(let i=range.start;i<=range.end;i++)chat.lines[chat.offset+i].is_system=true;
                 if(fs.readFileSync(chat.file,'utf8')!==chat.raw)throw Error('채팅 파일이 바뀌어서 숨기기를 멈췄어.');backup(s,job,chat.file,chat.raw);atomic(chat.file,chat.lines.map(l=>JSON.stringify(l)).join('\n')+'\n');job.hidden.push(source);save(s,job);},

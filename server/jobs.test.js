@@ -132,6 +132,35 @@ test('direct embedding aborts on HTTP disconnect but persistent jobs do not',asy
     await started;res.emit('close');await result;assert(signal.aborted);assert.equal(res.listenerCount('close'),0);
 });
 async function done(service,user,id){for(let i=0;i<500;i++){const job=service.get(user,id);if(!['queued','running'].includes(job.status))return job;await new Promise(r=>setTimeout(r,5));}throw Error('job timeout');}
+for(const generousRecall of [false,true])test(`first server selection constrains counts before generation: generous=${generousRecall}`,async t=>{
+    const f=fixture(t);atomic(f.book,{entries:{0:{uid:0,content:'They visited the hospital. They agreed to return together.'}}});
+    const input=f.input();input.settings.generousRecall=generousRecall;
+    input.templates.collection.json_schema={name:'unrelated-preset-schema',value:{type:'string'}};
+    const before=structuredClone(input.templates);
+    const indexed=await f.service.submit(f.user,'index',input,randomUUID());assert.equal((await done(f.service,f.user,indexed.id)).status,'completed');
+    f.replies.push(payload=>{
+        const data=JSON.parse(payload.messages[1].content),schema=payload.json_schema;
+        assert.equal(data.selectionFormat,generousRecall?'generous':'ranked');assert.equal(schema.strict,true);
+        const rows=schema.value.properties.selections;assert.equal(rows.maxItems,48);
+        assert.equal(rows.items.properties.contextIds.maxItems,32);assert.equal(rows.items.properties.outcomeIds.maxItems,8);
+        assert.equal(Object.hasOwn(rows.items.properties,'reason'),!generousRecall);
+        return JSON.stringify({selections:[{id:data.memories[0].id,priority:3,reason:'Hospital visit',contextIds:[],outcomeIds:[]}]});
+    });
+    const job=await f.service.submit(f.user,'recall',input,randomUUID()),result=await done(f.service,f.user,job.id);
+    assert.equal(result.status,'completed',result.message);assert.equal(f.calls.length,1);assert.deepEqual(input.templates,before);
+    assert(result.result.text.includes('hospital'));assert.match(JSON.stringify(await readLogs(f.service,f.user,'test-key')),/선별 출력 제한/);
+});
+test('server retries only an explicit unsupported schema and records compatibility mode',async t=>{
+    const f=fixture(t);atomic(f.book,{entries:{0:{uid:0,content:'They visited the hospital.'}}});
+    const input=f.input(),indexed=await f.service.submit(f.user,'index',input,randomUUID());assert.equal((await done(f.service,f.user,indexed.id)).status,'completed');
+    f.replies.push(payload=>{assert(payload.json_schema);throw Object.assign(Error('json_schema response_format not supported'),{status:400});},payload=>{
+        assert.equal(payload.json_schema,undefined);const data=JSON.parse(payload.messages[1].content);
+        return JSON.stringify({selections:[{id:data.memories[0].id,priority:3,reason:'Hospital visit'}]});
+    });
+    const job=await f.service.submit(f.user,'recall',input,randomUUID()),result=await done(f.service,f.user,job.id);
+    assert.equal(result.status,'completed',result.message);assert.equal(f.calls.length,2);
+    assert.match(JSON.stringify(await readLogs(f.service,f.user,'test-key')),/unsupported/);
+});
 test('server recall preserves selection emphasis in persisted jobs, AI requests and diagnostics',async t=>{
     const f=fixture(t);atomic(f.book,{entries:{0:{uid:0,content:'They visited the hospital. She felt grateful for his support.'}}});
     const input=f.input();input.settings.selectionFocus=['meaning','affection','unknown'];

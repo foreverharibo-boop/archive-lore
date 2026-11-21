@@ -53,7 +53,7 @@ export async function generousRecall({candidates, chunks, config, latestUser, di
             signal.throwIfAborted();
             const response=await ask(config.prompts.select+selectionFocusPrompt(config.selectionFocus)+GENEROUS_SELECTION_PROMPT+OUTCOME_SELECTION_PROMPT+EVENT_CONTEXT_SELECTION_PROMPT+SELECTION_REFERENCE_RULES
                 +(repair?SELECTION_REPAIR_PROMPT:''),
-                {latestUser,dialogue,questions,selectionLimits:SELECTION_REFERENCE_LIMITS,memories:selectorMemories(batch),batch:index+1,batchCount:batches.length,
+                {latestUser,dialogue,questions,selectionFormat:'generous',selectionLimits:SELECTION_REFERENCE_LIMITS,memories:selectorMemories(batch),batch:index+1,batchCount:batches.length,
                     ...(repair?{selectionRepair:repair}:{}),
                     injectionBudgetTokens:config.injectionTokens,...(config.selectionFocus.length?{selectionFocus:config.selectionFocus}:{})},signal,6000);
             try {

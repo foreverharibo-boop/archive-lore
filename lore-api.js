@@ -3,6 +3,9 @@
 import { embeddingIdentity } from './lore-vector-identity.js';
 import { getSelectedConnectionProfile, prepareConnectionProfileRequest } from './connectionProfileRequest.js';
 import { observer, errorInfo } from './lore-telemetry.js';
+import { requestSelectionOutput } from './lore-selection-output.js';
+
+const unsupportedSelectionRoutes = new WeakMap();
 
 export function makeId() {
     const values = crypto.getRandomValues(new Uint8Array(16));
@@ -54,13 +57,19 @@ export async function ask(context, profileId, system, data, signal, maxTokens = 
             messages: [{ role: 'system', content: system }, { role: 'user', content: JSON.stringify(data) }] };
         const timeout = AbortSignal.timeout(180000);
         combined = signal ? AbortSignal.any([signal, timeout]) : timeout;
-        stage='ai.transport';combined.throwIfAborted();
-        await log('ai.transport.request',{body,timeoutMs:180000});
-        const result=await prepareConnectionProfileRequest(connection, body, combined,prepared=>log('ai.transport.prepared',prepared))();
-        await log('ai.transport.response',{response:result,elapsedMs:Date.now()-started});
-        stage='ai.extract';combined.throwIfAborted();
-        try { return completionText(result); }
-        catch(error) { error.category='response-format';error.stage=stage;throw error; }
+        let unsupported=unsupportedSelectionRoutes.get(connection.service);
+        if(!unsupported){unsupported=new Set();unsupportedSelectionRoutes.set(connection.service,unsupported);}
+        const route=JSON.stringify([connection.profileId,connection.source,connection.profile]);
+        return await requestSelectionOutput({data,signal:combined,log,unsupported,route,request:async schema=>{
+            const payload={...body,json_schema:schema};
+            stage='ai.transport';combined.throwIfAborted();
+            await log('ai.transport.request',{body:payload,timeoutMs:180000});
+            const result=await prepareConnectionProfileRequest(connection, payload, combined,prepared=>log('ai.transport.prepared',prepared))();
+            await log('ai.transport.response',{response:result,elapsedMs:Date.now()-started});
+            stage='ai.extract';combined.throwIfAborted();
+            try { return completionText(result); }
+            catch(error) { error.category='response-format';error.stage=stage;throw error; }
+        }});
     } catch(error) { await log('ai.transport.error',{...errorInfo(error,combined),stage,elapsedMs:Date.now()-started});throw error; }
 }
 export function embeddingRequest(settings, text, query = false) {

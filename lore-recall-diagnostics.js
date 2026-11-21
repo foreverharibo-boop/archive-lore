@@ -37,6 +37,11 @@ export function createRecallAudit(sanitize=value=>value){
                     set('후보 밖 기록',sampled(outside,1000),1200);break;
                 }
                 case 'selection.plan':set('선별 계획',`정책 ${data.policy} · 원문 ${data.units}단위 · ${data.batches}묶음 · 동시 처리 ${data.concurrency}`,500);break;
+                case 'selection.output-schema':{
+                    const text=`묶음 ${data.batch??'?'} · ${data.status}: ${data.message}`;
+                    detail(`selection-schema-${data.batch??'?'}`,`[선별 출력 제한]\n${text}`);
+                    add('선별 출력 제한',text+'\n',2000);break;
+                }
                 case 'selection.invalid':{
                     const batch=data.batch??'?',attempt=data.attempt??'?';
                     const response=String(data.response??'');

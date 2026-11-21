@@ -355,7 +355,7 @@ export function createLoreController(host) {
                         for (let attempt=0;attempt<2;attempt++) {
                             response = await askRecall(config.searchProfile || config.profile,
                                 config.prompts.select + '\nReturn ONLY JSON: {"selections":[{"id":"u0","priority":3,"reason":"concrete relevance to this scene","contextIds":[],"outcomeIds":[]}]}. Use priority 3 for direct answers and continuity constraints, 2 for useful connected background. Return at most 48 main event anchors in usefulness order; connected context IDs are separate. For no useful related context return {"selections":[]}.' + selectionFocusPrompt(config.selectionFocus) + OUTCOME_SELECTION_PROMPT + EVENT_CONTEXT_SELECTION_PROMPT + SELECTION_REFERENCE_RULES + (repair ? SELECTION_REPAIR_PROMPT : ''),
-                                { latestUser:focus.latestUser, dialogue: recent.text, questions, selectionLimits:SELECTION_REFERENCE_LIMITS, memories: selectorMemories(batch),
+                                { latestUser:focus.latestUser, dialogue: recent.text, questions, selectionFormat:'ranked', selectionLimits:SELECTION_REFERENCE_LIMITS, memories: selectorMemories(batch),
                                     batch:index+1,batchCount:batches.length,maxSelections:MAX_EVENT_SELECTIONS,injectionBudgetTokens:config.injectionTokens,
                                     ...(repair?{selectionRepair:repair}:{}),
                                     ...(config.selectionFocus.length?{selectionFocus:config.selectionFocus}:{}) }, signal, 6000);

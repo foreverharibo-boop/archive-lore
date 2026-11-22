@@ -60,6 +60,25 @@ test('preserves completion-token limits, schema and streaming', async () => {
     assert.deepEqual(overrides.json_schema, { name: 'memory' });
 });
 
+for(const source of ['vertexai','makersuite'])test(`${source} schema override survives ST preset merging and native alias precedence`,async()=>{
+    const {context,body,calls}=fixture(source);
+    const stale={type:'integer',enum:[2,3]},schema={name:'archive_lore_selection',value:{type:'integer',minimum:2,maximum:3}};
+    const preset={json_schema:{value:stale},responseSchema:stale,responseMimeType:'text/x.enum'};
+    const before=structuredClone(preset);
+    // ST createRequestData removes undefined before presetToGeneratePayload
+    // overlays the overrides; its Google backend prefers responseSchema.
+    const merge=overrides=>({...preset,...Object.fromEntries(Object.entries(overrides).filter(([,value])=>value!==undefined))});
+    for(const requested of [schema,undefined]){
+        body.json_schema=requested;
+        await prepareConnectionProfileRequest(getSelectedConnectionProfile(context),body,null)();
+        const payload=merge(calls.at(-1)[4]);
+        const actual=payload.responseSchema??payload.json_schema?.value;
+        const mime=payload.responseMimeType??(payload.json_schema?'application/json':undefined);
+        assert.deepEqual(actual,requested?.value);assert.equal(mime,requested?'application/json':undefined);
+    }
+    assert.deepEqual(preset,before);
+});
+
 test('active Custom profile owns its credentials instead of STMB routing fields', async () => {
     const { context, body, calls } = fixture('custom');
     body.secret_id = 'stmb-keyless:explicit';

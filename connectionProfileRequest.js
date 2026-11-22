@@ -32,6 +32,17 @@ export function prepareConnectionProfileRequest(connection, body, signal, onPrep
     for (const field of ['max_tokens', 'max_completion_tokens', 'max_output_tokens', 'max_new_tokens', 'json_schema']) {
         overrides[field] = body[field];
     }
+    if (Object.hasOwn(body, 'json_schema')) {
+        // ST removes undefined before applying the preset. Null survives that
+        // merge and prevents a preset schema from returning on plain-text retry.
+        overrides.json_schema = body.json_schema ?? null;
+        if (['vertexai', 'makersuite'].includes(connection.source)) {
+            // ST prefers these native Google aliases over json_schema. Null
+            // lets its backend use (and flatten) our current schema instead.
+            overrides.responseSchema = null;
+            overrides.responseMimeType = null;
+        }
+    }
     const compatible = normalizeCompletionRequest({ ...overrides, model: body.model || connection.profile.model }, connection.source);
     return async () => {
         if(onPrepared) { try { await onPrepared({profileId,source:connection.source,includePreset:true,extractData:false,stream:body.stream,overrides:compatible}); } catch {} }

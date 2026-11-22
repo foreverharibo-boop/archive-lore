@@ -1,6 +1,4 @@
 {
-  "ArchiveLore_CollectionOrder100": "수집 시 순서를 항상 100으로 고정",
-  "ArchiveLore_CollectionOrder100Help": "일반·자동·날짜별 수집에 프로필의 순서 설정보다 우선 적용합니다. 기존 항목의 순서는 바꾸지 않습니다.",
   "ArchiveLore_CollectionNoKeywords": "수집 시 키워드 생성 안 함",
   "ArchiveLore_CollectionNoKeywordsHelp": "새 수집의 키워드 생성을 요청하지 않고 빈 키워드로 저장합니다. 기존 항목의 키워드는 바꾸지 않습니다.",
   "ArchiveLore_GenerousRecall": "관련 기억을 넉넉하게 주입",

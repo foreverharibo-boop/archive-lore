@@ -1,6 +1,4 @@
 {
-  "ArchiveLore_CollectionOrder100": "Toujours fixer l’ordre à 100 lors de la collecte",
-  "ArchiveLore_CollectionOrder100Help": "S’applique aux collectes normales, automatiques et par date, en priorité sur l’ordre du profil. Ne modifie pas l’ordre des entrées existantes.",
   "ArchiveLore_CollectionNoKeywords": "Ne pas générer de mots-clés lors de la collecte",
   "ArchiveLore_CollectionNoKeywordsHelp": "Les nouvelles collectes ne demandent pas de mots-clés et sont enregistrées sans mots-clés. Les mots-clés des entrées existantes restent inchangés.",
   "ArchiveLore_GenerousRecall": "Inclure davantage de souvenirs pertinents",

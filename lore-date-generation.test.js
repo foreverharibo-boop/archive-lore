@@ -52,7 +52,7 @@ test('ordinary single-memory generation retains original JSON schema and result'
  const result=await h.run();assert.equal(h.calls[0].jsonSchema.name,'stmb_memory');assert.equal(result.content,'Normal memory');assert.equal(result.dateMemories,undefined);
 });
 
-for (const dated of [false, true]) for (const structured of [false, true]) test(`collection toggles override profiles and discard model keywords (${dated ? 'dates' : 'single'}, structured=${structured})`, async () => {
+for (const dated of [false, true]) for (const structured of [false, true]) test(`keyword suppression keeps profile order despite a stale order override (${dated ? 'dates' : 'single'}, structured=${structured})`, async () => {
  const h=harness();
  if(!dated) delete h.scene.metadata.archiveLoreDateRanges;
  Object.assign(h.scope.extension_settings.STMemoryBooks.moduleSettings,{archiveLoreCollectionOrder100:true,archiveLoreCollectionNoKeywords:true});
@@ -68,13 +68,12 @@ for (const dated of [false, true]) for (const structured of [false, true]) test(
  }else assert.equal(h.calls[0].jsonSchema,null);
  for(const item of dated?result.dateMemories:[result]) {
   assert.equal(item.suggestedKeys.length,0);assert.equal(item.lorebook.key.length,0);
-  assert.equal(item.lorebookSettings.orderMode,'manual');assert.equal(item.lorebookSettings.orderValue,100);
+  assert.equal(item.lorebookSettings.orderMode,'reverse');assert.equal(item.lorebookSettings.reverseStart,9000);
   assert(item.content.includes(dated?'Detailed events':'All detailed events'));
  }
  assert.deepEqual(h.profile,before);
- // Turning the options off must restore the profile and original shared schema.
+ // Turning keyword suppression off restores the original shared schema.
  h.scope.extension_settings.STMemoryBooks.moduleSettings.archiveLoreCollectionNoKeywords=false;
- h.scope.extension_settings.STMemoryBooks.moduleSettings.archiveLoreCollectionOrder100=false;
  const normal=await h.run();
  assert.doesNotMatch(h.calls.at(-1).prompt,/COLLECTION KEYWORD OVERRIDE/);
  assert.equal((dated?normal.dateMemories[0]:normal).suggestedKeys.length,1);

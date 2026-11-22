@@ -32,20 +32,19 @@ function harness() {
     return {state,scope};
 }
 
-for(const stageOnly of [false,true]) test(`collection overrides apply at final save, including repaired/preview results and date staging (${stageOnly})`,async()=>{
+for(const stageOnly of [false,true]) test(`keyword suppression preserves save order despite a stale order override (${stageOnly})`,async()=>{
  const {state,scope}=harness(),data={entries:{9:{uid:9,order:24,key:['existing'],content:'Existing memory'}}};
  const original=structuredClone(data.entries[9]);
  Object.assign(scope.extension_settings.STMemoryBooks.moduleSettings,{archiveLoreCollectionOrder100:true,archiveLoreCollectionNoKeywords:true});
  scope.populateLorebookEntry=(entry,m,title)=>Object.assign(entry,{comment:title,content:m.content,key:m.suggestedKeys,keysecondary:['secondary'],order:9000,stmemorybooks:true});
  const memory={content:'Complete memory',suggestedKeys:['generated'],titleFormat:ARCHIVE_LORE_TITLE_FORMAT,metadata:{}};
  const result=await scope.addMemoryToLorebook(memory,{valid:true,name:'book',data},{stageOnly,entryMetadata:{order:700,key:['preview keyword']}});
- assert.equal(result.success,true);assert.equal(data.entries[0].order,100);
+ assert.equal(result.success,true);assert.equal(data.entries[0].order,700);
  assert.equal(data.entries[0].key.length,0);assert.equal(data.entries[0].keysecondary.length,0);
  assert.equal(data.entries[0].content,memory.content);assert.equal(data.entries[0].STMB_memoryNumber,1);
  assert.deepEqual(data.entries[9],original);assert.deepEqual(memory.suggestedKeys,['generated']);
- if(!stageOnly){assert.equal(result.keywordCount,0);assert.equal(state.disk.entries[0].order,100);}
- // The controls are independent and disabling them restores profile behavior.
- scope.extension_settings.STMemoryBooks.moduleSettings.archiveLoreCollectionOrder100=false;
+ if(!stageOnly){assert.equal(result.keywordCount,0);assert.equal(state.disk.entries[0].order,700);}
+ // The old order toggle is ignored; ordinary saves keep their configured order.
  const next=await scope.addMemoryToLorebook(memory,{valid:true,name:'book',data},{stageOnly});
  assert.equal(next.success,true);assert.equal(data.entries[1].order,9000);assert.equal(data.entries[1].key.length,0);
  scope.extension_settings.STMemoryBooks.moduleSettings.archiveLoreCollectionNoKeywords=false;

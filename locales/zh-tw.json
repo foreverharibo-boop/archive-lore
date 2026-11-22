@@ -1,6 +1,4 @@
 {
-  "ArchiveLore_CollectionOrder100": "收集時一律將順序固定為100",
-  "ArchiveLore_CollectionOrder100Help": "適用於一般、自動及按日期收集，優先於設定檔的順序設定。不更改既有項目的順序。",
   "ArchiveLore_CollectionNoKeywords": "收集時不產生關鍵字",
   "ArchiveLore_CollectionNoKeywordsHelp": "新收集不要求產生關鍵字，並以空白關鍵字儲存。不更改既有項目的關鍵字。",
   "ArchiveLore_GenerousRecall": "注入更多相關記憶",

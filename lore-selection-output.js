@@ -10,7 +10,9 @@ export function selectionOutputSchema(data) {
     const ids = limit => ({ type:'array', items:{type:'string'}, maxItems:limit });
     const properties = {
         id:{type:'string',description:'One exact source ID from the supplied memories.'},
-        priority:{type:'integer',enum:[2,3]},
+        // Google's response_schema accepts only strings in enum. Integer bounds
+        // preserve numeric priorities 2/3 without provider-specific enum values.
+        priority:{type:'integer',minimum:2,maximum:3},
         ...(data.selectionFormat === 'ranked' ? {reason:{type:'string',description:'A nonempty, concrete reason this event matters to the current scene.'}} : {}),
         contextIds:ids(SELECTION_REFERENCE_LIMITS.contextIds),
         outcomeIds:ids(SELECTION_REFERENCE_LIMITS.outcomeIds),

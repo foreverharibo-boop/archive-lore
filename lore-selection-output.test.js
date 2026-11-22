@@ -15,9 +15,26 @@ for (const mode of ['ranked','generous']) test(`first ${mode} request carries st
     const schema=calls[0];assert.equal(schema.strict,true);assert.equal(schema.value.additionalProperties,false);
     const selections=schema.value.properties.selections,row=selections.items;
     assert.equal(selections.maxItems,48);assert.equal(row.properties.contextIds.maxItems,32);assert.equal(row.properties.outcomeIds.maxItems,8);
-    assert.deepEqual(row.properties.priority.enum,[2,3]);assert.equal(row.additionalProperties,false);
+    assert.deepEqual(row.properties.priority,{type:'integer',minimum:2,maximum:3});assert.equal(row.additionalProperties,false);
     assert.deepEqual(new Set(row.required),new Set(Object.keys(row.properties)));
     assert.equal(Object.hasOwn(row.properties,'reason'),mode==='ranked');assert.deepEqual(row.properties.focusMatches.items.enum,['meaning']);
+});
+for (const mode of ['ranked','generous']) test(`${mode} schema uses Google-compatible enums and accepts only numeric priorities 2/3`,()=>{
+    const schema=selectionOutputSchema(data(mode));
+    const checkEnums=value=>{
+        if(!value||typeof value!=='object')return;
+        if(Array.isArray(value.enum))assert(value.enum.every(item=>typeof item==='string'),'response_schema enum values must be strings');
+        for(const child of Object.values(value))checkEnums(child);
+    };
+    checkEnums(schema.value);
+    const priority=schema.value.properties.selections.items.properties.priority;
+    const accepts=value=>Number.isInteger(value)&&value>=priority.minimum&&value<=priority.maximum;
+    for(const value of [2,3])assert(accepts(value));
+    for(const value of [1,4,2.5,'2','3',null,true])assert(!accepts(value));
+    for(const value of [2,3]){
+        const selected=selectedUnits(JSON.stringify({selections:[{id:'u158',priority:value,reason:'Recorded event',contextIds:[],outcomeIds:[]}]}),data(mode).memories);
+        assert.equal(selected.length,1);assert.equal(selected[0].priority,value);
+    }
 });
 test('planner, collection and probe requests have no selection schema',async()=>{
     for(const input of [{questions:['Where?']},{entries:[]},{memories:[]},{selectionFormat:'ranked'},{ok:true}]){

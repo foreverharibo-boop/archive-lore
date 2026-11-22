@@ -142,6 +142,7 @@ for(const generousRecall of [false,true])test(`first server selection constrains
         const data=JSON.parse(payload.messages[1].content),schema=payload.json_schema;
         assert.equal(data.selectionFormat,generousRecall?'generous':'ranked');assert.equal(schema.strict,true);
         const rows=schema.value.properties.selections;assert.equal(rows.maxItems,48);
+        assert.deepEqual(rows.items.properties.priority,{type:'integer',minimum:2,maximum:3});
         assert.equal(rows.items.properties.contextIds.maxItems,32);assert.equal(rows.items.properties.outcomeIds.maxItems,8);
         assert.equal(Object.hasOwn(rows.items.properties,'reason'),!generousRecall);
         return JSON.stringify({selections:[{id:data.memories[0].id,priority:3,reason:'Hospital visit',contextIds:[],outcomeIds:[]}]});

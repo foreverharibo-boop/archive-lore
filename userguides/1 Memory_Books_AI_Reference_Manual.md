@@ -2,6 +2,10 @@
 
 The active browser entry is `archive-lore-fork.js`. It loads the original Memory Books bundle (`index.build.js`) for collection, clips, side prompts, consolidation, compaction, regeneration, profiles, automatic collection, hiding and recovery. The Korean home has three tabs: 기억 수집, 저장된 기억, 설정. Only the active tab is shown. Existing actions retain short explanations, and original profile/detail controls are collapsed under 설정 → 고급 설정 · 원본 메모리북. The original duplicate footer actions are omitted in the fork home; scene clearing is available within the selected-range details. `archive-lore.js` runs as a search/embedding companion, with its former collection scheduler and dashboard disabled. Rebuild native changes with `npm install --ignore-scripts` and `npm run build:fork`.
 
+## Recall selection compatibility
+
+AI recall selection constrains numeric priority to integers from 2 through 3 using `minimum`/`maximum`, avoiding numeric `enum` values rejected by Google's `response_schema`. This applies to browser and server recall, including Relay. Update the extension and reload; when using server recall, update the plugin checkout and restart SillyTavern as well. Existing memories and embeddings do not need rebuilding. Event/reference count limits and source validation remain unchanged.
+
 ## Collection overlap checks
 
 Message ranges are compared only against memories whose `STMB_chatId` matches the source chat. A new chat can collect messages starting at 0 into an existing book without colliding with another chat's ranges. This applies before generation and at ordinary, queued and date-batch saves; queued saves use the captured source chat rather than whichever chat is currently open. Memories with missing or `unknown` chat IDs are not treated as duplicates by range alone. Their content is preserved. The existing **장면 중첩 허용** setting still permits overlapping ranges within the same chat when enabled.

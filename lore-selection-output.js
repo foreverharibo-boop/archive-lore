@@ -35,7 +35,13 @@ function schemaRetryReason(error,source) {
         seen.add(current);
         for(const detail of [current,current.details,current.details?.error]){
             if(!detail||typeof detail!=='object')continue;
-            const status=Number(detail.status)||Number(detail.code);
+            let status=Number(detail.status)||Number(detail.code);
+            // ST's server route can wrap a Google 400 in HTTP 500. Only this
+            // verified provider envelope supersedes that wrapper for retry
+            // classification; retain the original error/status for diagnostics.
+            const provider=current.details?.error;
+            if(detail===current&&status===500&&['vertexai','makersuite'].includes(source)
+                &&Number(provider?.code)===400&&provider?.status==='INVALID_ARGUMENT')status=400;
             if(status)statuses.push(status);
             if(status>=400&&![400,404,422].includes(status))return false;
             if(detail.code==='OUTPUT_TRUNCATED'||['AbortError','TimeoutError'].includes(detail.name)

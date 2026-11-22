@@ -149,6 +149,43 @@ test('cyclic error causes terminate without a retry',async()=>{
 });
 
 const genericGoogleError='Request contains an invalid argument.';
+const serverGoogleError=()=>Object.assign(Error(`수집·검색 AI 오류 (500): ${genericGoogleError}`),{
+    status:500,category:'http',details:{error:{code:400,status:'INVALID_ARGUMENT',message:genericGoogleError}},
+});
+for(const source of ['vertexai','makersuite'])test(`${source} recognizes Google's 400 inside ST's 500 without mutating the error`,async()=>{
+    const failure=serverGoogleError(),before=JSON.stringify(failure),unsupported=new Set();let calls=0;
+    const options={data:data(),source,unsupported,route:'server',request:async schema=>{
+        calls++;if(schema)throw wrapped(failure);return 'ok';
+    }};
+    assert.equal(await requestSelectionOutput(options),'ok');assert.equal(calls,2);
+    assert.equal(JSON.stringify(failure),before);assert.equal(failure.status,500);
+    await requestSelectionOutput(options);assert.equal(calls,3);
+});
+for(const [name,modify,source='vertexai'] of [
+    ['other provider',()=>{},'custom'],
+    ['no provider payload',e=>{delete e.details;}],
+    ['no provider status',e=>{delete e.details.error.status;}],
+    ['provider authentication',e=>{e.details.error.code=401;e.details.error.status='UNAUTHENTICATED';}],
+    ['provider rate limit',e=>{e.details.error.code=429;e.details.error.status='RESOURCE_EXHAUSTED';}],
+    ['provider outage',e=>{e.details.error.code=503;e.details.error.status='UNAVAILABLE';}],
+    ['unrelated provider argument',e=>{e.details.error.message='Invalid temperature';}],
+    ['outer outage',e=>{e.status=503;}],
+    ['outer authentication',e=>{e.status=401;}],
+    ['outer canceled',e=>{e.category='canceled';}],
+    ['outer timeout',e=>{e.category='timeout';}],
+    ['inner canceled',e=>{e.details.error.category='canceled';}],
+    ['inner timeout',e=>{e.details.error.name='TimeoutError';}],
+])test(`server envelope does not bypass guard: ${name}`,async()=>{
+    const failure=serverGoogleError();modify(failure);let calls=0;
+    await assert.rejects(requestSelectionOutput({data:data(),source,request:async()=>{calls++;throw failure;}}),e=>e===failure);
+    assert.equal(calls,1);
+});
+test('a failed server envelope comparison stops after two calls and never caches the route',async()=>{
+    const failure=serverGoogleError(),unsupported=new Set();let calls=0;
+    const options={data:data(),source:'vertexai',unsupported,route:'server',request:async()=>{calls++;throw failure;}};
+    await assert.rejects(requestSelectionOutput(options),e=>e===failure);
+    assert.equal(calls,2);assert.equal(unsupported.size,0);
+});
 for(const source of ['vertexai','makersuite'])test(`browser ${source} compares the reported generic error once and caches only success`,async()=>{
     const calls=[],events=[],profile={id:'p',model:'gemini-3.8-flash',preset:'saved-preset'};
     const context={extensionSettings:{connectionManager:{selectedProfile:'p'}},ConnectionManagerRequestService:{

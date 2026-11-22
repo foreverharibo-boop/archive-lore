@@ -163,6 +163,23 @@ for(const genericGoogle of [false,true])test(`server compares schema failure and
     assert.equal(result.status,'completed',result.message);assert.equal(f.calls.length,2);
     assert.match(JSON.stringify(await readLogs(f.service,f.user,'test-key')),/unsupported/);
 });
+for(const comparisonSucceeds of [true,false])test(`server recall handles the real backend 500/Google 400 envelope: comparison succeeds=${comparisonSucceeds}`,async t=>{
+    const f=fixture(t);atomic(f.book,{entries:{0:{uid:0,content:'They visited the hospital.'}}});
+    const input=f.input();input.templates.collection.chat_completion_source='vertexai';
+    const indexed=await f.service.submit(f.user,'index',input,randomUUID());assert.equal((await done(f.service,f.user,indexed.id)).status,'completed');
+    const backend=(payload,signal)=>invokeBackend({handle(req,res){
+        if(req.body.json_schema||!comparisonSucceeds)return res.status(500).json({error:{code:400,status:'INVALID_ARGUMENT',message:'Request contains an invalid argument.'}});
+        const data=JSON.parse(req.body.messages[1].content);
+        res.json({choices:[{message:{content:JSON.stringify({selections:[{id:data.memories[0].id,priority:3,reason:'Hospital visit'}]})},finish_reason:'stop'}]});
+    }},f.user,payload,signal);
+    f.replies.push(backend,backend);
+    const job=await f.service.submit(f.user,'recall',input,randomUUID()),result=await done(f.service,f.user,job.id);
+    assert.equal(f.calls.length,2);assert(f.calls[0].json_schema);assert.equal(f.calls[1].json_schema,undefined);
+    assert.deepEqual(f.calls[1],{...f.calls[0],json_schema:undefined});
+    const logs=JSON.stringify(await readLogs(f.service,f.user,'test-key'));
+    if(comparisonSucceeds){assert.equal(result.status,'completed',result.message);assert.match(result.result.text,/hospital/);assert.match(logs,/unsupported/);}
+    else {assert.equal(result.status,'error');assert.match(result.message,/\(500\).*invalid argument/);assert.match(logs,/probe-failed/);}
+});
 test('server recall preserves selection emphasis in persisted jobs, AI requests and diagnostics',async t=>{
     const f=fixture(t);atomic(f.book,{entries:{0:{uid:0,content:'They visited the hospital. She felt grateful for his support.'}}});
     const input=f.input();input.settings.selectionFocus=['meaning','affection','unknown'];

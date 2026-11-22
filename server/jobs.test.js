@@ -151,9 +151,28 @@ for(const generousRecall of [false,true])test(`first server selection constrains
     assert.equal(result.status,'completed',result.message);assert.equal(f.calls.length,1);assert.deepEqual(input.templates,before);
     assert(result.result.text.includes('hospital'));assert.match(JSON.stringify(await readLogs(f.service,f.user,'test-key')),/선별 출력 제한/);
 });
+for(const generousRecall of [false,true])test(`Vertex server selection clears inherited schemas before the first backend request: generous=${generousRecall}`,async t=>{
+    const f=fixture(t);atomic(f.book,{entries:{0:{uid:0,content:'They visited the hospital. They agreed to return together.'}}});
+    const input=f.input();input.settings.generousRecall=generousRecall;
+    Object.assign(input.templates.collection,{chat_completion_source:'vertexai',json_schema:{name:'old',value:{type:'string'}},responseSchema:{type:'string'},responseMimeType:'application/json'});
+    const before=structuredClone(input.templates);
+    const indexed=await f.service.submit(f.user,'index',input,randomUUID());assert.equal((await done(f.service,f.user,indexed.id)).status,'completed');
+    f.replies.push((payload,signal)=>invokeBackend({handle(req,res){
+        for(const field of ['json_schema','responseSchema','responseMimeType'])assert.equal(req.body[field],null);
+        const data=JSON.parse(req.body.messages[1].content);
+        assert.equal(data.selectionFormat,generousRecall?'generous':'ranked');
+        assert.deepEqual(data.selectionLimits,{contextIds:32,outcomeIds:8});
+        assert.match(req.body.messages[0].content,/HARD OUTPUT LIMITS/);
+        res.json({choices:[{message:{content:JSON.stringify({selections:[{id:data.memories[0].id,priority:3,reason:'Hospital visit',contextIds:[],outcomeIds:[]}]})},finish_reason:'stop'}]});
+    }},f.user,payload,signal));
+    const job=await f.service.submit(f.user,'recall',input,randomUUID()),result=await done(f.service,f.user,job.id);
+    assert.equal(result.status,'completed',result.message);assert.equal(f.calls.length,1);assert.deepEqual(input.templates,before);
+    assert.match(result.result.text,/hospital/);assert(result.result.tokens<=normalizeSettings(input.settings).injectionTokens);
+    assert.match(JSON.stringify(await readLogs(f.service,f.user,'test-key')),/disabled-vertex/);
+});
 for(const genericGoogle of [false,true])test(`server compares schema failure and records compatibility mode: generic Google=${genericGoogle}`,async t=>{
     const f=fixture(t);atomic(f.book,{entries:{0:{uid:0,content:'They visited the hospital.'}}});
-    const input=f.input();if(genericGoogle)input.templates.collection.chat_completion_source='vertexai';
+    const input=f.input();if(genericGoogle)input.templates.collection.chat_completion_source='makersuite';
     const indexed=await f.service.submit(f.user,'index',input,randomUUID());assert.equal((await done(f.service,f.user,indexed.id)).status,'completed');
     f.replies.push(payload=>{assert(payload.json_schema);throw Object.assign(Error(genericGoogle?'Request contains an invalid argument.':'json_schema response_format not supported'),{status:400});},payload=>{
         assert.equal(payload.json_schema,undefined);const data=JSON.parse(payload.messages[1].content);
@@ -165,7 +184,7 @@ for(const genericGoogle of [false,true])test(`server compares schema failure and
 });
 for(const comparisonSucceeds of [true,false])test(`server recall handles the real backend 500/Google 400 envelope: comparison succeeds=${comparisonSucceeds}`,async t=>{
     const f=fixture(t);atomic(f.book,{entries:{0:{uid:0,content:'They visited the hospital.'}}});
-    const input=f.input();input.templates.collection.chat_completion_source='vertexai';
+    const input=f.input();input.templates.collection.chat_completion_source='makersuite';
     const indexed=await f.service.submit(f.user,'index',input,randomUUID());assert.equal((await done(f.service,f.user,indexed.id)).status,'completed');
     const backend=(payload,signal)=>invokeBackend({handle(req,res){
         if(req.body.json_schema||!comparisonSucceeds)return res.status(500).json({error:{code:400,status:'INVALID_ARGUMENT',message:'Request contains an invalid argument.'}});

@@ -87,7 +87,7 @@ test('schema support status survives the ten-stage diagnostic ring in recall evi
     assert.match(audit.text(),/unsupported/);assert.match(audit.details(),/unsupported/);assert.doesNotMatch(audit.details(),/Limits requested/);
 });
 
-for(const source of ['vertexai','makersuite'])test(`browser ${source} recovers the reported nested schema rejection once without changing profile or evidence`,async()=>{
+for(const source of ['makersuite'])test(`browser ${source} recovers the reported nested schema rejection once without changing profile or evidence`,async()=>{
     const profile={id:'p',model:'gemini-test',preset:'saved-preset'},calls=[],events=[];
     const reply=JSON.stringify({selections:[{id:'u158',priority:3,reason:'Recorded event',contextIds:[],outcomeIds:[]}]});
     const context={extensionSettings:{connectionManager:{selectedProfile:'p'}},ConnectionManagerRequestService:{
@@ -149,10 +149,46 @@ test('cyclic error causes terminate without a retry',async()=>{
 });
 
 const genericGoogleError='Request contains an invalid argument.';
+for(const mode of ['ranked','generous'])test(`Vertex ${mode} skips schema on the first browser request without changing prompts or profiles`,async()=>{
+    const calls=[],events=[],profile={id:'vertex',model:'chosen-model',preset:'saved-preset'};
+    let source='vertexai';
+    const context={extensionSettings:{connectionManager:{selectedProfile:'vertex'}},ConnectionManagerRequestService:{
+        getProfile:()=>profile,validateProfile:()=>({selected:'openai',source}),
+        sendRequest:async(...args)=>{calls.push(args);return {choices:[{message:{content:'{"selections":[]}'},finish_reason:'stop'}]};},
+    }};
+    const input=data(mode),before=structuredClone(input);
+    await ask(context,'vertex','Keep selection instructions.',input,undefined,6000,async(_,event)=>events.push(event));
+    assert.equal(calls.length,1);
+    const [id,messages,tokens,options,overrides]=calls[0];
+    assert.equal(id,'vertex');assert.equal(tokens,6000);assert.equal(options.includePreset,true);
+    assert.equal(overrides.model,profile.model);
+    for(const field of ['json_schema','responseSchema','responseMimeType'])assert.equal(overrides[field],null);
+    assert.deepEqual(messages,[{role:'system',content:'Keep selection instructions.'},{role:'user',content:JSON.stringify(input)}]);
+    assert.deepEqual(input,before);assert.deepEqual(profile,{id:'vertex',model:'chosen-model',preset:'saved-preset'});
+    assert(events.some(e=>e.status==='disabled-vertex'));assert(!events.some(e=>e.status==='probe'));
+    // Provider changes do not inherit a Vertex-only schema bypass.
+    for(const other of ['makersuite','deepseek','custom']){
+        source=other;await ask(context,'vertex','Keep selection instructions.',input,undefined,6000);
+        assert(calls.at(-1)[4].json_schema);
+    }
+});
+for(const failure of [new Error(genericGoogleError),error('response_schema unsupported'),error('server unavailable',503)])test(`Vertex never adds schema retry for ${failure.message}`,async()=>{
+    let calls=0;const unsupported=new Set();
+    await assert.rejects(requestSelectionOutput({data:data(),source:'vertexai',unsupported,request:async schema=>{
+        calls++;assert.equal(schema,undefined);throw failure;
+    }}),e=>e===failure);
+    assert.equal(calls,1);assert.equal(unsupported.size,0);
+});
+test('Vertex without schema still validates linked references against their limits',async()=>{
+    const offered=Array.from({length:34},(_,i)=>({id:`u${i}`,entryId:'event',index:i,text:`Fact ${i}.`}));
+    const reply=JSON.stringify({selections:[{id:'u0',priority:2,reason:'event',contextIds:offered.slice(1).map(u=>u.id)}]});
+    const result=await requestSelectionOutput({data:data(),source:'vertexai',request:async()=>reply});
+    assert.throws(()=>selectedUnits(result,offered),/too-many-references/);
+});
 const serverGoogleError=()=>Object.assign(Error(`수집·검색 AI 오류 (500): ${genericGoogleError}`),{
     status:500,category:'http',details:{error:{code:400,status:'INVALID_ARGUMENT',message:genericGoogleError}},
 });
-for(const source of ['vertexai','makersuite'])test(`${source} recognizes Google's 400 inside ST's 500 without mutating the error`,async()=>{
+for(const source of ['makersuite'])test(`${source} recognizes Google's 400 inside ST's 500 without mutating the error`,async()=>{
     const failure=serverGoogleError(),before=JSON.stringify(failure),unsupported=new Set();let calls=0;
     const options={data:data(),source,unsupported,route:'server',request:async schema=>{
         calls++;if(schema)throw wrapped(failure);return 'ok';
@@ -161,7 +197,7 @@ for(const source of ['vertexai','makersuite'])test(`${source} recognizes Google'
     assert.equal(JSON.stringify(failure),before);assert.equal(failure.status,500);
     await requestSelectionOutput(options);assert.equal(calls,3);
 });
-for(const [name,modify,source='vertexai'] of [
+for(const [name,modify,source='makersuite'] of [
     ['other provider',()=>{},'custom'],
     ['no provider payload',e=>{delete e.details;}],
     ['no provider status',e=>{delete e.details.error.status;}],
@@ -182,11 +218,11 @@ for(const [name,modify,source='vertexai'] of [
 });
 test('a failed server envelope comparison stops after two calls and never caches the route',async()=>{
     const failure=serverGoogleError(),unsupported=new Set();let calls=0;
-    const options={data:data(),source:'vertexai',unsupported,route:'server',request:async()=>{calls++;throw failure;}};
+    const options={data:data(),source:'makersuite',unsupported,route:'server',request:async()=>{calls++;throw failure;}};
     await assert.rejects(requestSelectionOutput(options),e=>e===failure);
     assert.equal(calls,2);assert.equal(unsupported.size,0);
 });
-for(const source of ['vertexai','makersuite'])test(`browser ${source} compares the reported generic error once and caches only success`,async()=>{
+for(const source of ['makersuite'])test(`browser ${source} compares the reported generic error once and caches only success`,async()=>{
     const calls=[],events=[],profile={id:'p',model:'gemini-3.8-flash',preset:'saved-preset'};
     const context={extensionSettings:{connectionManager:{selectedProfile:'p'}},ConnectionManagerRequestService:{
         getProfile:()=>profile,validateProfile:()=>({selected:'openai',source}),sendRequest:async(...args)=>{
@@ -213,7 +249,7 @@ for(const source of [undefined,'custom','openai'])test(`generic invalid argument
 });
 test('Google generic invalid argument does not retry non-selection requests',async()=>{
     const failure=wrapped(error(genericGoogleError));let calls=0;
-    await assert.rejects(requestSelectionOutput({data:{questions:[]},source:'vertexai',request:async()=>{calls++;throw failure;}}),e=>e===failure);
+    await assert.rejects(requestSelectionOutput({data:{questions:[]},source:'makersuite',request:async()=>{calls++;throw failure;}}),e=>e===failure);
     assert.equal(calls,1);
 });
 for(const detail of [
@@ -222,12 +258,12 @@ for(const detail of [
     {name:'AbortError'},{name:'TimeoutError'},{code:'OUTPUT_TRUNCATED'},
 ])test(`Google generic error respects failure guard ${JSON.stringify(detail)}`,async()=>{
     const failure=wrapped(Object.assign(Error(genericGoogleError),detail));let calls=0;
-    await assert.rejects(requestSelectionOutput({data:data(),source:'vertexai',request:async()=>{calls++;throw failure;}}),e=>e===failure);
+    await assert.rejects(requestSelectionOutput({data:data(),source:'makersuite',request:async()=>{calls++;throw failure;}}),e=>e===failure);
     assert.equal(calls,1);
 });
 test('failed Google comparison returns its error and leaves the route uncached for the next attempt',async()=>{
     const unsupported=new Set(),calls=[],events=[],fallbackError=wrapped(error('Different invalid argument'));
-    const options={data:data(),source:'vertexai',route:'p',unsupported,log:async(_,event)=>events.push(event),request:async schema=>{
+    const options={data:data(),source:'makersuite',route:'p',unsupported,log:async(_,event)=>events.push(event),request:async schema=>{
         calls.push(schema);throw schema?wrapped(error(genericGoogleError)):fallbackError;
     }};
     for(let attempt=0;attempt<2;attempt++){
@@ -240,7 +276,7 @@ test('failed Google comparison returns its error and leaves the route uncached f
 });
 test('Google comparison respects cancellation before a second request',async()=>{
     const stop=new AbortController(),unsupported=new Set();let calls=0;
-    await assert.rejects(requestSelectionOutput({data:data(),source:'vertexai',signal:stop.signal,unsupported,
+    await assert.rejects(requestSelectionOutput({data:data(),source:'makersuite',signal:stop.signal,unsupported,
         log:async(_,event)=>{if(event.status==='probe')stop.abort(Error('stopped'));},
         request:async()=>{calls++;throw wrapped(error(genericGoogleError));},
     }),/stopped/);
@@ -249,7 +285,7 @@ test('Google comparison respects cancellation before a second request',async()=>
 test('Google comparison preserves validation of reference counts and original source IDs',async()=>{
     const offered=Array.from({length:34},(_,i)=>({id:`u${i}`,entryId:'event',index:i,text:`Fact ${i}.`}));
     const reply=JSON.stringify({selections:[{id:'u0',priority:2,reason:'event',contextIds:offered.slice(1).map(u=>u.id)}]});
-    const result=await requestSelectionOutput({data:data(),source:'vertexai',request:async schema=>{
+    const result=await requestSelectionOutput({data:data(),source:'makersuite',request:async schema=>{
         if(schema)throw wrapped(error(genericGoogleError));return reply;
     }});
     assert.equal(result,reply);assert.throws(()=>selectedUnits(result,offered),/too-many-references/);

@@ -106,6 +106,9 @@ export function createJobService({sanitize,ask,embedRequest=embed,countTokens}) 
                 await log('profile.resolved',{requestedProfile:profile||'current',transport:'server',model:template.model,source:template.chat_completion_source,template});
                 return requestSelectionOutput({data,signal,source:template.chat_completion_source,log,unsupported:unsupportedSelectionRoutes,route:profile||'current',request:async schema=>{
                     const requestPayload={...payload,json_schema:schema};
+                    // Match browser suppression of inherited native schemas:
+                    // Vertex must not restore the constraint from its template.
+                    if(template.chat_completion_source==='vertexai')Object.assign(requestPayload,{json_schema:null,responseSchema:null,responseMimeType:null});
                     await log('ai.transport.prepared',{payload:requestPayload});const response=await ask(s.user,requestPayload,signal,log);
                     await log('ai.transport.response',{response});
                     try{return completionText(response);}catch(error){error.category='response-format';error.stage='ai.extract';throw error;}

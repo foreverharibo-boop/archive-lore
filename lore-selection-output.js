@@ -71,6 +71,11 @@ export async function requestSelectionOutput({data,request,signal,source,log=asy
         try { await log('selection.output-schema',{batch:data.batch,status,message}); } catch {}
     };
     signal?.throwIfAborted();
+    if (source === 'vertexai') {
+        await report('disabled-vertex','Vertex AI는 첫 요청부터 API 구조화 출력 제한 없이 선별합니다. 프롬프트의 개수 지시·원문 ID 검사·최종 주입 토큰 한도는 유지되지만, 생성 시 형식·개수 준수는 보장되지 않습니다.');
+        signal?.throwIfAborted();
+        return request(undefined);
+    }
     if (unsupported.has(route)) {
         await report('unsupported','이 연결은 구조화 출력 제한 없이 성공한 기록이 있어 기존 지시·검증 방식으로 선별합니다. 생성 시 개수 준수는 보장되지 않습니다.');
         return request(undefined);

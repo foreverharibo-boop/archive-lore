@@ -60,7 +60,7 @@ export async function ask(context, profileId, system, data, signal, maxTokens = 
         let unsupported=unsupportedSelectionRoutes.get(connection.service);
         if(!unsupported){unsupported=new Set();unsupportedSelectionRoutes.set(connection.service,unsupported);}
         const route=JSON.stringify([connection.profileId,connection.source,connection.profile]);
-        return await requestSelectionOutput({data,signal:combined,log,unsupported,route,request:async schema=>{
+        return await requestSelectionOutput({data,signal:combined,source:connection.source,log,unsupported,route,request:async schema=>{
             const payload={...body,json_schema:schema};
             stage='ai.transport';combined.throwIfAborted();
             await log('ai.transport.request',{body:payload,timeoutMs:180000});

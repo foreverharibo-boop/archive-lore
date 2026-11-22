@@ -151,10 +151,11 @@ for(const generousRecall of [false,true])test(`first server selection constrains
     assert.equal(result.status,'completed',result.message);assert.equal(f.calls.length,1);assert.deepEqual(input.templates,before);
     assert(result.result.text.includes('hospital'));assert.match(JSON.stringify(await readLogs(f.service,f.user,'test-key')),/선별 출력 제한/);
 });
-test('server retries only an explicit unsupported schema and records compatibility mode',async t=>{
+for(const genericGoogle of [false,true])test(`server compares schema failure and records compatibility mode: generic Google=${genericGoogle}`,async t=>{
     const f=fixture(t);atomic(f.book,{entries:{0:{uid:0,content:'They visited the hospital.'}}});
-    const input=f.input(),indexed=await f.service.submit(f.user,'index',input,randomUUID());assert.equal((await done(f.service,f.user,indexed.id)).status,'completed');
-    f.replies.push(payload=>{assert(payload.json_schema);throw Object.assign(Error('json_schema response_format not supported'),{status:400});},payload=>{
+    const input=f.input();if(genericGoogle)input.templates.collection.chat_completion_source='vertexai';
+    const indexed=await f.service.submit(f.user,'index',input,randomUUID());assert.equal((await done(f.service,f.user,indexed.id)).status,'completed');
+    f.replies.push(payload=>{assert(payload.json_schema);throw Object.assign(Error(genericGoogle?'Request contains an invalid argument.':'json_schema response_format not supported'),{status:400});},payload=>{
         assert.equal(payload.json_schema,undefined);const data=JSON.parse(payload.messages[1].content);
         return JSON.stringify({selections:[{id:data.memories[0].id,priority:3,reason:'Hospital visit'}]});
     });

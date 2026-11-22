@@ -104,7 +104,7 @@ export function createJobService({sanitize,ask,embedRequest=embed,countTokens}) 
             ask:async(profile,system,data,signal,tokens,observe)=>{const template=profile===config.searchProfile&&config.searchProfile?input.templates.search:input.templates.collection;
                 const log=observer(observe,secrets),payload=normalizeCompletionRequest({...template,stream:false,temperature:.2,max_tokens:tokens,max_completion_tokens:undefined,max_output_tokens:undefined,max_new_tokens:undefined,json_schema:undefined,messages:[{role:'system',content:system},{role:'user',content:JSON.stringify(data)}]});
                 await log('profile.resolved',{requestedProfile:profile||'current',transport:'server',model:template.model,source:template.chat_completion_source,template});
-                return requestSelectionOutput({data,signal,log,unsupported:unsupportedSelectionRoutes,route:profile||'current',request:async schema=>{
+                return requestSelectionOutput({data,signal,source:template.chat_completion_source,log,unsupported:unsupportedSelectionRoutes,route:profile||'current',request:async schema=>{
                     const requestPayload={...payload,json_schema:schema};
                     await log('ai.transport.prepared',{payload:requestPayload});const response=await ask(s.user,requestPayload,signal,log);
                     await log('ai.transport.response',{response});

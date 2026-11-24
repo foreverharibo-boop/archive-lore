@@ -5763,11 +5763,11 @@ async function executeMemoryGeneration(
         console.log(
           `STMemoryBooks: Including ${memoryFetchResult.actualCount} previous memories as context`,
         );
-      } else {
+      } else if (memoryFetchResult.readFailed) {
         toastr.warning(
           translate(
-            "No previous memories found in lorebook",
-            "STMemoryBooks_NoPreviousMemoriesFound",
+            "Failed to load the selected lorebook.",
+            "STMemoryBooks_Error_FailedToLoadSelectedLorebook",
           ),
           "STMemoryBooks",
         );

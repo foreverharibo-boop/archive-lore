@@ -1929,6 +1929,8 @@ Earlier scene Memories from the effective Memory Book, included as read-only con
 
 They should not be summarized again merely because they appear before the current scene.
 
+If a readable Memory Book has no earlier Memories, collection continues without an empty-history warning. The direct collection path warns when previous context cannot be read (for example, a missing or unreadable Memory Book), and continues without it. If some but fewer than the requested Memories exist, the partial-availability warning remains.
+
 ### 20.3 Additional Context
 
 Selected lorebook entries supplied as stable reference material, such as:

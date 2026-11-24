@@ -498,7 +498,7 @@ async function saveNewProfileFromAdvancedSettings(popupElement, settings, profil
  * @param {number} count - Number of summaries to fetch
  * @param {Object} settings - Extension settings (titleFormat no longer needed)
  * @param {Object} chat_metadata - Chat metadata for lorebook access
- * @returns {Promise<Object>} Summaries result
+ * @returns {Promise<Object>} Summaries result; readFailed distinguishes unavailable data from an empty book.
  */
 export async function fetchPreviousSummaries(count, settings, chat_metadata) {
   if (count <= 0) {
@@ -508,15 +508,16 @@ export async function fetchPreviousSummaries(count, settings, chat_metadata) {
   try {
     // Intentionally do not use the shared interactive lorebook validator here.
     // This is a passive preview helper, so missing lorebooks should degrade to
-    // empty results instead of launching recovery UI.
+    // empty results instead of launching recovery UI. Preserve the failure
+    // signal so collection can distinguish it from a normal first collection.
     const lorebookName = await getEffectiveLorebookName();
     if (!lorebookName) {
-      return { summaries: [], actualCount: 0, requestedCount: count };
+      return { summaries: [], actualCount: 0, requestedCount: count, readFailed: true };
     }
 
     const lorebookData = await loadWorldInfo(lorebookName);
     if (!lorebookData) {
-      return { summaries: [], actualCount: 0, requestedCount: count };
+      return { summaries: [], actualCount: 0, requestedCount: count, readFailed: true };
     }
 
     // Use flag-based identification - no titleFormat needed
@@ -538,7 +539,7 @@ export async function fetchPreviousSummaries(count, settings, chat_metadata) {
     };
 
   } catch (error) {
-    return { summaries: [], actualCount: 0, requestedCount: count };
+    return { summaries: [], actualCount: 0, requestedCount: count, readFailed: true };
   }
 }
 

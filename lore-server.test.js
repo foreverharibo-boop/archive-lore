@@ -282,3 +282,25 @@ test('server client rejects a result after generous recall is toggled',async()=>
         call:async route=>{if(route==='/jobs/list')return [];if(route==='/jobs')return {id:'job',status:'queued'};settings={generousRecall:true};return {id:'job',kind:'recall',status:'completed',result:{lastRecall:{units:[],records:[]}}};}});
     await assert.rejects(controller.recall(),/설정이 바뀌/);assert.equal(controller.state().lastRecall,null);
 });
+
+
+test('updated client explains an old server protocol error without retrying a full-chat upload',async()=>{
+    const call=createServerClient({headers:()=>({}),request:async()=>({ok:false,status:400,json:async()=>({error:'서버 작업 형식을 확인해 줘.'})})});
+    await assert.rejects(call('/reply/prepare',{input:{context:{snapshotVersion:1,messageCount:0,source:null}}}),/서버 플러그인을 업데이트/);
+});
+
+for(const change of ['none','edit','append'])test(`compact normal server recall checks the original source before injection: ${change}`,async()=>{
+    const {serverChatSnapshot}=await import('./lore-server.js');
+    const messages=[{mes:'Hidden source',is_system:true},{mes:'Current user',is_user:true}];
+    const controller=createServerController({local:{},enabled:()=>true,settings:()=>({}),context:()=>({key:'chat',messages}),
+        input:async()=>({settings:{},context:serverChatSnapshot({key:'chat',messages})}),sync:async()=>{},countTokens:async()=>1,
+        call:async(route,body)=>{
+            if(route==='/jobs/list')return [];
+            if(route==='/jobs'){assert.equal(body.input.context.messages,undefined);return {id:'job',status:'queued'};}
+            if(change==='edit')messages[0].mes='Changed hidden source';
+            if(change==='append')messages.push({mes:'New reply'});
+            return {id:'job',status:'completed',result:{text:'',core:'',lastRecall:{units:[],records:[]}}};
+        }});
+    if(change==='none')assert.equal((await controller.recall()).text,'');
+    else await assert.rejects(controller.recall(),/검색 중 대화가 바뀌/);
+});

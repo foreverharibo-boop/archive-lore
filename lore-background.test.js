@@ -6,6 +6,7 @@ import {createBackgroundRecall} from './lore-background.js';
 import {reserveReplySlots,replaceReplySlots} from './lore-reply-slots.js';
 import {normalizeSettings} from './lore-core.js';
 import {mapOrdered} from './lore-parallel.js';
+import {serverChatSnapshot} from './lore-chat-snapshot.js';
 const gate=()=>{let resolve;const promise=new Promise(r=>resolve=r);return {promise,resolve};};
 const tick=()=>new Promise(r=>setImmediate(r));
 test('two batches run together but retain input order and every candidate',async()=>{
@@ -43,13 +44,14 @@ function fixture(){
     const config=normalizeSettings({serverEnabled:true,relayEnabled:true});
     const host={settings:()=>config,context:()=>context,relay:()=>({supports:async()=>true,enabled:()=>true}),supported:()=>true,
         tokenizer:async()=> 'gemma',countTokens:async t=>t.length,
-        input:async(_,options)=>({context:structuredClone(context),settings:config,books:['Book'],options}),
+        input:async(_,options)=>({context:serverChatSnapshot(context),settings:config,books:['Book'],options}),
         call:async(route,data)=>{calls.push({route,data});if(route==='/reply/prepare')return {ticket:data.ticket,core:'Core'};return {};},accept(){}};
     return {host,context,calls,background:createBackgroundRecall(host)};
 }
 test('only native final message objects receive metadata; changed messages prevent handoff',async()=>{
     const f=fixture(),slots=await f.background.prepare('normal');
     assert.equal(slots.core,'Core');assert(!f.calls.some(c=>c.route==='/jobs'));
+    assert.equal(f.calls[0].data.input.context.messages,undefined);
     const prompt=[{role:'system',content:slots.text},{role:'system',content:slots.guidance}];
     f.background.capture({prompt});
     const helper={messages:[{role:'user',content:'Unrelated helper'}]};f.background.attach(helper);assert(!helper.__silly_relay_prepare);
@@ -123,3 +125,4 @@ test('relay completion retains its generation identity across a later generation
     hold.resolve({state:'completed',jobId:'job'});await completion;
     assert.equal(accepted.epoch,1);assert.equal(generation,2);
 });
+

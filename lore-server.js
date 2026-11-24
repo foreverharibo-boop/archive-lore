@@ -1,16 +1,12 @@
 // Archive Lore © 2026 foreverharibo-boop — AGPL-3.0-only
 import {fitFocusedInjection} from './lore-focus-injection.js';
 import { makeId } from './lore-api.js';
-import { normalizeSettings,matchesRange,sourceRange } from './lore-core.js';
+import { normalizeSettings } from './lore-core.js';
 import { automaticReady } from './lore-automation.js';
 import { withAbort } from './lore-cancellation.js';
 import { waitForServerPoll } from './lore-poll-wait.js';
-export function serverChatSnapshot(context) {
-    // Keep the complete current message text and fingerprint fields, excluding
-    // old swipes, translations, reasoning and unrelated extension payloads.
-    return {...context,messages:context.messages.map(m=>Object.fromEntries(
-        ['name','mes','send_date','is_user','is_system','original_avatar'].filter(k=>k in m).map(k=>[k,m[k]])))};
-}
+import {matchesChatSnapshot} from './lore-chat-snapshot.js';
+export {serverChatSnapshot} from './lore-chat-snapshot.js';
 export async function profileTemplate(context,profileId,proxies=[]) {
     const id=profileId || context.extensionSettings?.connectionManager?.selectedProfile;
     if(!id)throw Error('수집·검색에 사용할 연결 프로필을 선택해 줘. 임베딩만 할 때는 필요 없어.');
@@ -41,7 +37,12 @@ export function createServerClient({headers,request=fetch}) {
         if(options.blob&&response.ok){const data=await response.blob();signal.throwIfAborted();return data;}
         let data;try{data=await response.json();}catch{throw Error('서버 플러그인 응답을 읽을 수 없어. 서버 버전과 로그인 상태를 확인해 줘.');}
         signal.throwIfAborted();
-        if(!response.ok||data.error)throw Object.assign(Error(data.error || `서버 오류 (${response.status})`),{status:response.status,diagnostic:data.diagnostic,category:data.diagnostic?.error?.category});return data;
+        if(!response.ok||data.error){
+            const message=body.input?.context?.snapshotVersion===1 && data.error==='서버 작업 형식을 확인해 줘.'
+                ? '대화 본문 없는 서버 요청을 지원하지 않는 버전이야. 아카이브 로어 서버 플러그인을 업데이트하고 실리 서버를 재시작해 줘.'
+                : data.error || `서버 오류 (${response.status})`;
+            throw Object.assign(Error(message),{status:response.status,diagnostic:data.diagnostic,category:data.diagnostic?.error?.category});
+        }return data;
     };
 }
 export function serverVectorStore({local,call,enabled}) {
@@ -183,7 +184,7 @@ export function createServerController({local,enabled,settings,context,input,cal
                     await measured('syncMs',()=>finish(value));check();let result=value.result;
                     if(kind==='recall'){
                         const validationStarted=Date.now();
-                        const messages=payload.context.messages;if(messages.length!==context().messages.length || (messages.length&&!matchesRange(sourceRange(messages,0,messages.length-1),context().messages)))throw Error('검색 중 대화가 바뀌어서 주입하지 않았어. 다시 시도해 줘.');
+                        if(!matchesChatSnapshot(payload.context,context().messages))throw Error('검색 중 대화가 바뀌어서 주입하지 않았어. 다시 시도해 줘.');
                         clientStages.validationMs=Date.now()-validationStarted;
                         const config=normalizeSettings(settings()),requested=normalizeSettings(payload.settings||config);
                         if(config.mode!==requested.mode || config.generousRecall!==requested.generousRecall || JSON.stringify(config.selectionFocus)!==JSON.stringify(requested.selectionFocus) || JSON.stringify(config.excludedSidePromptKeys)!==JSON.stringify(requested.excludedSidePromptKeys))throw Error('검색 중 기억 선별 설정이 바뀌어서 주입하지 않았어. 다시 시도해 줘.');
@@ -257,3 +258,4 @@ export function createServerController({local,enabled,settings,context,input,cal
         async getDraft(id){const job=await call('/jobs/get',{id});if(job.kind!=='prepareMaintenance'||job.status!=='completed'||job.draftAvailable===false||job.chatKey!==context().key)throw Error('이 채팅방에서 사용할 수 있는 초안이 아니야.');return job.result;},
     };
 }
+

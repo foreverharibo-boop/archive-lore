@@ -63,3 +63,26 @@ test('explicit review descendants reuse the selected memory without another AI c
     await assert.rejects(f.bridge.prepare({user,ticket:id,jobId:'unrelated',parentJobId:'unknown',payload:f.payload,signal}));
     f.bridge.close();
 });
+
+
+test('capacity errors distinguish active requests, retained tickets and per-request or aggregate bytes',()=>{
+    const service={replySnapshot:()=>({core:'',fingerprint:'same'})},input={options:{replyTokenizer:'test'}};
+    const make=svc=>createReplyBridge({service:svc||service,countMessages:async()=>1});
+    const ticket=i=>i.toString(16).padStart(32,'0');
+    let bridge=make();
+    try{
+        for(let i=0;i<4;i++)bridge.prepareInput(user,{ticket:ticket(i),input});
+        assert.throws(()=>bridge.prepareInput(user,{ticket:ticket(4),input}),/현재 4개 \/ 한도 4개/);
+    }finally{bridge.close();}
+    bridge=make();try{
+        for(let i=0;i<256;i++)bridge.cancel(user,ticket(i));
+        assert.throws(()=>bridge.prepareInput(user,{ticket:ticket(256),input}),/보관 256개 \/ 한도 256개/);
+    }finally{bridge.close();}
+    bridge=make({replySnapshot:()=>({core:'x'.repeat(9*1024*1024),fingerprint:'same'})});
+    try{assert.throws(()=>bridge.prepareInput(user,{ticket:id,input}),/코어 기억.*한도 8 MiB/);}finally{bridge.close();}
+    bridge=make({replySnapshot:()=>({core:'x'.repeat(7*1024*1024),fingerprint:'same'})});
+    try{
+        for(let i=0;i<4;i++)bridge.prepareInput({...user,profile:{handle:'owner'+i}},{ticket:ticket(i),input});
+        assert.throws(()=>bridge.prepareInput({...user,profile:{handle:'last'}},{ticket:id,input}),/전체 용량.*한도 32 MiB/);
+    }finally{bridge.close();}
+});

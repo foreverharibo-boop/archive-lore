@@ -9,12 +9,13 @@ import { entrySearchAllowed } from '../lore-side-search.js';
 import { createLoreController } from '../lore-controller.js';
 import { formatDiagnosticPreview } from '../lore-diagnostic-preview.js';
 import { createDiagnostics } from '../lore-diagnostics.js';
-import { normalizeSettings,NS,sourceRange,matchesRange,estimateTokens,materializeEntry,entryAvailable,isCore } from '../lore-core.js';
+import { normalizeSettings,NS,sourceRange,estimateTokens,materializeEntry,entryAvailable,isCore } from '../lore-core.js';
 import { embed,completionText } from '../lore-api.js';
 import { consolidationView } from '../lore-maintenance.js';
 import { normalizeCompletionRequest } from '../completionCompatibility.js';
 import { observer } from '../lore-telemetry.js';
 import { requestSelectionOutput } from '../lore-selection-output.js';
+import {chatSnapshotInfo,matchesChatSnapshot} from '../lore-chat-snapshot.js';
 globalThis.crypto ||= webcrypto;
 export function createJobService({sanitize,ask,embedRequest=embed,countTokens}) {
     const users=new Map(),vectorStores=new Map(),diagnosticSessions=new Map();
@@ -76,11 +77,12 @@ export function createJobService({sanitize,ask,embedRequest=embed,countTokens}) 
     function bookFile(s,name){if(typeof name!=='string'||!name.trim())throw Error('로어북 이름이 없어.');return inside(s.user.directories.worlds,sanitize(name+'.json'));}
     function validate(s,input,kind) {
         if(!['collect','index','recall','prepareMaintenance','applyMaintenance'].includes(kind))throw Error('지원하지 않는 서버 작업이야.');
-        if(!input?.context?.key||!Array.isArray(input.context.messages)||!Array.isArray(input.books)||input.books.length>100)throw Error('서버 작업 형식을 확인해 줘.');
+        if(!input?.context?.key||!Array.isArray(input.books)||input.books.length>100)throw Error('서버 작업 형식을 확인해 줘.');
+        chatSnapshotInfo(input.context);
         for(const book of input.books)if(!fs.existsSync(bookFile(s,book)))throw Error('선택한 로어북 파일이 없어.');
         if(kind==='collect'&&!input.books.includes(input.target))throw Error('저장할 로어북을 검색 대상에 포함해 줘.');
         const live=readChat(s,input).messages;
-        if(input.context.messages.length && !matchesRange(sourceRange(input.context.messages,0,input.context.messages.length-1),live))throw Error('대화 저장이 완료되지 않았거나 원본이 바뀌었어. 저장 후 다시 시도해 줘.');
+        if(!matchesChatSnapshot(input.context,live,false))throw Error('대화 저장이 완료되지 않았거나 원본이 바뀌었어. 저장 후 다시 시도해 줘.');
         input.settings=normalizeSettings(input.settings);
         if(kind!=='index' && !(kind==='recall' && input.settings.mode==='embedding') && !input.templates?.collection?.chat_completion_source)throw Error('수집 연결 프로필을 설정해 줘.');
     }
@@ -97,7 +99,7 @@ export function createJobService({sanitize,ask,embedRequest=embed,countTokens}) 
             settings:()=>config,context:()=>({...input.context,messages:readChat(s,input).messages}),books:()=>input.books,target:()=>input.target,initialStart:()=>input.initialStart||0,
             ensureBook:async()=>input.target,
             loadBook:async name=>{const file=bookFile(s,name),raw=fs.readFileSync(file,'utf8');expected.set(file,raw);return JSON.parse(raw);},
-            saveBook:async(name,data)=>{const live=readChat(s,input).messages;if(input.context.messages.length&&!matchesRange(sourceRange(input.context.messages,0,input.context.messages.length-1),live))throw Error('원본 대화가 수정돼서 저장을 멈췄어.');
+            saveBook:async(name,data)=>{const live=readChat(s,input).messages;if(!matchesChatSnapshot(input.context,live,false))throw Error('원본 대화가 수정돼서 저장을 멈췄어.');
                 const file=bookFile(s,name),raw=fs.readFileSync(file,'utf8');if(raw!==expected.get(file))throw Error('로어북이 다른 곳에서 수정됐어. 다시 시도해 줘.');backup(s,job,file,raw);atomic(file,JSON.stringify(data,null,4));expected.set(file,fs.readFileSync(file,'utf8'));},
             newEntry:data=>{const uid=Math.max(-1,...Object.keys(data.entries).map(Number))+1;return data.entries[uid]={...input.entryTemplate,uid,key:[],keysecondary:[],comment:'',content:'',constant:false,vectorized:false,disable:false};},
             store:s.vectors,embed:(config,text,query,signal,observe)=>embedRequest(config,text,query,signal,undefined,observe),
@@ -140,7 +142,7 @@ export function createJobService({sanitize,ask,embedRequest=embed,countTokens}) 
             if(input.chat.group || !input.settings.serverEnabled || !input.settings.relayEnabled)
                 throw Error('서버 답변 연동 설정을 확인해 줘.');
             const live=readChat(s,input).messages;
-            if(live.length!==input.context.messages.length)throw Error('대화가 바뀌어서 서버 답변을 중단했어.');
+            if(!matchesChatSnapshot(input.context,live))throw Error('대화가 바뀌어서 서버 답변을 중단했어.');
             const excludedKeys=normalizeSettings(input.settings).excludedSidePromptKeys;
             const raw=input.books.map(book=>fs.readFileSync(bookFile(s,book),'utf8'));
             const entries=raw.flatMap(text=>consolidationView(Object.values(JSON.parse(text).entries||{}),live))
@@ -196,3 +198,4 @@ export function createJobService({sanitize,ask,embedRequest=embed,countTokens}) 
         state,
     };
 }
+

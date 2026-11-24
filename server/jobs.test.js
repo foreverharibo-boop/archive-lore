@@ -12,6 +12,7 @@ import { reserveReplySlots } from '../lore-reply-slots.js';
 import { applyNativePolicy, normalizeSettings } from '../lore-core.js';
 import { invokeBackend } from './backend.js';
 import { atomic,json,inside } from './storage.js';
+import {serverChatSnapshot} from '../lore-chat-snapshot.js';
 const sanitize=s=>s.replace(/[<>:"/\\|?*\x00-\x1f]/g,'');
 function fixture(t){
     const root=fs.mkdtempSync(path.join(os.tmpdir(),'al-server-test-'));t.after(()=>fs.rmSync(root,{recursive:true,force:true}));
@@ -586,4 +587,47 @@ for(const generousRecall of [false,true])for(const correct of [false,true])test(
     assert.equal(f.calls.length,2);assert.equal(fs.readFileSync(f.book,'utf8'),originalBook);
     const audit=JSON.stringify(await readLogs(service,f.user,'test-key'));
     assert.doesNotMatch(audit,/연결 개수 초과 복구/);
+});
+
+
+test('large hidden chat is not uploaded; server recall still uses only configured visible recent messages',async t=>{
+    const f=fixture(t);
+    const messages=[{name:'Old',mes:'HIDDEN-PRIVATE-'+'가'.repeat(3*1024*1024),is_system:true},
+        {name:'A',mes:'OLD-VISIBLE-MARKER',is_user:true},{name:'B',mes:'RECENT-ONE hospital'},
+        {name:'A',mes:'RECENT-TWO hospital?',is_user:true}];
+    f.writeChat(messages);atomic(f.book,{entries:{0:{uid:0,content:'They visited the hospital.'}}});
+    const input=f.input();Object.assign(input.settings,{serverEnabled:true,relayEnabled:true,recentCount:2,mode:'dialogue'});
+    input.options={generationType:'normal',replyTokenizer:'test'};
+    const service=createJobService({...f.dependencies,countTokens:async(_u,_m,text)=>Math.ceil(text.length/3)});
+    const bridge=createReplyBridge({service,countMessages:async(_u,_m,messages)=>Math.ceil(JSON.stringify(messages).length/3)});
+    t.after(()=>bridge.close());
+    const ticket='c'.repeat(32);
+    assert.throws(()=>bridge.prepareInput(f.user,{ticket,input}),/요청 .*한도 8 MiB/);
+    input.context=serverChatSnapshot(input.context);
+    assert(Buffer.byteLength(JSON.stringify(input))<10000);
+    let job=await service.submit(f.user,'index',input,randomUUID());assert.equal((await done(service,f.user,job.id)).status,'completed');
+    bridge.prepareInput(f.user,{ticket,input});assert.equal(f.calls.length,0);
+    f.replies.push(payload=>{const data=JSON.parse(payload.messages.find(m=>m.role==='user').content);
+        assert(data.dialogue.includes('RECENT-ONE'));assert(data.dialogue.includes('RECENT-TWO'));
+        assert(!JSON.stringify(data).includes('HIDDEN-PRIVATE'));assert(!data.dialogue.includes('OLD-VISIBLE-MARKER'));
+        return JSON.stringify({selections:[{id:data.memories[0].id,priority:3,reason:'hospital'}]});});
+    const slots=await reserveReplySlots(ticket,3000,async text=>Math.ceil(text.length/3));
+    const output=await bridge.prepare({user:f.user,ticket,jobId:'relay',signal:new AbortController().signal,
+        payload:{messages:[{role:'system',content:slots.text},{role:'system',content:slots.guidance},{role:'user',content:'Hospital?'}]}});
+    assert(output.messages[0].content.includes('hospital'));assert.equal(f.calls.length,1);
+});
+
+test('compact source guards reject unsaved and edited chats, allow collection hiding and persist no bodies',async t=>{
+    const f=fixture(t),input=f.input();input.context=serverChatSnapshot(input.context);
+    const unsaved=structuredClone(input);unsaved.context.source.hashes[0]='00000000';
+    await assert.rejects(f.service.submit(f.user,'collect',unsaved,randomUUID()),/대화 저장/);
+    f.replies.push(memory());let job=await f.service.submit(f.user,'collect',input,randomUUID());
+    assert.equal((await done(f.service,f.user,job.id)).status,'completed');
+    assert(jsonLines(f.file)[1].is_system);
+    const saved=json(path.join(f.root,'archive-lore-server','jobs',job.id+'.json'));
+    assert.equal(saved.input.context.messages,undefined);
+    const other=fixture(t),next=other.input();next.context=serverChatSnapshot(next.context);
+    other.replies.push(()=>{other.writeChat([{...other.messages[0],mes:'Edited during request'},other.messages[1]]);return memory();});
+    job=await other.service.submit(other.user,'collect',next,randomUUID());
+    assert.equal((await done(other.service,other.user,job.id)).status,'error');assert.deepEqual(json(other.book),{entries:{}});
 });

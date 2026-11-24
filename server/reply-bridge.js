@@ -7,6 +7,7 @@ import { withAbort } from '../lore-cancellation.js';
 
 const ID=/^[a-f0-9]{32}$/;
 const owner=user=>JSON.stringify([user?.profile?.handle,fs.realpathSync(user.directories.root)]);
+const sizeLabel=bytes=>`${(bytes/1024/1024).toFixed(2)} MiB (${bytes.toLocaleString('en-US')}바이트)`;
 export function createReplyBridge({service,countMessages,now=Date.now}) {
     const tickets=new Map();
     const prune=()=>{for(const [key,t] of tickets)if(t.state!=='running' && now()-t.created>(t.state==='ready'?120000:3600000))tickets.delete(key);};
@@ -22,13 +23,16 @@ export function createReplyBridge({service,countMessages,now=Date.now}) {
             || typeof input?.options?.replyTokenizer!=='string' || input.options.replyTokenizer.length>200)
             throw Error('일반 1:1 Chat Completion 답변에서만 서버 연동을 사용할 수 있어.');
         const bytes=Buffer.byteLength(JSON.stringify(input));
-        if(bytes>8*1024*1024 || tickets.size>=256
-            || [...tickets.values()].filter(t=>t.owner===owner(user)&&['ready','running'].includes(t.state)).length>=4
-            || [...tickets.values()].reduce((n,t)=>n+(t.bytes||0),0)+bytes>32*1024*1024)throw Error('서버 답변 준비 보관 한도야.');
+        const active=[...tickets.values()].filter(t=>t.owner===owner(user)&&['ready','running'].includes(t.state)).length;
+        const total=[...tickets.values()].reduce((n,t)=>n+(t.bytes||0),0);
+        if(bytes>8*1024*1024)throw Error(`서버 답변 준비 자료가 너무 커. 요청 ${sizeLabel(bytes)} / 한도 8 MiB.`);
+        if(tickets.size>=256)throw Error(`서버 답변 준비 기록이 가득 찼어. 보관 ${tickets.size}개 / 한도 256개.`);
+        if(active>=4)throw Error(`서버 답변 준비·실행 중인 요청이 많아. 현재 ${active}개 / 한도 4개. 진행 중인 작업을 마치거나 중지해 줘.`);
+        if(total+bytes>32*1024*1024)throw Error(`서버 답변 준비 자료의 전체 용량을 넘었어. 기존 ${sizeLabel(total)} + 요청 ${sizeLabel(bytes)} / 한도 32 MiB.`);
         const snapshot=service.replySnapshot(user,input);
         const heldBytes=bytes+Buffer.byteLength(snapshot.core);
-        if(heldBytes>8*1024*1024 || [...tickets.values()].reduce((n,t)=>n+(t.bytes||0),0)+heldBytes>32*1024*1024)
-            throw Error('코어 기억을 포함한 서버 답변 준비 보관 한도야.');
+        if(heldBytes>8*1024*1024)throw Error(`코어 기억을 포함한 서버 답변 준비 자료가 너무 커. 요청 ${sizeLabel(heldBytes)} / 한도 8 MiB.`);
+        if(total+heldBytes>32*1024*1024)throw Error(`코어 기억을 포함한 서버 답변 준비 자료의 전체 용량을 넘었어. 기존 ${sizeLabel(total)} + 요청 ${sizeLabel(heldBytes)} / 한도 32 MiB.`);
         tickets.set(key,{ticket,owner:owner(user),digest,input:structuredClone(input),...snapshot,
             created:now(),state:'ready',bytes:heldBytes,abort:new AbortController()});
         return {ticket,core:snapshot.core};
@@ -36,7 +40,7 @@ export function createReplyBridge({service,countMessages,now=Date.now}) {
     function cancel(user,id){
         if(!ID.test(id))throw Error('서버 답변 번호가 잘못됐어.');
         const key=JSON.stringify([owner(user),id]);prune();let t=tickets.get(key);
-        if(!t){if(tickets.size>=256)throw Error('서버 답변 준비 보관 한도야.');t={ticket:id,owner:owner(user),created:now(),state:'canceled'};tickets.set(key,t);}
+        if(!t){if(tickets.size>=256)throw Error(`서버 답변 준비 기록이 가득 찼어. 보관 ${tickets.size}개 / 한도 256개.`);t={ticket:id,owner:owner(user),created:now(),state:'canceled'};tickets.set(key,t);}
         if(['ready','running'].includes(t.state)){t.state='canceled';t.abort.abort();if(t.job)service.cancel(user,t.job);t.input=null;t.core=null;t.bytes=0;}
         return {state:t.state};
     }
@@ -107,3 +111,4 @@ export function registerReplyBridge(bridge) {
     globalThis[key] ||= new Map();globalThis[key].set(REPLY_PROVIDER,bridge);
     return ()=>{if(globalThis[key].get(REPLY_PROVIDER)===bridge)globalThis[key].delete(REPLY_PROVIDER);bridge.close();};
 }
+

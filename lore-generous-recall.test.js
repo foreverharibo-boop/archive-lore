@@ -96,7 +96,7 @@ test('cancellation discards noncooperative late output',async()=>{
 });
 test('overlapping normal batches preserve accepted related context when later omitted',async()=>{
     const f=fixture(1),reviewed=new Set();f.chunks[0].units=Array.from({length:100},(_,i)=>({index:i,text:('Fact '+i+' ').repeat(50)}));
-    f.options.config.injectionTokens=32000;
+    f.options.config.injectionTokens=32000;f.options.config.reviewTokens=64000;
     f.options.ask=async(_system,data)=>{f.calls.push(data);return accept(data.memories.filter(m=>{if(reviewed.has(m.id))return false;reviewed.add(m.id);return true;}));};
     const result=await generousRecall(f.options);assert(f.calls.length>1);assert.equal(result.units.length,100);
 });

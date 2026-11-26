@@ -129,10 +129,10 @@ test('attribution dependencies survive together or are dropped together, includi
     assert.equal((await fitInjection(result.units,1000,t=>t.length)).text,result.text);
 });
 
-test('review exposes the complete retrieved entry without admitting unrelated entries',async()=>{
+test('review exposes only the retrieved chunk and immediate neighbors without admitting unrelated entries',async()=>{
     const {reviewCandidates}=await import('./lore-retrieval.js');
     const chunks=Array.from({length:5},(_,index)=>({id:'a',index})).concat({id:'b',index:1});
-    assert.deepEqual(reviewCandidates([chunks[1]],chunks).map(c=>c.index),[0,1,2,3,4]);
+    assert.deepEqual(reviewCandidates([chunks[1]],chunks).map(c=>c.index),[0,1,2]);
 });
 
 test('review batching keeps short entries intact and overlaps large-entry source context',async()=>{

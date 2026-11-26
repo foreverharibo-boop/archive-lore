@@ -33,7 +33,7 @@ test('a smaller lower-priority event can fit without stripping a larger event of
     const fitted=await fitInjection([event,background],formatInjection([background]).length,t=>t.length);
     assert(fitted.text.includes(background.text));assert(!fitted.text.includes(event.text));
 });
-for(const generousRecall of [false,true])test(`controller reviews a retrieved entry's distant unindexed ending without embedding it, generous=${generousRecall}`,async()=>{
+for(const generousRecall of [false,true])test(`controller excludes distant unindexed text and explicitly warns that the review is partial, generous=${generousRecall}`,async()=>{
     const content=['Morgan borrowed Lee\'s practice coat.',...Array.from({length:24},(_,i)=>`During the same visit, recorded circumstance ${i} explained their reaction. `+'Specific contextual detail. '.repeat(15)), 'Lee accepted the hanger and put the coat back in his own locker.'].join('\n');
     const entry={uid:0,comment:'Visit',content},pool=embeddingChunks(entry);assert(pool.length>4);
     const book={entries:{0:entry,1:{uid:1,comment:'Other',content:'UNRELATED_PRIVATE_SCENE'},2:{uid:2,disable:true,content:'DISABLED_PRIVATE_SCENE'}}};
@@ -42,7 +42,7 @@ for(const generousRecall of [false,true])test(`controller reviews a retrieved en
     const host={settings:()=>config,context:()=>({key:'test',messages}),books:()=>['book'],target:()=>'',loadBook:async()=>structuredClone(book),
         store:{get:async key=>cache.get(key),put:async(key,v)=>cache.set(key,v)},
         embed:async(_c,_text,query)=>{if(!query)documents++;return [1,0];},countTokens:t=>Math.ceil(t.length/4),
-        ask:async(_p,system,data)=>{requests++;assert(system.includes('CONTEXT-COMPLETE EVENT SELECTION'));assert(!JSON.stringify(data).includes('PRIVATE_SCENE'));
+        ask:async(_p,system,data)=>{requests++;assert(system.includes('CONTEXT-COMPLETE EVENT SELECTION'));assert(system.includes('BOUNDED SOURCE REVIEW'));assert(!JSON.stringify(data).includes('PRIVATE_SCENE'));
             const ending=data.memories.find(m=>m.text.includes('accepted the hanger'));
             const start=data.memories.find(m=>m.text.includes('borrowed'));
             return JSON.stringify({selections:ending?[{id:ending.id,priority:2,reason:'The received coat explains current status',contextIds:start?[start.id]:[]}]:[]});},changed:()=>{}};
@@ -50,14 +50,14 @@ for(const generousRecall of [false,true])test(`controller reviews a retrieved en
     // Keep only the original first chunk's vector. The ending remains saved source.
     const keys=[...cache.keys()];for(const key of keys.slice(1))cache.delete(key);
     const result=await controller.recall();
-    assert(result.text.includes('accepted the hanger'));assert(documents===indexed);assert.deepEqual(book,before);assert(result.tokens<=3000);
+    assert.equal(result.text,'');assert(documents===indexed);assert.deepEqual(book,before);assert(result.tokens<=3000);
     assert(requests>=1);assert(controller.state().lastRecall.pending>0);
 });
-test('full-entry review is deduplicated, preserves source order, and remains batched',()=>{
+test('nearby review is deduplicated, preserves each window order, and remains batched',()=>{
     const chunks=Array.from({length:20},(_,index)=>({id:'a',index,title:'Event',units:[{index,text:'Context '.repeat(80)}]}));
     const other={id:'b',index:0,units:[{index:0,text:'Excluded unrelated entry'}]};
-    const expanded=reviewCandidates([chunks[4],chunks[19]],chunks.concat(other));assert.equal(expanded.length,20);
-    assert.deepEqual(expanded.map(c=>c.index),chunks.map(c=>c.index));
+    const expanded=reviewCandidates([chunks[4],chunks[19]],chunks.concat(other));assert.equal(expanded.length,5);
+    assert.deepEqual(expanded.map(c=>c.index),[3,4,5,18,19]);
     const units=reviewUnits(expanded),batches=reviewBatches(units,1000);assert(batches.length>1);
     assert.equal(new Set(batches.flat().map(u=>u.id)).size,units.length);
 });

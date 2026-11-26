@@ -60,6 +60,7 @@ export function createLoreUI(api) {
             </section><section data-settings-pane="collection" hidden><details open><summary>수집·검색 설정</summary><div class="al-fields">
             ${field('검색 방식',select('mode',[['dialogue','대화로 검색'],['questions','질문으로 검색'],['embedding','일반 임베딩']],s.mode))}
             ${field('최근 대화 참고 개수',input('recentCount',s.recentCount,'number','min="1" max="200"'))}
+            ${field('기억 원문 검토 상한 (추정 토큰)',input('reviewTokens',s.reviewTokens,'number',`min="1000" max="64000" step="1000" ${s.mode==='embedding'?'disabled':''}`))}
             ${field('최종 주입 토큰 상한',input('injectionTokens',s.injectionTokens,'number','min="256" max="32000"'))}
             ${field('한 번에 수집할 메시지',input('batchSize',s.batchSize,'number','min="1" max="100"'))}
             ${field(translate('동시에 검토할 AI 묶음 (1~2)','ArchiveLore_SelectionConcurrency'),input('selectionConcurrency',s.selectionConcurrency,'number','min="1" max="2"'))}
@@ -212,6 +213,7 @@ export function createLoreUI(api) {
                     api.saveSettings({ [element.name]: value });
                     if(element.name==='mode'){
                         container.querySelector('.al-selection-focus').disabled=value==='embedding';
+                        container.querySelector('[name="reviewTokens"]').disabled=value==='embedding';
                         container.querySelector('[name="generousRecall"]').disabled=value==='embedding';
                         container.querySelector('[data-selection-focus-status]').textContent=value==='embedding'?'일반 임베딩에서는 AI 선별을 사용하지 않아 적용되지 않습니다.':'여러 개 선택 가능 · 선택하지 않으면 기존 자동 선별';
                     }

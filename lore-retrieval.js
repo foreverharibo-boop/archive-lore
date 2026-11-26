@@ -116,16 +116,14 @@ export function recallMessages(messages, generationType) {
     return last >= 0 && !messages[last].is_user ? messages.slice(0,last) : messages;
 }
 
-// Review the complete original entry once a chunk retrieves it. A distant
-// explanation, response or outcome must not be hidden by a +/-1 chunk window.
-// No new source embeddings or cache keys: unindexed tails can be read as context.
+// Only retrieved chunks and their immediate neighbors are eligible for review.
+// Source entries and embedding identities remain untouched.
 export function reviewCandidates(candidates, chunks) {
-    const byEntry=new Map(), seen=new Set(), result=[];
+    const byEntry=new Map(),seen=new Set(),result=[];
     for(const chunk of chunks){if(!byEntry.has(chunk.id))byEntry.set(chunk.id,[]);byEntry.get(chunk.id).push(chunk);}
     for(const candidate of candidates){
-        if(seen.has(candidate.id))continue;
-        seen.add(candidate.id);
-        result.push(...(byEntry.get(candidate.id)||[]).slice().sort((a,b)=>a.index-b.index));
+        const nearby=(byEntry.get(candidate.id)||[candidate]).filter(chunk=>Math.abs(chunk.index-candidate.index)<=1).sort((a,b)=>a.index-b.index);
+        for(const chunk of nearby){const key=JSON.stringify([chunk.id,chunk.index]);if(!seen.has(key)){seen.add(key);result.push(chunk);}}
     }
     return result;
 }

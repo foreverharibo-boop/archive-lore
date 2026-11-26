@@ -1,6 +1,7 @@
 // Archive Lore — AGPL-3.0-only
-import { parseJson, reviewUnits } from './lore-core.js';
-import { reviewCandidates, reviewBatches, selectorMemories } from './lore-retrieval.js';
+import { parseJson } from './lore-core.js';
+import { selectorMemories } from './lore-retrieval.js';
+import { prepareReview, BOUNDED_REVIEW_PROMPT } from './lore-review-budget.js';
 import { fitFocusedInjection } from './lore-focus-injection.js';
 import { normalizeSelectionFocus, orderFocusedUnits, selectionFocusPrompt, EVENT_CONTEXT_SELECTION_PROMPT, MAX_EVENT_CONTEXT } from './lore-selection-focus.js';
 import { mapOrdered } from './lore-parallel.js';
@@ -43,15 +44,15 @@ export async function generousRecall({candidates, chunks, config, latestUser, di
     ask, countTokens, signal, log=async()=>{}, notify=()=>{}}) {
     // Use the same candidates and input batching as normal selection. A smaller
     // final injection never triggers more candidates, reviews or explanations.
-    const offered=reviewUnits(reviewCandidates(candidates,chunks)), batches=reviewBatches(offered);
-    await log('selection.plan',{policy:'generous-related-v2',selectionFocus:config.selectionFocus,
+    const plan=prepareReview(candidates,chunks,config.reviewTokens),{offered,batches,...reviewStats}=plan;
+    await log('selection.plan',{...reviewStats,policy:'generous-related-v2',selectionFocus:config.selectionFocus,
         units:offered.length,batches:batches.length,concurrency:config.selectionConcurrency});
     const results=await mapOrdered(batches,config.selectionConcurrency,async(batch,index,signal)=>{
         notify('관련 기억을 넉넉하게 고르는 중');
         let repair;
         for(let attempt=0;attempt<2;attempt++){
             signal.throwIfAborted();
-            const response=await ask(config.prompts.select+selectionFocusPrompt(config.selectionFocus)+GENEROUS_SELECTION_PROMPT+OUTCOME_SELECTION_PROMPT+EVENT_CONTEXT_SELECTION_PROMPT+SELECTION_REFERENCE_RULES
+            const response=await ask(config.prompts.select+selectionFocusPrompt(config.selectionFocus)+GENEROUS_SELECTION_PROMPT+OUTCOME_SELECTION_PROMPT+EVENT_CONTEXT_SELECTION_PROMPT+SELECTION_REFERENCE_RULES+BOUNDED_REVIEW_PROMPT
                 +(repair?SELECTION_REPAIR_PROMPT:''),
                 {latestUser,dialogue,questions,selectionFormat:'generous',selectionLimits:SELECTION_REFERENCE_LIMITS,memories:selectorMemories(batch),batch:index+1,batchCount:batches.length,
                     ...(repair?{selectionRepair:repair}:{}),

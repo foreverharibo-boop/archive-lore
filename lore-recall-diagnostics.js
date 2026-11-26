@@ -36,7 +36,8 @@ export function createRecallAudit(sanitize=value=>value){
                     set('검색 후보',`순위 계산 ${rows.length}구간 · 후보 채택 ${offered.length} · 후보 밖 ${outside.length} · 순위 제외 ${data.notRanked?.length||0}\n`+sampled(offered,4300),4600);
                     set('후보 밖 기록',sampled(outside,1000),1200);break;
                 }
-                case 'selection.plan':set('선별 계획',`정책 ${data.policy} · 원문 ${data.units}단위 · ${data.batches}묶음 · 동시 처리 ${data.concurrency}`,500);break;
+                case 'selection.plan':set('선별 계획',`정책 ${data.policy} · 원문 ${data.units}단위 · ${data.batches}묶음 · 동시 처리 ${data.concurrency}`+
+                    (Number.isFinite(data.reviewTokenLimit)?`\n기억 원문 검토: ${data.reviewSourceTokens} / ${data.reviewTokenLimit} 추정 토큰 (묶음 간 중복 포함) · 후보 ${data.reviewedCandidates}개 검토 / ${data.skippedCandidates}개 제외 · 범위 ${data.reviewScope}`:''),800);break;
                 case 'selection.output-schema':{
                     const text=`묶음 ${data.batch??'?'} · ${data.status}: ${data.message}`;
                     detail(`selection-schema-${data.batch??'?'}`,`[선별 출력 제한]\n${text}`);

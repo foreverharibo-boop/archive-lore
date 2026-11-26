@@ -3768,7 +3768,7 @@ With **로어북이 없으면 자동 생성** enabled, an unbound chat in **채�
 
 Normal and generous AI selection now retain useful related background as well as direct facts. Priority-2 evidence no longer requires a priority-3 fact to survive the budget. Selectors are instructed to retain an event's circumstances, meaningful dialogue, reasons, reactions, conditions and recorded outcome together, using up to 32 supplied context IDs per anchor, including connected records across entries; normal selection accepts up to 48 main anchors per batch. The shared user-set injection budget is unchanged. A linked event bundle is kept or dropped together, including during server-to-browser re-budgeting. Lower-priority events are considered after direct answers and continuity constraints; there is no filler quota.
 
-After existing embeddings retrieve a candidate, AI review receives that entry's complete original source, including any unindexed tail, instead of only the matching chunk and its immediate neighbors. It still uses bounded input batches and the configured concurrency. This can increase selection requests for long entries, but does not create new source embeddings or rewrite saved memories. Search exclusions and source availability still apply; plain embedding mode is unchanged. A record that never becomes a candidate, or a connection split across review batches, is not guaranteed to be recalled. These changes improve selection coverage, not a guarantee of model behavior.
+Review now uses the bounded retrieved-neighborhood policy described below; the former complete-entry expansion is superseded. Saved source text, embedding chunks and cache keys are unchanged. Search exclusions and source availability still apply. Distant context outside the reviewed neighborhoods is not guaranteed to be recalled.
 
 Prompt revision 8 migrates only the exact previous built-in selection default; custom prompts are preserved. Runtime event-context rules consistently apply to normal and generous AI selectors while retaining explicit exclusions. Diagnostic retention and UI are unchanged in this update.
 
@@ -3780,3 +3780,43 @@ Normal and generous selection accept `contextIds` from any source entry already 
 A provider finish reason of `length` or `MAX_TOKENS` raises `OUTPUT_TRUNCATED` before parsing any text. Recall question and selection requests get at most one larger-output retry per request: 1,200 to 6,000 for questions, and 6,000 to 12,000 for selection (helper ceiling 24,000). This is separate from the existing single malformed-format repair, so a repeatedly malformed and truncated batch can use at most four requests; valid first responses add no requests. Transport errors and cancellation are not retried; repeated truncation still fails without partial injection. Collection and maintenance retry policies are unchanged. The retry is logged as `ai.output-retry`, and existing API timing includes both calls.
 
 Both the browser extension and `plugins/archive-lore-server` use these shared modules. Update both checkouts and restart SillyTavern to reload the server plugin. Tests cover normal/generous source provenance and atomic rebudgeting, unknown-ID rejection, bounded/cancelable output retries, and actual server job/Relay preparation with simulated provider responses.
+
+### Bounded memory review input
+
+Settings → 수집·검색 → **기억 원문 검토 상한 (추정 토큰)** stores `reviewTokens`.
+The default is 8,000, with a configurable range of 1,000–64,000. It is independent
+of `injectionTokens`, recent dialogue count and candidate count. Existing users
+receive the default without resetting their other settings or customized prompts.
+Plain embedding mode disables this control and bypasses AI review entirely.
+
+Both ordinary and generous selection, in dialogue and question modes, share
+`prepareReview`. Candidates retain retrieval priority. For each hit, the planner
+first tries the complete retrieved chunk's review sentences plus up to two original
+source units before and after it, drawn only from the immediately adjacent chunks
+of that same entry. Duplicate source units share one identity. A window that cannot
+fit is skipped whole; the planner may still admit a later, smaller candidate. After
+all candidates have had a chance, remaining budget can extend already-admitted hits
+into their adjacent chunks. There is no complete-entry expansion or additional AI
+search pass. This is bounded local context, not a guarantee of recovering a distant
+outcome. The selector is explicitly told that source excerpts are incomplete and
+must not assume that an omitted outcome means an old obligation is still pending.
+
+The cap is the sum of estimated original text tokens across **all planned review
+batches**, including source repeated at batch boundaries. Batching also respects
+its existing 10,000 estimated serialized-memory-token target. The memory-text cap
+does not include instructions, recent dialogue or JSON metadata and is not a
+provider-tokenizer or billing limit. Existing malformed-output and transport-format
+compatibility retries can resend the same bounded source; they do not expand the
+source pool. No source sentence is shortened solely to fit this new budget; the
+existing source sentence subdivision rules remain unchanged.
+
+Diagnostics report actual estimated source tokens / configured cap, admitted and
+skipped candidate counts, batch count and `retrieved-nearby-v1` scope. Lower caps
+reduce review work but may omit useful memories; increasing the cap does not restore
+full-entry scanning. Final injection still uses exact accepted originals and atomic
+required-context/outcome groups under its separate limit.
+
+Browser and server execute the same planner. Update the extension and, when server
+execution is enabled, update and restart the optional server plugin. No re-embedding
+or lorebook migration is required. Validation uses simulated selectors and local
+source planning, not live provider calls or guarantees of end-to-end latency.

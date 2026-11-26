@@ -631,3 +631,20 @@ test('compact source guards reject unsaved and edited chats, allow collection hi
     job=await other.service.submit(other.user,'collect',next,randomUUID());
     assert.equal((await done(other.service,other.user,job.id)).status,'error');assert.deepEqual(json(other.book),{entries:{}});
 });
+
+for(const generousRecall of [false,true])test(`server applies the caller's review token limit before selection: generous=${generousRecall}`,async t=>{
+    const {estimateTokens}=await import('../lore-core.js');
+    const f=fixture(t);atomic(f.book,{entries:Object.fromEntries(Array.from({length:8},(_,i)=>[i,{uid:i,comment:`Visit ${i}`,content:(`At hospital visit ${i}, they discussed the treatment and agreed to rest together. `).repeat(40)}]))});
+    const input=f.input();Object.assign(input.settings,{reviewTokens:2000,injectionTokens:5000,candidateCount:24,generousRecall});
+    const indexed=await f.service.submit(f.user,'index',input,randomUUID());assert.equal((await done(f.service,f.user,indexed.id)).status,'completed');
+    let tokens=0;
+    for(let i=0;i<10;i++)f.replies.push(payload=>{
+        const data=JSON.parse(payload.messages.find(m=>m.role==='user').content);
+        assert.match(payload.messages.find(m=>m.role==='system').content,/BOUNDED SOURCE REVIEW/);
+        tokens+=data.memories.reduce((sum,u)=>sum+estimateTokens(u.text),0);
+        return JSON.stringify({selections:[{id:data.memories[0].id,priority:3,reason:'Hospital context',contextIds:[]}]});
+    });
+    const job=await f.service.submit(f.user,'recall',input,randomUUID()),result=await done(f.service,f.user,job.id);
+    assert.equal(result.status,'completed',result.message);assert(tokens>0&&tokens<=2000);assert(result.result.tokens<=5000);
+    assert.match(JSON.stringify(await readLogs(f.service,f.user,'test-key')),/\/ 2000/);
+});

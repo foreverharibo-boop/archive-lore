@@ -9,7 +9,8 @@ import { enabledSides, sideInstructions } from './lore-side-config.js';
 import { automaticReady, collectedHideRanges } from './lore-automation.js';
 import { consolidationView, maintenanceRequest, maintenanceResult } from './lore-maintenance.js';
 import { digest, embeddingKey, makeId } from './lore-api.js';
-import { retrievalFocus, rankFocusedChunks, chooseCandidates, recallMessages, reviewCandidates, reviewBatches, selectorMemories } from './lore-retrieval.js';
+import { prepareReview, BOUNDED_REVIEW_PROMPT } from './lore-review-budget.js';
+import { retrievalFocus, rankFocusedChunks, chooseCandidates, recallMessages, selectorMemories } from './lore-retrieval.js';
 import { selectionFocusPrompt, focusQuestionPrompt, focusSearchQuery, orderFocusedUnits, EVENT_CONTEXT_SELECTION_PROMPT, MAX_EVENT_SELECTIONS } from './lore-selection-focus.js';
 import { fitFocusedInjection } from './lore-focus-injection.js';
 import { withAbort } from './lore-cancellation.js';
@@ -71,7 +72,7 @@ export function createLoreController(host) {
         notify(label);
         try {
             await log('configuration.snapshot',{settings:config,profiles:host.profileInfo?.()});
-            await log('settings', {mode:config.mode,recentCount:config.recentCount,injectionTokens:config.injectionTokens,candidateCount:config.candidateCount,selectionFocus:config.selectionFocus,profile:config.profile,searchProfile:config.searchProfile,embeddingProvider:config.embeddingProvider,embeddingModel:config.embeddingModel,books:host.books(),profiles:host.profileInfo?.(),autoCollect:config.autoCollect,autoMode:config.autoMode,autoMessages:config.autoMessages,autoTokens:config.autoTokens,keepMessages:config.keepMessages,enabledSides:enabledSides(config).map(s=>s.id)});
+            await log('settings', {mode:config.mode,recentCount:config.recentCount,injectionTokens:config.injectionTokens,candidateCount:config.candidateCount,reviewTokens:config.reviewTokens,selectionFocus:config.selectionFocus,profile:config.profile,searchProfile:config.searchProfile,embeddingProvider:config.embeddingProvider,embeddingModel:config.embeddingModel,books:host.books(),profiles:host.profileInfo?.(),autoCollect:config.autoCollect,autoMode:config.autoMode,autoMessages:config.autoMessages,autoTokens:config.autoTokens,keepMessages:config.keepMessages,enabledSides:enabledSides(config).map(s=>s.id)});
             abort.signal.throwIfAborted();
             const result=await callback(abort.signal);abort.signal.throwIfAborted();await trace?.finish('success');abort.signal.throwIfAborted();return result;
         } catch (error) { await trace?.finish(abort.signal.aborted?'canceled':'error',errorInfo(error,abort.signal));notify(abort.signal.aborted ? '작업 중지됨 · 저장한 기억은 유지돼' : error.message); throw error; }
@@ -344,9 +345,9 @@ export function createLoreController(host) {
                     timings.selectionRequestMs=timings.selectionMs;
                     timings.selectionMs=Date.now()-selectionStarted;
                 } else {
-                    const offered = reviewUnits(reviewCandidates(candidates,reviewChunks)), selected = [];
-                    const batches = reviewBatches(offered);
-                    await log('selection.plan',{policy:'compact-source-units-v1',selectionFocus:config.selectionFocus,units:offered.length,batches:batches.length,concurrency:config.selectionConcurrency,
+                    const plan=prepareReview(candidates,reviewChunks,config.reviewTokens);
+                    const {offered,batches,...reviewStats}=plan,selected=[];
+                    await log('selection.plan',{...reviewStats,policy:'compact-source-units-v1',selectionFocus:config.selectionFocus,units:offered.length,batches:batches.length,concurrency:config.selectionConcurrency,
                         originalTokens:estimateTokens(JSON.stringify(offered)),selectorTokens:estimateTokens(JSON.stringify(selectorMemories(offered)))});
                     const selectionStarted=Date.now();
                     const batchSelections=await mapOrdered(batches,config.selectionConcurrency,async(batch,index,signal)=>{
@@ -354,7 +355,7 @@ export function createLoreController(host) {
                         let response, accepted, repair, acceptedAttempt, contextOverflowRecovered;
                         for (let attempt=0;attempt<2;attempt++) {
                             response = await askRecall(config.searchProfile || config.profile,
-                                config.prompts.select + '\nReturn ONLY JSON: {"selections":[{"id":"u0","priority":3,"reason":"concrete relevance to this scene","contextIds":[],"outcomeIds":[]}]}. Use priority 3 for direct answers and continuity constraints, 2 for useful connected background. Return at most 48 main event anchors in usefulness order; connected context IDs are separate. For no useful related context return {"selections":[]}.' + selectionFocusPrompt(config.selectionFocus) + OUTCOME_SELECTION_PROMPT + EVENT_CONTEXT_SELECTION_PROMPT + SELECTION_REFERENCE_RULES + (repair ? SELECTION_REPAIR_PROMPT : ''),
+                                config.prompts.select + '\nReturn ONLY JSON: {"selections":[{"id":"u0","priority":3,"reason":"concrete relevance to this scene","contextIds":[],"outcomeIds":[]}]}. Use priority 3 for direct answers and continuity constraints, 2 for useful connected background. Return at most 48 main event anchors in usefulness order; connected context IDs are separate. For no useful related context return {"selections":[]}.' + selectionFocusPrompt(config.selectionFocus) + OUTCOME_SELECTION_PROMPT + EVENT_CONTEXT_SELECTION_PROMPT + SELECTION_REFERENCE_RULES + BOUNDED_REVIEW_PROMPT + (repair ? SELECTION_REPAIR_PROMPT : ''),
                                 { latestUser:focus.latestUser, dialogue: recent.text, questions, selectionFormat:'ranked', selectionLimits:SELECTION_REFERENCE_LIMITS, memories: selectorMemories(batch),
                                     batch:index+1,batchCount:batches.length,maxSelections:MAX_EVENT_SELECTIONS,injectionBudgetTokens:config.injectionTokens,
                                     ...(repair?{selectionRepair:repair}:{}),

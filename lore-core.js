@@ -20,7 +20,7 @@ export const DEFAULT_PROMPTS = Object.freeze({
 export const DEFAULTS = Object.freeze({
     enabled: false, profile: '', searchProfile: '', embeddingProvider: 'gemini',
     embeddingUrl: 'https://api.openai.com/v1', embeddingModel: 'gemini-embedding-001', embeddingKey: '',
-    mode: 'dialogue', recentCount: 10, injectionTokens: 3000, batchSize: 20,
+    mode: 'dialogue', recentCount: 10, injectionTokens: 3000, reviewTokens: 8000, batchSize: 20,
     keywordActivation: false, candidateCount: 24, selectionFocus: Object.freeze([]), generousRecall: false, autoEmbed: true, prompts: DEFAULT_PROMPTS,
 });
 export function integer(value, fallback, min, max) {
@@ -75,6 +75,7 @@ export function normalizeSettings(value = {}) {
         embeddingKeys: { ...(value.embeddingKey ? { [value.embeddingProvider || 'gemini']: value.embeddingKey } : {}), ...value.embeddingKeys },
         recentCount: integer(value.recentCount ?? 10, 10, 1, 200),
         injectionTokens: integer(value.injectionTokens ?? 3000, 3000, 256, 32000),
+        reviewTokens: integer(value.reviewTokens ?? 8000, 8000, 1000, 64000),
         batchSize: integer(value.batchSize ?? 20, 20, 1, 100),
         candidateCount: integer(value.candidateCount ?? 24, 24, 1, 40),
         selectionFocus: normalizeSelectionFocus(value.selectionFocus),

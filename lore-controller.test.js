@@ -751,3 +751,27 @@ for(const generousRecall of [false,true])for(const correct of [false,true])test(
     } else await assert.rejects(f.controller.recall(),/too-many-references/);
     assert.equal(calls,2);
 });
+
+for(const mode of ['dialogue','questions'])for(const generousRecall of [false,true])test(`review input cap reaches actual selector calls: ${mode}, generous=${generousRecall}`,async()=>{
+    const {estimateTokens}=await import('./lore-core.js');
+    const f=fixture(),diagnostics=createDiagnostics();f.host.diagnostics=diagnostics;
+    f.config={mode,generousRecall,reviewTokens:2000,injectionTokens:5000,candidateCount:24,selectionConcurrency:2};
+    f.book={entries:Object.fromEntries(Array.from({length:12},(_,i)=>[i,{uid:i,comment:`Visit ${i}`,content:(`At hospital visit ${i}, they discussed the treatment and agreed to rest together. `).repeat(90)}]))};
+    let originalTokens=0,selectors=0;
+    f.host.ask=async(_p,system,data)=>{
+        if(!data.memories)return '{"questions":["What happened at the hospital?"]}';
+        assert.match(system,/BOUNDED SOURCE REVIEW/);assert.equal(data.injectionBudgetTokens,5000);
+        originalTokens+=data.memories.reduce((sum,u)=>sum+estimateTokens(u.text),0);selectors++;
+        return JSON.stringify({selections:[{id:data.memories[0].id,priority:3,reason:'Relevant hospital context',contextIds:[]}]});
+    };
+    await f.controller.index();const before=structuredClone(f.book);diagnostics.clear();
+    const result=await f.controller.recall();assert(selectors>0);assert(originalTokens<=2000);assert(result.tokens<=5000);assert.deepEqual(f.book,before);
+    assert((await diagnostics.preview()).includes(`${originalTokens} / 2000`));
+});
+test('plain embedding bypasses review input limits and never invokes a selector',async()=>{
+    const f=fixture();f.config={mode:'embedding',reviewTokens:1000,injectionTokens:5000};
+    f.book={entries:{0:{uid:0,content:'They discussed their visit to the hospital. '.repeat(400)}}};
+    f.host.ask=()=>assert.fail('no selector for plain embedding');await f.controller.index();
+    const low=await f.controller.recall();f.config={reviewTokens:64000};const high=await f.controller.recall();
+    assert(low.text);assert.equal(low.text,high.text);assert.equal(low.tokens,high.tokens);
+});

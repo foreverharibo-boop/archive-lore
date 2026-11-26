@@ -56,7 +56,7 @@ export function createLoreUI(api) {
             ${s.embeddingProvider==='vertex'?field('Google Cloud 프로젝트 ID',input('embeddingVertexProjectId',s.embeddingVertexProjectId,'text','spellcheck="false"'))+field('리전',input('embeddingVertexRegion',s.embeddingVertexRegion,'text','placeholder="global" spellcheck="false"')):''}
             <div data-openai ${s.embeddingProvider === 'openai' ? '' : 'hidden'}>${field('임베딩 API 주소',input('embeddingUrl',s.embeddingUrl,'url'))}</div>
             </div><div class="al-actions">${button('embedding-test','임베딩 연결 확인')}</div><div data-embedding-status role="status"></div></details>
-            <section data-debug-settings><h3>디버그 기록</h3>${check('diagnosticsDetailed','디버그 모드 · 최근 10단계 기록',s.diagnosticsDetailed)}<p class="al-muted">검색 후보, AI 선택·미선택, 주입 한도 적용과 슬롯 등록 여부를 오류 정보와 함께 기록합니다. 선별에 제공한 원문 전체·선택 결과·제공된 선택 근거와 최종 주입 원문 전체를 표시하며 API 키는 가립니다.</p><p class="al-muted al-optional-help">작업·채팅을 합쳐 최근 10단계만 임시로 유지합니다. 한 번의 검색 과정은 요약 한 단계로 묶습니다. 선별 검토와 주입 원문은 화면·복사에서 자르지 않습니다. 별도 진단 파일은 저장하지 않습니다. 브라우저는 새로고침, 서버는 재시작하면 초기화됩니다.</p><textarea class="text_pole al-debug-log" data-debug-log readonly rows="10" aria-label="디버그 로그" spellcheck="false" placeholder="기록 불러오는 중…"></textarea><div class="al-actions">${button('debug-refresh','새로고침')}${button('debug-copy','복사','disabled')}<span data-debug-status role="status"></span></div></section>
+            <section data-debug-settings><h3>디버그 기록</h3>${check('diagnosticsDetailed','디버그 모드 · 최근 10단계 기록',s.diagnosticsDetailed)}<p class="al-muted">검색 후보, AI 선택·미선택, 주입 한도 적용과 슬롯 등록 여부를 오류 정보와 함께 기록합니다. 선별에 제공한 원문 전체·선택 결과·제공된 선택 근거와 최종 주입 원문 전체를 표시하며 API 키는 가립니다.</p><p class="al-muted al-optional-help">작업·채팅을 합쳐 최근 10단계만 임시로 유지합니다. 한 번의 검색 과정은 요약 한 단계로 묶습니다. 선별 검토와 주입 원문은 화면·복사·TXT 저장에서 자르지 않습니다. 복사 또는 TXT 저장을 누르면 최신 기록을 불러옵니다. TXT 파일은 버튼을 누를 때만 다운로드합니다. 브라우저는 새로고침, 서버는 재시작하면 초기화됩니다.</p><textarea class="text_pole al-debug-log" data-debug-log readonly rows="10" aria-label="디버그 로그" spellcheck="false" placeholder="기록 불러오는 중…"></textarea><div class="al-actions">${button('debug-refresh','새로고침')}${button('debug-copy','복사','disabled')}${button('debug-download','TXT 저장','disabled')}<span data-debug-status role="status"></span></div></section>
             </section><section data-settings-pane="collection" hidden><details open><summary>수집·검색 설정</summary><div class="al-fields">
             ${field('검색 방식',select('mode',[['dialogue','대화로 검색'],['questions','질문으로 검색'],['embedding','일반 임베딩']],s.mode))}
             ${field('최근 대화 참고 개수',input('recentCount',s.recentCount,'number','min="1" max="200"'))}
@@ -132,17 +132,23 @@ export function createLoreUI(api) {
         void loadDebugLog(container);
     }
     async function loadDebugLog(container) {
-        const box=container.querySelector('[data-debug-log]'),copy=container.querySelector('[data-action="debug-copy"]'),status=container.querySelector('[data-debug-status]');
-        if(!box || !api.diagnostics?.preview)return;
-        const key=api.context().key,request={};box.debugRequest=request;copy.disabled=true;status.textContent='기록 불러오는 중…';
+        const box=container.querySelector('[data-debug-log]'),actions=container.querySelectorAll('[data-action="debug-copy"],[data-action="debug-download"]'),status=container.querySelector('[data-debug-status]');
+        if(!box || !api.diagnostics?.preview)return false;
+        const key=api.context().key,request={};box.debugRequest=request;box.value='';box.debugChatKey=undefined;
+        for(const action of actions)action.disabled=true;
+        status.textContent='기록 불러오는 중…';
         try {
             const result=await api.diagnostics.preview(key);
             const text=typeof result==='string'?result:await result.text();
-            if(box.debugRequest!==request || !box.isConnected || key!==api.context().key)return;
-            box.value=text;box.debugChatKey=key;copy.disabled=!text;status.textContent='';
+            if(box.debugRequest!==request || !box.isConnected)return false;
+            if(key!==api.context().key){status.textContent='채팅방이 바뀌었어. 새로고침을 눌러 줘.';return false;}
+            box.value=text;box.debugChatKey=key;
+            for(const action of actions)action.disabled=!text;
+            status.textContent='';return Boolean(text);
         } catch(error) {
-            if(box.debugRequest!==request || !box.isConnected)return;
+            if(box.debugRequest!==request || !box.isConnected)return false;
             box.value='';box.placeholder='기록을 불러오지 못했어.';status.textContent=`기록 확인 실패 · ${error.message}`;
+            return false;
         }
     }
     async function copyDebugLog(container) {
@@ -157,6 +163,13 @@ export function createLoreUI(api) {
         let copied=false;try {copied=document.execCommand('copy');} catch {}
         status.textContent=copied?'복사했어!':'자동 복사가 막혔어. 선택된 글을 길게 눌러 복사해 줘.';
         if(copied){focused?.focus({preventScroll:true});box.scrollTop=scroll;}
+    }
+    function downloadDebugLog(container) {
+        const box=container.querySelector('[data-debug-log]'),status=container.querySelector('[data-debug-status]');
+        if(!box?.value || !box.isConnected || box.debugChatKey!==api.context().key)return;
+        const timestamp=new Date().toISOString().replace(/[:.]/g,'-');
+        download(box.value,`archive-lore-debug-${timestamp}.txt`);
+        status.textContent='TXT 파일 다운로드를 시작했어!';
     }
     function openSettings() {
         const panel=document.createElement('dialog');panel.className='al-root al-dialog al-settings-dialog';panel.setAttribute('aria-label','아카이브 로어 설정');
@@ -219,7 +232,8 @@ export function createLoreUI(api) {
                     finally{target.disabled=false;void loadDebugLog(container);}break;
                 }
                 case 'debug-refresh':await loadDebugLog(container);break;
-                case 'debug-copy':await loadDebugLog(container);await copyDebugLog(container);break;
+                case 'debug-copy':if(await loadDebugLog(container))await copyDebugLog(container);break;
+                case 'debug-download':if(await loadDebugLog(container))downloadDebugLog(container);break;
                 case 'server-check':case 'embedding-test':{
                     const node=container.querySelector(target.dataset.action==='server-check'?'[data-server-status]':'[data-embedding-status]');node.textContent='연결 확인 중';target.disabled=true;
                     try{const result=await (target.dataset.action==='server-check'?api.serverCheck():api.embeddingTest());node.textContent=target.dataset.action==='server-check'?`연결됨 · 서버 ${result.version}`:`임베딩 성공 · ${result.dimensions}차원`;}

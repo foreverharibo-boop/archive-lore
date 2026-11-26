@@ -217,8 +217,9 @@ hidden later. Credentials are masked. Host metadata may not expose the provider'
 final HTTP request or internal error cause.
 
 Open settings → Connection → Debug record at the bottom. The displayed text and
-Copy button use the same 10-stage list. No diagnostic database, timer-based saves,
-per-turn archive or diagnostic file is created. Reloading clears browser records;
+Copy and TXT save buttons use the same 10-stage list. Both refresh the log before
+exporting; TXT save downloads a timestamped UTF-8 file only when clicked. No
+diagnostic database, timer-based saves or per-turn archive is created. Reloading clears browser records;
 server restart clears the optional server user's 10-stage memory ring. Existing
 browser `archive-lore-diagnostics` databases are deleted on initialization. Updated
 server startup removes only the old `diagnostics` directory, without reading its
@@ -3725,12 +3726,16 @@ prove final API delivery or model adherence. Small provider JSON error envelopes
 expose only error metadata; HTML and text responses expose their type, not body.
 Model finish reasons and token counts may be retained within bounded metadata.
 
-Settings show the same text that Copy uses. **새로고침** refreshes the visible log;
-Copy also refreshes before copying. The existing **턴별 진단 기록** view displays
-the same originals and summaries. Compatibility exports use the same in-memory
-records; there is no separate full-text archive or diagnostic export file. Native
-tool links open settings instead of downloading TXT. Clipboard-denied / LAN HTTP
-browsers retain selection and manual-copy fallback. Earlier clipped logs cannot be
+Settings show the same text that **복사** and **TXT 저장** use. **새로고침**
+refreshes the visible log; both export buttons also refresh before exporting.
+**TXT 저장** downloads `archive-lore-debug-<UTC timestamp>.txt` as UTF-8 text,
+including complete retained recall originals and existing credential masking.
+Both buttons are disabled while loading or after a failed/empty response. A
+superseded request, closed panel or chat change cannot export stale records. The
+existing **턴별 진단 기록** view displays the same originals and summaries. Compatibility exports use the same in-memory
+records; there is no separate full-text archive or automatic diagnostic file
+saving. Native tool links open settings, where the user can copy or download TXT.
+Clipboard-denied / LAN HTTP browsers retain selection and manual-copy fallback. Earlier clipped logs cannot be
 reconstructed: full evidence is available for recalls captured after this update.
 
 Browser startup deletes the obsolete diagnostic IndexedDB database. The optional

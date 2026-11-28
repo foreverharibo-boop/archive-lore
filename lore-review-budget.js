@@ -16,6 +16,11 @@ export function reviewSourceTokens(batches) {
 
 export function prepareReview(candidates, chunks, tokenLimit) {
     const limit=normalizeReviewTokens(tokenLimit),selected=new Map(),identities=new Map(),accepted=[];
+    // Candidate reservations preserve recall coverage, not review priority. Anchor
+    // matches are inserted first by chooseCandidates even with weak vector ranks.
+    // Spend the bounded review budget in fused-score order; ties stay stable.
+    const ranked=[...candidates].sort((a,b)=>(Number.isFinite(b.score)?b.score:0)-(Number.isFinite(a.score)?a.score:0));
+    const reviewOrder=[];
     let batches=[],sourceTokens=0,skippedCandidates=0,expandedContexts=0;
     const identify=units=>units.map(unit=>{
         const id=key(unit);
@@ -35,15 +40,18 @@ export function prepareReview(candidates, chunks, tokenLimit) {
     }
     // Prioritize retrieved chunks, each with up to two source units either side.
     // Only the immediately adjacent chunks are eligible for context expansion.
-    for(const candidate of candidates){
+    for(const candidate of ranked){
+        const decision={entryId:candidate.id,index:candidate.index,title:candidate.title,score:candidate.score};
+        reviewOrder.push(decision);
         const neighborhood=reviewCandidates([candidate],chunks);
         const units=reviewUnits(neighborhood);
         const core=new Set((candidate.reviewUnits||candidate.units||[]).map(u=>u.index));
         const first=units.findIndex(u=>u.entryId===candidate.id&&core.has(u.index));
         const last=units.findLastIndex(u=>u.entryId===candidate.id&&core.has(u.index));
-        if(first<0){skippedCandidates++;continue;}
+        if(first<0){skippedCandidates++;decision.status='missing-source';continue;}
         const window=units.slice(Math.max(0,first-2),last+3);
-        if(admit(window))accepted.push({candidate,neighborhood});else skippedCandidates++;
+        if(admit(window)){accepted.push({candidate,neighborhood});decision.status='reviewed';}
+        else {skippedCandidates++;decision.status='budget';}
     }
     // Spend remaining space on nearby context only after ranked hits have had a chance.
     for(const {candidate,neighborhood} of accepted){
@@ -54,5 +62,6 @@ export function prepareReview(candidates, chunks, tokenLimit) {
         }
     }
     return {offered:[...selected.values()],batches,reviewTokenLimit:limit,reviewSourceTokens:sourceTokens,
-        skippedCandidates,reviewedCandidates:accepted.length,expandedContexts,reviewScope:'retrieved-nearby-v1'};
+        skippedCandidates,reviewedCandidates:accepted.length,expandedContexts,reviewScope:'retrieved-nearby-v1',
+        reviewOrderPolicy:'fused-score-first-v1',reviewOrder};
 }

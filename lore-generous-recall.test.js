@@ -18,6 +18,18 @@ function fixture(count=4,patch={}){
         signal:new AbortController().signal,log:async(stage,data)=>events.push({stage,data})}};
 }
 
+test('generous selector receives stronger scored sources before a low-score reserved anchor exhausts its budget',async()=>{
+    const f=fixture(3,{reviewTokens:1000});
+    f.chunks.forEach((c,i)=>{c.score=[.1,.9,.8][i];c.units[0].text=c.id+' '+('x'.repeat(2390));});
+    f.chunks[0].anchorRank=1;f.options.candidates=f.chunks;
+    await generousRecall(f.options);
+    const seen=f.calls.flatMap(call=>call.data.memories);
+    assert.equal(seen.length,1);assert.equal(seen[0].text,f.chunks[1].units[0].text);
+    const plan=f.events.find(e=>e.stage==='selection.plan').data;
+    assert.deepEqual(plan.reviewOrder.map(r=>r.entryId),['entry1','entry2','entry0']);
+    assert.deepEqual(plan.reviewOrder.map(r=>r.status),['reviewed','budget','budget']);
+});
+
 test('generous mode stays opt-in and does not treat string false as enabled',()=>{
     assert.equal(normalizeSettings().generousRecall,false);
     assert.equal(normalizeSettings({generousRecall:'false'}).generousRecall,false);

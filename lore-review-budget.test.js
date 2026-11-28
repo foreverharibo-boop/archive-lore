@@ -3,9 +3,32 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {normalizeSettings,estimateTokens,embeddingChunks} from './lore-core.js';
 import {prepareReview,reviewSourceTokens,DEFAULT_REVIEW_TOKENS} from './lore-review-budget.js';
-import {selectorMemories} from './lore-retrieval.js';
+import {selectorMemories,chooseCandidates} from './lore-retrieval.js';
 import {createDiagnostics} from './lore-diagnostics.js';
 const chunk=(id,index,n=10)=>({id,index,title:'Original title',book:'book',source:{hashes:['original']},units:Array.from({length:n},(_,i)=>({index:index*n+i,text:`Original ${id} sentence ${index*n+i}. `+'원문 '.repeat(12)}))});
+test('anchor reservations cannot spend a 5000-token budget before higher-ranked candidates',()=>{
+ const chunks=Array.from({length:24},(_,i)=>({...chunk('event-'+i,0,1),score:.95-i*.03,focusRank:i+1,questionsRank:i+1}));
+ for(const c of chunks)c.units[0].text='x'.repeat(1714);
+ [3,19,23,20,21,22].forEach((index,i)=>{chunks[index].anchorRank=i+1;});
+ const candidates=chooseCandidates(chunks,24,'questions'),before=structuredClone(candidates);
+ assert.equal(candidates[0].id,'event-3');assert(candidates.slice(0,6).some(c=>c.id==='event-23'));
+ const plan=prepareReview(candidates,chunks,5000);
+ assert.deepEqual(plan.offered.map(u=>u.entryId),chunks.slice(0,8).map(c=>c.id));
+ assert.equal(plan.reviewSourceTokens,4800);assert.equal(plan.skippedCandidates,16);
+ assert.deepEqual(plan.reviewOrder.map(r=>r.entryId),chunks.map(c=>c.id));
+ assert(plan.reviewOrder.slice(0,8).every(r=>r.status==='reviewed'));
+ assert(plan.reviewOrder.slice(8).every(r=>r.status==='budget'));
+ assert.deepEqual(candidates,before,'candidate reservations and original data stay intact');
+});
+test('low-scoring anchor sources remain eligible when budget permits; tied and unscored candidates stay stable',()=>{
+ const chunks=[{...chunk('anchor',0,1),score:.1,anchorRank:1},{...chunk('high',0,1),score:.9},{...chunk('tie',0,1),score:.9},chunk('unscored',0,1)];
+ const plan=prepareReview(chunks,chunks,5000);
+ assert.deepEqual(plan.reviewOrder.map(r=>r.entryId),['high','tie','anchor','unscored']);
+ assert(plan.reviewOrder.every(r=>r.status==='reviewed'));
+ for(const u of plan.offered)assert.equal(u.text,chunks.find(c=>c.id===u.entryId).units[0].text);
+ const noScores=chunks.map(({score,...c})=>c);
+ assert.deepEqual(prepareReview(noScores,noScores,5000).reviewOrder.map(r=>r.entryId),noScores.map(c=>c.id));
+});
 test('default and saved review budgets normalize independently of final injection limits',()=>{
  assert.equal(normalizeSettings().reviewTokens,DEFAULT_REVIEW_TOKENS);
  for(const [input,want] of [[1000,1000],[12000,12000],['16000',16000],[0,1000],[-1,1000],[1e9,64000],['bad',8000],[null,8000]]){

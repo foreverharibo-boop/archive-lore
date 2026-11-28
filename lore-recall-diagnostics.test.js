@@ -10,6 +10,21 @@ const units=[
     {id:'u1',entryId:'book:2',index:0,title:'Repairs complete',text:'The team returned to the stadium facility.'},
     {id:'u2',entryId:'book:3',index:0,title:'Unrelated dinner',text:'They had dinner.'},
 ];
+test('review-budget audit exposes actual priority and deterministic skips separately from AI selection',async()=>{
+    const d=createDiagnostics(),t=d.begin();
+    await t.event('selection.plan',{policy:'compact-source-units-v1',units:1,batches:1,concurrency:2,
+        reviewTokenLimit:1000,reviewSourceTokens:600,reviewedCandidates:1,skippedCandidates:2,
+        reviewScope:'retrieved-nearby-v1',reviewOrderPolicy:'fused-score-first-v1',
+        reviewOrder:[{entryId:'strong',index:0,score:.9,status:'reviewed'},
+            {entryId:'weak',index:0,score:.1,status:'budget'},{entryId:'missing',index:0,status:'missing-source'}]});
+    await t.finish('success');const text=await d.preview();
+    assert.match(text,/fused-score-first-v1/);assert.match(text,/AI 선택 결과 아님/);
+    assert.match(text,/1\. strong #0.*검토 포함/);assert.match(text,/2\. weak #0.*검토 예산 부족/);
+    assert.match(text,/3\. missing #0.*검토 원문 없음/);
+    const rows=JSON.parse(JSON.stringify(await d.list()));
+    for(const row of rows)for(const event of row.events)event.data=diagnosticSummary(event.data);
+    assert.equal(formatDiagnosticPreview(rows),text);
+});
 test('audit separates selection dependencies, unselected units and budget losses without inventing reasons',()=>{
     const a=createRecallAudit(),before=JSON.stringify(units);
     a.capture('selection.validated',{batch:1,offered:units,accepted:[{...units[0],reason:'Location continuity',requiredContext:[units[1]]}]});

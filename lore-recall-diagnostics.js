@@ -3,7 +3,7 @@
 export const RECALL_REVIEW_CHARS = 24000;
 const clip=(value,size)=>{const text=String(value??'').replace(/\s+/g,' ').trim();return text.length>size?text.slice(0,size)+'…':text;};
 const key=u=>JSON.stringify([u.entryId??u.id,u.index]);
-const describe=u=>`${clip(u.id,100)} [${clip(u.entryId??u.id,100)} #${u.index??'?'}] ${clip(u.title,90)}${Number.isFinite(u.score)?` · 유사도 ${u.score.toFixed(4)}`:''}\n  ${clip(u.text,140)}${u.reason?` · 선택 근거: ${clip(u.reason,140)}`:''}`;
+const describe=u=>`${clip(u.id,100)} [${clip(u.entryId??u.id,100)} #${u.index??'?'}] ${clip(u.title,90)}${Number.isFinite(u.score)?` · 검색 점수 ${u.score.toFixed(4)}`:''}\n  ${clip(u.text,140)}${u.reason?` · 선택 근거: ${clip(u.reason,140)}`:''}`;
 function sample(rows,limit,render=describe){
     let text='',shown=0;
     for(const row of rows){const line=render(row)+'\n';if(text.length+line.length>limit)break;text+=line;shown++;}
@@ -36,8 +36,14 @@ export function createRecallAudit(sanitize=value=>value){
                     set('검색 후보',`순위 계산 ${rows.length}구간 · 후보 채택 ${offered.length} · 후보 밖 ${outside.length} · 순위 제외 ${data.notRanked?.length||0}\n`+sampled(offered,4300),4600);
                     set('후보 밖 기록',sampled(outside,1000),1200);break;
                 }
-                case 'selection.plan':set('선별 계획',`정책 ${data.policy} · 원문 ${data.units}단위 · ${data.batches}묶음 · 동시 처리 ${data.concurrency}`+
-                    (Number.isFinite(data.reviewTokenLimit)?`\n기억 원문 검토: ${data.reviewSourceTokens} / ${data.reviewTokenLimit} 추정 토큰 (묶음 간 중복 포함) · 후보 ${data.reviewedCandidates}개 검토 / ${data.skippedCandidates}개 제외 · 범위 ${data.reviewScope}`:''),800);break;
+                case 'selection.plan':{
+                    set('선별 계획',`정책 ${data.policy} · 원문 ${data.units}단위 · ${data.batches}묶음 · 동시 처리 ${data.concurrency}`+
+                        (Number.isFinite(data.reviewTokenLimit)?`\n기억 원문 검토: ${data.reviewSourceTokens} / ${data.reviewTokenLimit} 추정 토큰 (묶음 간 중복 포함) · 후보 ${data.reviewedCandidates}개 검토 / ${data.skippedCandidates}개 제외 · 범위 ${data.reviewScope}`:'')+
+                        (data.reviewOrderPolicy?`\n검토 예산 배분 순서: ${data.reviewOrderPolicy}`:''),1000);
+                    if(Array.isArray(data.reviewOrder))detail('review-order','[후보별 검토 예산 배분 · AI 선택 결과 아님]\n'+data.reviewOrder.map((u,i)=>
+                        `${i+1}. ${u.entryId} #${u.index} · ${u.title??''} · 검색 점수 ${Number.isFinite(u.score)?u.score:'없음'} · ${({'reviewed':'검토 포함','budget':'검토 예산 부족','missing-source':'검토 원문 없음'})[u.status]??u.status}`).join('\n'));
+                    break;
+                }
                 case 'selection.output-schema':{
                     const text=`묶음 ${data.batch??'?'} · ${data.status}: ${data.message}`;
                     detail(`selection-schema-${data.batch??'?'}`,`[선별 출력 제한]\n${text}`);

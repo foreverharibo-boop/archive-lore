@@ -3823,6 +3823,12 @@ execution is enabled, update and restart the optional server plugin. No re-embed
 or lorebook migration is required. Validation uses simulated selectors and local
 source planning, not live provider calls or guarantees of end-to-end latency.
 
+#### Review priority correction (2026-11-28, server 0.3.21)
+
+Candidate reservation order is no longer used as review-budget priority. The candidate chooser intentionally inserts lexical event anchors first, followed by reserved question/focus/aspect hits; previously a weak anchor could consume the budget before a much stronger fused-search result. `prepareReview` now uses a stable descending sort of the existing fused search score before admitting source windows, in both normal and generous modes. Ties retain reservation order; unscored legacy callers retain their original order. Candidate membership, embedding identities, exact originals, nearby context expansion, AI selection and final injection rules are unchanged. This adds no model calls and requires no re-embedding.
+
+There is no absolute similarity cutoff: weak candidates remain eligible when budget permits. Under a tight budget, a lexically correct but low-scoring event can still be omitted; a high-scoring window too large to fit is still skipped whole so a later smaller window may fit. This is improved budget priority, not semantic proof of relevance or a guarantee of fewer reviewed tokens or faster model responses. Diagnostics now list each candidate in actual budget-allocation order with its score and admission/skip reason, separately from AI selection results. Search scores in question/dialogue modes are weighted reciprocal-rank fusion scores, not raw cosine similarities; the overview calls them search scores. Update extension and server plugin, restart the server and reload the app.
+
 
 ### Shared embedding folder (2026-11-28)
 

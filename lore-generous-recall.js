@@ -41,7 +41,7 @@ export async function generousRecall({candidates, chunks, config, latestUser, di
     ask, countTokens, signal, log=async()=>{}, notify=()=>{}}) {
     // Use the same candidates and input batching as normal selection. A smaller
     // final injection never triggers more candidates, reviews or explanations.
-    const plan=prepareReview(candidates,chunks,config.reviewTokens),{offered,batches,...reviewStats}=plan;
+    const plan=prepareReview(candidates,chunks,config.reviewTokens,questions?.length?questions:[latestUser]),{offered,batches,...reviewStats}=plan;
     await log('selection.plan',{...reviewStats,policy:'generous-related-v2',selectionFocus:config.selectionFocus,
         units:offered.length,batches:batches.length,concurrency:config.selectionConcurrency});
     const results=await mapOrdered(batches,config.selectionConcurrency,async(batch,index,signal)=>{

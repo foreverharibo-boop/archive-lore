@@ -489,7 +489,7 @@ test('server question mode repairs an empty JSON object in the same job and reco
     const job=await f.service.submit(f.user,'recall',input,randomUUID()),result=await done(f.service,f.user,job.id);
     assert.equal(result.status,'completed',result.message);assert.equal(f.calls.length,3);
     assert.deepEqual(result.result.lastRecall.questions,['Which hospital did they visit?']);
-    assert.match(f.calls[1].messages[0].content,/previous response/);
+    assert.match(f.calls[1].messages[0].content,/Invalid previous format/);
     assert.deepEqual(json(f.book),before);
 });
 
@@ -647,4 +647,28 @@ for(const generousRecall of [false,true])test(`server applies the caller's revie
     const job=await f.service.submit(f.user,'recall',input,randomUUID()),result=await done(f.service,f.user,job.id);
     assert.equal(result.status,'completed',result.message);assert(tokens>0&&tokens<=2000);assert(result.result.tokens<=5000);
     assert.match(JSON.stringify(await readLogs(f.service,f.user,'test-key')),/\/ 2000/);
+});
+
+for (const generousRecall of [false,true]) test(`focused review reaches server selection with original outcomes: generous=${generousRecall}`,async t=>{
+    const f=fixture(t),input=f.input();
+    Object.assign(input.settings,{mode:'questions',generousRecall,reviewTokens:5000});
+    const setup='Morgan borrowed a telescope.',outcome='Morgan returned the telescope to its owner.';
+    const filler=Array.from({length:20},(_,i)=>`They discussed breakfast recipe number ${i} and planned the menu.`).join(' ');
+    atomic(f.book,{entries:{0:{uid:0,content:filler+' '+setup+' '+filler+' '+outcome+' '+filler}}});
+    const before=json(f.book),indexed=await f.service.submit(f.user,'index',input,randomUUID());
+    assert.equal((await done(f.service,f.user,indexed.id)).status,'completed');
+    const embedded=f.embeddingCalls.filter(c=>!c.query).length;
+    f.replies.push('{"questions":["What happened to the borrowed telescope?"]}',payload=>{
+        const data=JSON.parse(payload.messages.at(-1).content);
+        const anchor=data.memories.find(u=>u.text===setup),ending=data.memories.find(u=>u.text===outcome);
+        assert(anchor);assert(ending);
+        return JSON.stringify({selections:[{id:anchor.id,priority:3,reason:'Borrowing and return',outcomeIds:[ending.id]}]});
+    });
+    const job=await f.service.submit(f.user,'recall',input,randomUUID()),result=await done(f.service,f.user,job.id);
+    assert.equal(result.status,'completed',result.message);assert.equal(f.calls.length,2);
+    assert(result.result.text.includes(setup));assert(result.result.text.includes(outcome));
+    assert.equal(f.embeddingCalls.filter(c=>!c.query).length,embedded);
+    const logs=await readLogs(f.service,f.user,'test-key');
+    assert.match(JSON.stringify(logs),/query-focused-outcomes-v2/);
+    assert.deepEqual(json(f.book),before);
 });

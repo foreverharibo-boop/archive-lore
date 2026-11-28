@@ -348,7 +348,7 @@ export function createLoreController(host) {
                     timings.selectionRequestMs=timings.selectionMs;
                     timings.selectionMs=Date.now()-selectionStarted;
                 } else {
-                    const plan=prepareReview(candidates,reviewChunks,config.reviewTokens);
+                    const plan=prepareReview(candidates,reviewChunks,config.reviewTokens,questions.length?questions:[focus.latestUser]);
                     const {offered,batches,...reviewStats}=plan,selected=[];
                     await log('selection.plan',{...reviewStats,policy:'compact-source-units-v1',selectionFocus:config.selectionFocus,units:offered.length,batches:batches.length,concurrency:config.selectionConcurrency,
                         originalTokens:estimateTokens(JSON.stringify(offered)),selectorTokens:estimateTokens(JSON.stringify(selectorMemories(offered)))});

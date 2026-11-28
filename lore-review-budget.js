@@ -1,6 +1,7 @@
 // Archive Lore — AGPL-3.0-only
 import { estimateTokens, integer, reviewUnits } from './lore-core.js';
 import { reviewCandidates, reviewBatches, selectorMemories, questionCandidateLists, roundRobinCandidates } from './lore-retrieval.js';
+import { createReviewWindows } from './lore-review-windows.js';
 
 export const DEFAULT_REVIEW_TOKENS = 8000;
 export const normalizeReviewTokens = value => integer(value ?? DEFAULT_REVIEW_TOKENS, DEFAULT_REVIEW_TOKENS, 1000, 64000);
@@ -14,7 +15,7 @@ export function reviewSourceTokens(batches) {
     return batches.reduce((total,batch)=>total+batch.reduce((sum,u)=>sum+estimateTokens(u.text),0),0);
 }
 
-export function prepareReview(candidates, chunks, tokenLimit) {
+export function prepareReview(candidates, chunks, tokenLimit, queries = []) {
     const limit=normalizeReviewTokens(tokenLimit),selected=new Map(),identities=new Map(),accepted=[];
     // Candidate reservations preserve recall coverage, not review priority. Anchor
     // matches are inserted first by chooseCandidates even with weak vector ranks.
@@ -23,7 +24,8 @@ export function prepareReview(candidates, chunks, tokenLimit) {
     const ranked=[...candidates].sort((a,b)=>(Number.isFinite(b.score)?b.score:0)-(Number.isFinite(a.score)?a.score:0));
     const questionLists=questionCandidateLists(ranked),balanced=questionLists.some(list=>list.length);
     const reviewOrder=[];
-    let batches=[],sourceTokens=0,skippedCandidates=0,expandedContexts=0;
+    let batches=[],sourceTokens=0,skippedCandidates=0,expandedContexts=0,focusedCandidates=0;
+    const focusWindow=createReviewWindows(chunks,queries);
     const identify=units=>units.map(unit=>{
         const id=key(unit);
         if(!identities.has(id))identities.set(id,{...unit,id:`u${identities.size}`});
@@ -51,17 +53,19 @@ export function prepareReview(candidates, chunks, tokenLimit) {
         const core=new Set((candidate.reviewUnits||candidate.units||[]).map(u=>u.index));
         const first=units.findIndex(u=>u.entryId===candidate.id&&core.has(u.index));
         const last=units.findLastIndex(u=>u.entryId===candidate.id&&core.has(u.index));
-        const value={neighborhood,window:first<0?null:units.slice(Math.max(0,first-2),last+3)};
+        const fallback=first<0?null:units.slice(Math.max(0,first-2),last+3);
+        const focused=focusWindow(candidate,units,fallback);
+        const value={neighborhood,window:focused.units,focused:focused.focused};
         windows.set(id,value);return value;
     }
     function attempt(candidate,allowance,question,final){
         const id=candidateKey(candidate);if(included.has(id))return true;
-        const {neighborhood,window}=sourceWindow(candidate),ok=window&&admit(window,allowance);
-        if(ok){included.add(id);accepted.push({candidate,neighborhood});}
+        const {neighborhood,window,focused}=sourceWindow(candidate),ok=window&&admit(window,allowance);
+        if(ok){included.add(id);accepted.push({candidate,neighborhood});if(focused)focusedCandidates++;}
         if(ok||final){
             reviewOrder.push({entryId:candidate.id,index:candidate.index,title:candidate.title,score:candidate.score,
                 questionRanks:candidate.questionRanks,questionScores:candidate.questionScores,question,
-                status:ok?'reviewed':window?'budget':'missing-source'});
+                status:ok?'reviewed':window?'budget':'missing-source',focused:!!focused});
             if(!ok)skippedCandidates++;
         }
         return !!ok;
@@ -86,6 +90,7 @@ export function prepareReview(candidates, chunks, tokenLimit) {
         }
     }
     return {offered:[...selected.values()],batches,reviewTokenLimit:limit,reviewSourceTokens:sourceTokens,
-        skippedCandidates,reviewedCandidates:accepted.length,expandedContexts,reviewScope:'retrieved-nearby-v1',
+        skippedCandidates,reviewedCandidates:accepted.length,expandedContexts,focusedCandidates,
+        reviewScope:focusedCandidates?'query-focused-outcomes-v2':'retrieved-nearby-v1',
         reviewOrderPolicy:balanced?'question-balanced-v1':'fused-score-first-v1',reviewOrder};
 }

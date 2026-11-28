@@ -71,11 +71,11 @@ export function createRecallAudit(sanitize=value=>value){
                     detail(`selection:${data.batch??1}`,`[선별 검토 원문 전체 · 묶음 ${data.batch??1} · ${offered.length}단위]\n`+offered.map(u=>{
                         const anchor=anchors.get(key(u)),parents=accepted.filter(a=>(a.requiredContext||[]).some(c=>key(c)===key(u)));
                         const state=anchor?'선택 중심 문장':covered.has(key(u))?'연결 맥락으로 선택':'미선택';
-                        return `[${state}] ${fullUnit(u)}\n`+(anchor?`선택 근거: ${anchor.reason||'모델이 반환하지 않음'}\n우선순위: ${anchor.priority??'없음'}\n연결 ID: ${(anchor.requiredContext||[]).map(c=>c.id).join(', ')||'없음'}\n`:parents.length?`연결된 중심 문장: ${parents.map(a=>a.id).join(', ')}\n`:'미선택 사유: 모델이 반환하지 않아 알 수 없음\n');
+                        return `[${state}] ${fullUnit(u)}\n`+(anchor?`선택 근거: ${anchor.reason||'모델이 반환하지 않음'}\n우선순위: ${anchor.priority??'없음'}\n연결 ID: ${(anchor.requiredContext||[]).map(c=>c.id).join(', ')||'없음'}\n`:parents.length?`연결된 중심 문장: ${parents.map(a=>a.id).join(', ')}\n`:'');
                     }).join('\n'));
                     add('묶음별 선별 집계',`묶음 ${data.batch??1}: 검토 ${offered.length} · 선택 중심 문장 ${accepted.length} · 연결 문장 ${contexts.size} · 미선택 ${unselected.length}\n`,1400);
                     add('AI 선택·연결 문장',`[묶음 ${data.batch??1}]\n`+sampled([...accepted,...contexts.values()],4200),4600);
-                    add('AI 미선택',`[묶음 ${data.batch??1}] 개별 탈락 이유는 모델이 반환하지 않아 알 수 없음.\n`+sampled(unselected,3400),3800);break;
+                    add('AI 미선택',`[묶음 ${data.batch??1}]\n`+sampled(unselected,3400),3800);break;
                 }
                 case 'injection.budget':{
                     const kept=data.kept||[],dropped=data.dropped||[];

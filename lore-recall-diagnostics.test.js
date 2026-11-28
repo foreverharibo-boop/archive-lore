@@ -31,7 +31,9 @@ test('audit separates selection dependencies, unselected units and budget losses
     a.capture('injection.budget',{limit:30,tokens:0,kept:[],dropped:[units[0]]});
     const text=a.text();assert.match(text,/검토 3 · 선택 중심 문장 1 · 연결 문장 1 · 미선택 1/);
     const rejected=text.split('[AI 미선택]')[1].split('[주입 한도 적용]')[0];
-    assert.match(rejected,/Unrelated dinner/);assert(!rejected.includes('Repairs complete'));assert.match(rejected,/알 수 없음/);
+    assert.match(rejected,/Unrelated dinner/);assert(!rejected.includes('Repairs complete'));
+    assert.doesNotMatch(text+a.details(),/미선택 사유|개별 탈락 이유|알 수 없음/);
+    assert.match(a.details(),/\[미선택\] u2.*\nThey had dinner\./);
     assert.match(text,/빠진 중심 문장 1개/);assert.match(text,/Location continuity/);assert.equal(JSON.stringify(units),before);
 });
 test('a completed long recall retains early candidates and selection in one stage, and distinguishes prepared from installed',async()=>{

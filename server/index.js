@@ -15,7 +15,7 @@ import { embed } from '../lore-api.js';
 import { normalizeSettings } from '../lore-core.js';
 import { captureTransport, probePayload } from './connection-test.js';
 export const info={id:'archive-lore-server',name:'Archive Lore Server',description:'Persistent Archive Lore jobs and server-side embeddings.'};
-export const VERSION='0.3.22';
+export const VERSION='0.3.23';
 export async function init(router) {
     globalThis.crypto ||= webcrypto;
     const require=createRequire(path.join(process.cwd(),'package.json'));

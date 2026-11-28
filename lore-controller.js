@@ -22,7 +22,7 @@ import { OUTCOME_QUESTION_PROMPT, OUTCOME_SELECTION_PROMPT } from './lore-outcom
 import { SELECTION_REFERENCE_RULES, SELECTION_REFERENCE_LIMITS, SELECTION_REPAIR_PROMPT, selectionRepairFeedback, validateSelectionAttempt } from './lore-selection-repair.js';
 import { recallOutput } from './lore-recall-output.js';
 
-const QUESTION_SCHEMA = '\nReturn ONLY JSON: {"questions":["question"]}. The questions key is required, with one to six nonblank strings of at most 2000 characters each. Always generate at least one context-grounded retrieval question, including for ordinary scene actions. When no factual answer is missing, ask what recorded experience, feeling, preference or agreement could inform this scene without assuming such a record exists. Never return an empty questions array, {} or omit questions.';
+const QUESTION_SCHEMA = '\nReturn ONLY JSON: {"questions":["question"]}. Require one to six nonblank strings, at most 2000 characters each; no empty or missing questions array.';
 
 const COLLECTION_SCHEMA = `Return ONLY JSON:
 {"entries":[{"title":"short English title","date":"story date/range or empty","time":"story time or empty","location":"place or empty","content":"English narrative paragraphs only, no title/metadata headings","keywords":["English keyword"],"supersedes":null}],
@@ -295,7 +295,7 @@ export function createLoreController(host) {
                     // Only retry a received but malformed plan, never transport errors
                     // or cancellations. Keep the retry in this same search job.
                     const response=await askRecall(config.searchProfile || config.profile,
-                        system+(attempt?'\nYour previous response did not match the required JSON format. Re-evaluate the supplied dialogue and return the required questions object, with one to six nonblank questions. An empty list is invalid; explore potentially useful past context for this scene without inventing an event.':''),
+                        system+(attempt?'\nInvalid previous format. Return the required JSON with one to six nonblank, context-grounded questions; do not invent events.':''),
                         data,signal,1200,'questionMs');
                     try{
                         const raw=parseJson(response);

@@ -663,8 +663,8 @@ for(const response of ['{"questions":[]}','{"questions":[" " ]}','{"questions":[
     };
     await f.controller.recall();
     assert.equal(requests.length,3);assert.equal(requests[0].profile,'search-profile');
-    assert.match(requests[0].system,/Never return an empty questions array/);
-    assert.match(requests[1].system,/previous response/);
+    assert.match(requests[0].system,/no empty or missing questions array/);
+    assert.match(requests[1].system,/Invalid previous format/);
     assert.deepEqual(requests[1].data,requests[0].data);
     assert.deepEqual(f.controller.state().lastRecall.questions,['Which hospital did they visit?']);
     assert.equal(f.calls.filter(c=>c==='document').length,0);

@@ -3293,10 +3293,16 @@ planner, search ranking, selector request and recalled-record formatting. They
 still allow relevant emotional facts. Common response guidance remains active even with no aspects selected.
 
 With choices enabled, question mode uses its existing planner call (one to six
-questions): a direct factual question followed by queries for the chosen aspects
-of the same request. Dialogue mode adds one context-bound supplementary search;
+questions), prioritizing the current request with concretely related checked aspects
+as optional background, not mandatory extra questions. Dialogue mode adds one context-bound supplementary search;
 a single-question plan also receives this supplementary query. Question mode requires at least one nonblank question, including for ordinary actions and scene transitions. Questions may explore useful related experiences, recorded feelings, preferences and agreements without requiring that the next reply be impossible without them. The planner must not assume a past event exists. Empty or otherwise invalid plans are retried once; a second invalid response reports an error instead of silently skipping retrieval. No dialogue-search fallback is used. The selector may still return no relevant facts.
 Supplementary query embeddings can add latency; no extra AI completion is added.
+Prompt revision 9 replaces only the exact previous built-in question text and preserves
+custom prompts. The compact planner prioritizes the latest scene, avoids repeating
+sufficiently supplied facts, and does not assume future developments or treat newly
+occurring events as archived history. Its status-search supplement seeks later changes
+only when a past event or obligation's status matters now. One question remains valid;
+the one-to-six validation and original-memory review/injection limits are unchanged.
 At most a third of candidate slots are reserved for aspect search; the remaining
 slots retain direct-request coverage. Saved documents and embeddings are unchanged.
 

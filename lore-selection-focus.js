@@ -23,7 +23,7 @@ const aspects=value=>SELECTION_FOCUS.filter(item=>normalizeSelectionFocus(value)
 export function focusQuestionPrompt(value) {
     const chosen=aspects(value);if(!chosen.length)return '';
     return `\n\nFOCUSED MEMORY SEARCH\n${chosen.map(item=>'- '+item.instruction).join('\n')}
-Within the one-to-six question total, prioritize the direct request, then the checked aspects of the same people/event/time, including recorded reasons, dialogue and consequences. Combine related aspects rather than paraphrasing the same question. Useful background need not be indispensable to a literal answer. Write in English, preserve proper names and explicit exclusions, and never assume a sought event or feeling exists. Seek later changes when a temporary agreement's present status matters.`;
+Within the existing question limit, prioritize the direct request. Checked aspects guide relevant background searches for the same event or situation; they are not mandatory topics. Combine related aspects without repeating questions, and never assume a sought event or feeling exists.`;
 }
 
 // One bounded supplementary search in dialogue mode, or when a planner supplied

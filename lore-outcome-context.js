@@ -3,7 +3,7 @@ import { linkedSelectionUnits } from './lore-selection-repair.js';
 // Appended at runtime so existing custom prompts receive continuity constraints
 // without overwriting their saved text or adding another model request.
 export const OUTCOME_QUESTION_PROMPT = `\n\nEVENT STATUS SEARCH
-When the ongoing scene mentions a borrowed object, repayment, promise, errand, injury, dispute or plan, include its recorded outcome and later changes in the relevant retrieval question: returned/received, paid/refused, fulfilled/canceled, recovered/resolved, or still unresolved. Seek the latest supported status of that SAME object or obligation, not only its origin or emotional background. Combine this with the event question within the existing question limit. Do not assume it remains pending or invent a resolution; absence of a record is unknown.`;
+When a past event or obligation's status matters now, include its recorded outcome and later changes in the same question. Match the same subject; unknown does not mean pending. Do not search for an already-recorded resolution of a newly occurring event or invent one.`;
 
 export const OUTCOME_SELECTION_PROMPT = `\n\nEVENT OUTCOME CONTINUITY
 Check EACH selected event or side fact for the SAME object/obligation's recorded outcome and later changes, including incidental borrowing, costs, repayment, promises, errands, injuries, disputes and plans even in emotional-history searches. The newest date alone does not establish this connection.

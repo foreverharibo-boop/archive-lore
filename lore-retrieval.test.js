@@ -191,7 +191,7 @@ test('compact review keeps every source sentence and identity without sending so
 test('revision-three defaults migrate without overwriting customized prompts or changing stored embeddings',async()=>{
     const {PREVIOUS_QUESTIONS,PREVIOUS_SELECT}=await import('./lore-prompts.js');
     const migrated=normalizeSettings({promptRevision:3,prompts:{questions:PREVIOUS_QUESTIONS,select:PREVIOUS_SELECT}});
-    assert.equal(migrated.promptRevision,10);assert.equal(migrated.prompts.questions,DEFAULT_PROMPTS.questions);
+    assert.equal(migrated.promptRevision,11);assert.equal(migrated.prompts.questions,DEFAULT_PROMPTS.questions);
     assert.equal(migrated.prompts.select,DEFAULT_PROMPTS.select);
     assert.match(migrated.prompts.questions,/English/);assert.match(migrated.prompts.select,/conditions and outcome/);
     const custom=normalizeSettings({promptRevision:3,prompts:{questions:'My custom questions',select:'My custom selector'}});
@@ -205,7 +205,7 @@ test('revision-four selector upgrades without mutating saved settings, custom pr
         embeddingModel:'gemini-embedding-001',selectionFocus:['affection','meaning']};
     const before=structuredClone(saved),migrated=normalizeSettings(saved);
     assert.deepEqual(saved,before);
-    assert.equal(migrated.promptRevision,10);
+    assert.equal(migrated.promptRevision,11);
     assert.equal(migrated.prompts.select,DEFAULT_PROMPTS.select);
     assert.equal(migrated.prompts.collect,saved.prompts.collect);
     assert.equal(migrated.prompts.questions,saved.prompts.questions);
@@ -232,7 +232,7 @@ test('revision-six migration upgrades exact defaults once and preserves custom p
         prompts:{questions:PREVIOUS_ENGLISH_QUESTIONS,select:PREVIOUS_COMPARISON_SELECT,collect:'My private summary'}};
     const before=structuredClone(saved),migrated=normalizeSettings(saved);
     assert.deepEqual(saved,before);
-    assert.equal(migrated.promptRevision,10);assert.equal(migrated.candidateCount,24);
+    assert.equal(migrated.promptRevision,11);assert.equal(migrated.candidateCount,24);
     assert.equal(migrated.prompts.questions,DEFAULT_PROMPTS.questions);assert.equal(migrated.prompts.select,DEFAULT_PROMPTS.select);
     assert.equal(migrated.prompts.collect,'My private summary');assert.equal(migrated.injectionTokens,4500);assert.equal(migrated.selectionConcurrency,2);
     assert.deepEqual(normalizeSettings(migrated),migrated);
@@ -252,7 +252,7 @@ test('revision-seven question defaults migrate while custom prompts, selector an
     const {PREVIOUS_BACKGROUND_QUESTIONS,QUESTIONS_PROMPT}=await import('./lore-prompts.js');
     const saved={promptRevision:6,prompts:{questions:PREVIOUS_BACKGROUND_QUESTIONS,select:'Custom selector',collect:'Custom summary'},candidateCount:16,injectionTokens:3500};
     const before=structuredClone(saved),migrated=normalizeSettings(saved);
-    assert.deepEqual(saved,before);assert.equal(migrated.promptRevision,10);
+    assert.deepEqual(saved,before);assert.equal(migrated.promptRevision,11);
     assert.equal(migrated.prompts.questions,QUESTIONS_PROMPT);assert.equal(migrated.prompts.select,'Custom selector');assert.equal(migrated.prompts.collect,'Custom summary');
     assert.equal(migrated.candidateCount,16);assert.equal(migrated.injectionTokens,3500);
     assert.equal(normalizeSettings({...saved,prompts:{questions:'Personal questions'}}).prompts.questions,'Personal questions');
@@ -276,4 +276,19 @@ test('revision-nine migrates only the exact exploratory question default',async(
     assert.deepEqual(normalizeSettings(next),next);
     for(const custom of ['Personal questions',PREVIOUS_EXPLORATORY_QUESTIONS+'\nMy rule'])
         assert.equal(normalizeSettings({...saved,prompts:{...saved.prompts,questions:custom}}).prompts.questions,custom);
+});
+
+test('revision-eleven upgrades saved question defaults without changing custom text or recall settings',async()=>{
+    const {PREVIOUS_APPLICABLE_QUESTIONS}=await import('./lore-prompts.js');
+    const saved={promptRevision:10,mode:'questions',prompts:{questions:PREVIOUS_APPLICABLE_QUESTIONS,
+        select:DEFAULT_PROMPTS.select,collect:'Personal collector'},reviewTokens:5000,injectionTokens:3000,candidateCount:24};
+    const before=structuredClone(saved),next=normalizeSettings(saved);
+    assert.deepEqual(saved,before);
+    assert.equal(next.prompts.questions,DEFAULT_PROMPTS.questions);
+    for(const key of ['select','collect'])assert.equal(next.prompts[key],saved.prompts[key]);
+    for(const key of ['mode','reviewTokens','injectionTokens','candidateCount'])assert.equal(next[key],saved[key]);
+    assert.equal(next.promptRevision,11);
+    assert.deepEqual(normalizeSettings(next),next);
+    for(const questions of ['Personal questions',PREVIOUS_APPLICABLE_QUESTIONS+'\nPersonal rule'])
+        assert.equal(normalizeSettings({...saved,prompts:{...saved.prompts,questions}}).prompts.questions,questions);
 });

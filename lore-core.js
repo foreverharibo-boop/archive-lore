@@ -6,7 +6,7 @@ import { normalizeSelectionFocus, MAX_EVENT_CONTEXT, MAX_EVENT_SELECTIONS } from
 import { outcomeContext } from './lore-outcome-context.js';
 import { linkedSelectionUnits } from './lore-selection-repair.js';
 import { fingerprintChatMessage } from './chatSelection.js';
-import { COLLECT_PROMPT, SIDE_PROMPT, QUESTIONS_PROMPT, SELECT_PROMPT, LEGACY_QUESTIONS, LEGACY_SELECT, PREVIOUS_QUESTIONS, PREVIOUS_SELECT, PREVIOUS_EVENT_SELECT, PREVIOUS_ENGLISH_QUESTIONS, PREVIOUS_COMPARISON_SELECT, PREVIOUS_BACKGROUND_QUESTIONS, PREVIOUS_BACKGROUND_SELECT, PREVIOUS_EXPLORATORY_QUESTIONS, PREVIOUS_FOCUSED_QUESTIONS, PREVIOUS_CONTEXT_SELECT } from './lore-prompts.js';
+import { COLLECT_PROMPT, SIDE_PROMPT, QUESTIONS_PROMPT, SELECT_PROMPT, LEGACY_QUESTIONS, LEGACY_SELECT, PREVIOUS_QUESTIONS, PREVIOUS_SELECT, PREVIOUS_EVENT_SELECT, PREVIOUS_ENGLISH_QUESTIONS, PREVIOUS_COMPARISON_SELECT, PREVIOUS_BACKGROUND_QUESTIONS, PREVIOUS_BACKGROUND_SELECT, PREVIOUS_EXPLORATORY_QUESTIONS, PREVIOUS_FOCUSED_QUESTIONS, PREVIOUS_CONTEXT_SELECT, PREVIOUS_APPLICABLE_QUESTIONS } from './lore-prompts.js';
 import { LEGACY_COLLECT, LEGACY_SIDE } from './lore-prompts-v1.js';
 export { SIDE_PROMPT } from './lore-prompts.js';
 import { dateDay, relationshipLabel, relationshipPhase, formatRelationship } from './lore-relationship.js';
@@ -59,7 +59,8 @@ export function normalizeSettings(value = {}) {
         if (value.prompts.questions === PREVIOUS_FOCUSED_QUESTIONS) value.prompts.questions = QUESTIONS_PROMPT;
         if (value.prompts.select === PREVIOUS_CONTEXT_SELECT) value.prompts.select = SELECT_PROMPT;
     }
-    return { ...DEFAULTS, ...value, promptRevision: 10,
+    if ((value.promptRevision || 0) < 11 && value.prompts.questions === PREVIOUS_APPLICABLE_QUESTIONS) value.prompts.questions = QUESTIONS_PROMPT;
+    return { ...DEFAULTS, ...value, promptRevision: 11,
         excludedSidePromptKeys: normalizeSideSearchExclusions(value.excludedSidePromptKeys),
         enabled: value.enabled === true,
         autoEmbed: value.autoEmbed !== false,

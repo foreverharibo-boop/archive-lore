@@ -1592,5 +1592,6 @@
   "STMemoryBooks_SortUnsorted": "sin ordenar",
   "STMemoryBooks_Jobs_SortTitle": "Título del trabajo",
   "STMemoryBooks_Jobs_SortStatus": "Estado",
-  "STMemoryBooks_AutoRollback_UnhideUnsafe": "Los mensajes cambiaron desde la reversión de Memoria. No se pudieron volver a mostrar los mensajes ocultos de forma segura. Revisa el chat restante antes de mostrarlos manualmente."
+  "STMemoryBooks_AutoRollback_UnhideUnsafe": "Los mensajes cambiaron desde la reversión de Memoria. No se pudieron volver a mostrar los mensajes ocultos de forma segura. Revisa el chat restante antes de mostrarlos manualmente.",
+    "ArchiveLore_SharedEmbeddingHelp": "Con el complemento del servidor actualizado, las incrustaciones se guardan automáticamente en la carpeta archive-lore-embeddings de cada usuario, incluso con la ejecución en el servidor desactivada. Los datos del navegador se copian al acceder desde ese navegador y se conservan los originales. Los usuarios existentes sin el complemento siguen usando el almacenamiento del navegador."
 }

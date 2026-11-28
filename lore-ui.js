@@ -43,6 +43,7 @@ export function createLoreUI(api) {
             <div class="al-settings-top">${check('enabled','아카이브 로어 활성화',s.enabled)}${button('open',loreIcon('book')+'열기')}</div>
             <nav class="al-tabs al-settings-tabs" aria-label="설정 분류">${[['connection','연결'],['collection','수집·검색'],['prompts','프롬프트'],['server','서버']].map(([id,label])=>button('settings-tab',label,`data-settings-tab="${id}" aria-pressed="${id==='connection'}"`)).join('')}</nav>
             <section data-settings-pane="server" hidden>
+            <p class="al-muted">${translate('업데이트된 서버 플러그인이 있으면 임베딩은 사용자별 archive-lore-embeddings 폴더에 자동 보관됩니다. 서버 실행을 꺼도 저장 위치는 유지됩니다. 브라우저에만 있던 임베딩은 해당 브라우저에서 접속하면 이전되며 원본은 남습니다. 플러그인이 없는 기존 사용자는 브라우저 저장을 유지합니다.','ArchiveLore_SharedEmbeddingHelp')}</p>
             <details><summary>서버 실행</summary>${check('serverEnabled','서버에서 실행 · 플러그인 필요',s.serverEnabled)}${check('relayEnabled',translate('릴레이로 답변까지 서버에서 이어가기','ArchiveLore_BackgroundReply'),s.relayEnabled)}<p class="al-muted al-optional-help">${translate('선택 기능 · 양쪽 서버 플러그인과 릴레이 연결 유지가 필요합니다. 일반 1:1 답변에서 키워드 발동도 함께 사용할 수 있습니다. 키워드로 담긴 내용은 유지하며 AI 검색 기억과 겹칠 수 있습니다. 주입 상한만큼 자리를 미리 확보합니다. 검수·채팅 저장은 복귀 후 이어집니다.','ArchiveLore_BackgroundReplyKeywordHelp')}</p>${button('server-check','서버 연결 확인')}<span data-server-status role="status"></span></details>
 
             </section><section data-settings-pane="connection"><details open><summary>기억 작성·검색 AI</summary><div class="al-fields">

@@ -1592,5 +1592,6 @@
   "STMemoryBooks_SortUnsorted": "並べ替えなし",
   "STMemoryBooks_Jobs_SortTitle": "ジョブのタイトル",
   "STMemoryBooks_Jobs_SortStatus": "状態",
-  "STMemoryBooks_AutoRollback_UnhideUnsafe": "メモリーのロールバック後にメッセージが変更されました。非表示のメッセージを安全に再表示できませんでした。手動で再表示する前に、残っているチャットを確認してください。"
+  "STMemoryBooks_AutoRollback_UnhideUnsafe": "メモリーのロールバック後にメッセージが変更されました。非表示のメッセージを安全に再表示できませんでした。手動で再表示する前に、残っているチャットを確認してください。",
+    "ArchiveLore_SharedEmbeddingHelp": "更新済みのサーバープラグインがあれば、埋め込みはユーザー別の archive-lore-embeddings フォルダーに自動保存されます。サーバー実行をオフにしても保存先は変わりません。ブラウザー内の既存データは、そのブラウザーで接続すると移行され、元データも残ります。プラグイン未導入の既存ユーザーはブラウザー保存を継続します。"
 }

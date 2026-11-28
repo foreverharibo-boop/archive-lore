@@ -31,6 +31,9 @@ const url=new URL(req.url,'http://local').pathname;
 if(url==='/'){res.setHeader('Content-Type','text/html');res.end(fixture);return;}
 if(url.startsWith('/fonts/')){res.setHeader('Content-Type',url.endsWith('.css')?'text/css':'font/woff2');res.end(await fs.readFile(path.join(process.env.KOREAN_FONT_ROOT,url.slice(7))));return;}
 if(modules[url]){res.setHeader('Content-Type','text/javascript');res.end(modules[url]);return;}
+// This fixture has no server plugin. Unknown plugin routes must be 404, not a
+// successful empty /status response that resembles an outdated installation.
+if(url.startsWith('/api/plugins/archive-lore-server/')){res.statusCode=404;res.end();return;}
 if(url.startsWith('/api/')){let raw='';for await(const chunk of req)raw+=chunk;const payload=JSON.parse(raw);if(url.endsWith('/edit'))book=payload.data;res.setHeader('Content-Type','application/json');res.end(JSON.stringify(url.endsWith('/get')?book:{}));return;}
 const file=url.split('/').pop();if(!/^[\w.-]+$/.test(file))throw Error('bad path');res.setHeader('Content-Type',file.endsWith('.css')?'text/css':'text/javascript');res.end(await fs.readFile(root+'/'+file));
 }catch(e){res.statusCode=404;res.end(String(e));}});

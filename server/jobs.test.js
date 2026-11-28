@@ -322,7 +322,7 @@ test('accepted collection survives without polling; saves book, vector, hide fla
     await new Promise(r=>setTimeout(r,50));const result=await done(f.service,f.user,job.id);assert.equal(result.status,'completed',result.message);
     assert.equal(Object.keys(json(f.book).entries).length,1);assert.equal(json(f.book).archiveLore.receipts.length,1);
     assert.equal(jsonLines(f.file)[1].is_system,true);assert(!jsonLines(f.file)[2].is_system);
-    assert.equal(fs.readdirSync(path.join(f.root,'archive-lore-server','vectors')).length,1);
+    assert.equal(fs.readdirSync(path.join(f.root,'archive-lore-embeddings','vectors')).length,1);
     const logs=await readLogs(f.service,f.user,'test-key');assert(logs.some(r=>r.events.some(e=>e.stage==='collection.saved')));
     assert(!JSON.stringify(result).includes('private-embedding-key'));assert(!JSON.stringify(logs).includes('private-embedding-key'));
     assert(fs.readdirSync(path.join(f.root,'archive-lore-server','backups',job.id)).length>=2);
@@ -474,7 +474,7 @@ test('renamed book recovers a pre-update server embedding and recalls without re
     let input=f.input();input.settings.mode='embedding';
     let job=await service.submit(f.user,'index',input,randomUUID());assert.equal((await done(service,f.user,job.id)).status,'completed');assert.equal(documentEmbeds,1);
     // Emulate old installs, which kept vectors and jobs but no content aliases.
-    fs.rmSync(path.join(f.root,'archive-lore-server','vector-aliases'),{recursive:true,force:true});
+    fs.rmSync(path.join(f.root,'archive-lore-embeddings','vector-aliases'),{recursive:true,force:true});
     fs.renameSync(f.book,path.join(f.user.directories.worlds,'Renamed.json'));
     const restarted=createJobService(dependencies);input={...input,books:['Renamed'],target:'Renamed'};documentEmbeds=0;
     job=await restarted.submit(f.user,'index',input,randomUUID());let completed=await done(restarted,f.user,job.id);assert.equal(completed.status,'completed',completed.message);assert.equal(documentEmbeds,0);

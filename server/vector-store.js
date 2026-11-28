@@ -24,12 +24,15 @@ export function reusableVectorStore(root,{legacyBooks=()=>[]}={}) {
         if(prior?.key && embeddingIdentity(prior.key)===identity && (await vectors.hasMany([prior.key]))[0]){known.set(identity,prior.key);return;}
         await aliases.put(identity,{key});known.set(identity,key);
     };
+    const legacyKeys=key=>key.startsWith('embedding-v2:')?[hash(key.slice(13)),'exact-v1:'+key.slice(13)]:[];
     async function resolve(key,present=keys=>vectors.hasMany(keys)){
+        const legacy=legacyKeys(key),old=await present(legacy);
+        if(old.some(Boolean))return legacy.find((_,i)=>old[i]);
         const identity=embeddingIdentity(key);if(!identity)return null;
         const alias=known.has(identity)?{key:known.get(identity)}:await aliases.get(identity);
         if(alias?.key && embeddingIdentity(alias.key)===identity && (await present([alias.key]))[0]){known.set(identity,alias.key);return alias.key;}
         names ||= legacyBooks();
-        const candidates=renamedEmbeddingKeys(key,names);
+        const candidates=renamedEmbeddingKeys(key,names).flatMap(key=>[key,...legacyKeys(key)]);
         if(!candidates.length)return null;
         const found=await present(candidates);return candidates.find((_,i)=>found[i]) || null;
     }
@@ -38,7 +41,9 @@ export function reusableVectorStore(root,{legacyBooks=()=>[]}={}) {
             let vector=await vectors.get(key);
             if(vector){await remember(key);return vector;}
             const match=await resolve(key);if(!match)return null;
-            vector=await vectors.get(match);if(vector)await remember(match);return vector;
+            vector=await vectors.get(match);
+            if(vector){if(!embeddingIdentity(match)){await vectors.put(key,vector);await remember(key);}else await remember(match);}
+            return vector;
         },
         async hasMany(keys){
             const files=new Set(fs.readdirSync(inside(root,'vectors'),{withFileTypes:true}).filter(e=>e.isFile()).map(e=>e.name));

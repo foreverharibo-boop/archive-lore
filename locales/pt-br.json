@@ -1589,5 +1589,6 @@
   "STMemoryBooks_SortUnsorted": "sem ordenação",
   "STMemoryBooks_Jobs_SortTitle": "Título da tarefa",
   "STMemoryBooks_Jobs_SortStatus": "Status",
-  "STMemoryBooks_AutoRollback_UnhideUnsafe": "As mensagens mudaram desde a reversão da Memória. Não foi possível reexibir as mensagens ocultas com segurança. Confira o chat restante antes de reexibi-las manualmente."
+  "STMemoryBooks_AutoRollback_UnhideUnsafe": "As mensagens mudaram desde a reversão da Memória. Não foi possível reexibir as mensagens ocultas com segurança. Confira o chat restante antes de reexibi-las manualmente.",
+    "ArchiveLore_SharedEmbeddingHelp": "Com o plugin do servidor atualizado, os embeddings são salvos automaticamente na pasta archive-lore-embeddings de cada usuário, mesmo com a execução no servidor desativada. Os dados antigos do navegador são copiados ao acessar por esse navegador, preservando os originais. Usuários existentes sem o plugin continuam usando o armazenamento do navegador."
 }

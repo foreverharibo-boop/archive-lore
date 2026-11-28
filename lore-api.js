@@ -148,7 +148,7 @@ export async function embeddingKey(settings, id, chunk) {
     return 'embedding-v2:' + JSON.stringify([settings.cacheNamespace, settings.embeddingProvider,
         settings.embeddingProvider === 'openai' ? settings.embeddingUrl : settings.embeddingProvider === 'vertex' ? JSON.stringify([String(settings.embeddingVertexProjectId || '').trim(), String(settings.embeddingVertexRegion || 'global').trim() || 'global', 768]) : '', settings.embeddingModel, id, chunk]);
 }
-export function createVectorStore(factory = indexedDB) {
+export function createVectorStore(factory = indexedDB, keyRange = globalThis.IDBKeyRange) {
     let opening,identityIndex;
     const database = () => opening ||= new Promise((resolve, reject) => {
         const req = factory.open('archive-lore-v1', 1);
@@ -182,6 +182,16 @@ export function createVectorStore(factory = indexedDB) {
         const identity=embeddingIdentity(key);return identity?(await identities()).get(identity):undefined;
     }
     return {
+        async keys(after,limit=64) {
+            const db=await database();
+            return new Promise((resolve,reject)=>{
+                const tx=db.transaction('vectors'),keys=[];
+                const req=tx.objectStore('vectors').openKeyCursor(after===undefined?undefined:keyRange.lowerBound(after,true));
+                req.onsuccess=()=>{const cursor=req.result;if(!cursor)return;keys.push(cursor.key);if(keys.length<limit)cursor.continue();};
+                tx.oncomplete=()=>resolve({keys,after:keys.length===limit?keys.at(-1):undefined});
+                tx.onerror=()=>reject(tx.error);tx.onabort=()=>reject(tx.error || new Error('임베딩 이전 목록을 읽지 못했어.'));
+            });
+        },
         async hasMany(keys) {
             const found=await presentKeys(keys),missing=[];
             keys.forEach((key,index)=>{if(!found[index]&&key.startsWith('embedding-v2:'))missing.push({key,index});});

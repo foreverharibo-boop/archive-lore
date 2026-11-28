@@ -1592,5 +1592,6 @@
   "STMemoryBooks_SortUnsorted": "non trié",
   "STMemoryBooks_Jobs_SortTitle": "Titre de la tâche",
   "STMemoryBooks_Jobs_SortStatus": "Statut",
-  "STMemoryBooks_AutoRollback_UnhideUnsafe": "Les messages ont changé depuis l'annulation de la mémoire. Les messages masqués n'ont pas pu être réaffichés en toute sécurité. Vérifiez le chat restant avant de les réafficher manuellement."
+  "STMemoryBooks_AutoRollback_UnhideUnsafe": "Les messages ont changé depuis l'annulation de la mémoire. Les messages masqués n'ont pas pu être réaffichés en toute sécurité. Vérifiez le chat restant avant de les réafficher manuellement.",
+    "ArchiveLore_SharedEmbeddingHelp": "Avec le plugin serveur à jour, les embeddings sont enregistrés automatiquement dans le dossier archive-lore-embeddings de chaque utilisateur, même si l’exécution sur le serveur est désactivée. Les données du navigateur sont copiées lors d’une connexion depuis ce navigateur, sans supprimer les originaux. Les utilisateurs existants sans plugin conservent le stockage du navigateur."
 }

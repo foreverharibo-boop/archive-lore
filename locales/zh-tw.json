@@ -1592,5 +1592,6 @@
   "STMemoryBooks_SortUnsorted": "未排序",
   "STMemoryBooks_Jobs_SortTitle": "工作標題",
   "STMemoryBooks_Jobs_SortStatus": "狀態",
-  "STMemoryBooks_AutoRollback_UnhideUnsafe": "記憶回滾後訊息已發生變更，無法安全地取消隱藏訊息。手動取消隱藏前，請先檢查剩餘聊天。"
+  "STMemoryBooks_AutoRollback_UnhideUnsafe": "記憶回滾後訊息已發生變更，無法安全地取消隱藏訊息。手動取消隱藏前，請先檢查剩餘聊天。",
+    "ArchiveLore_SharedEmbeddingHelp": "安裝更新後的伺服器外掛後，嵌入向量會自動儲存在各使用者的 archive-lore-embeddings 資料夾中，關閉伺服器執行也不會改變儲存位置。使用原瀏覽器存取時會移轉其中既有的向量，並保留原始資料。未安裝外掛的現有使用者繼續使用瀏覽器儲存。"
 }

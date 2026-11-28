@@ -15,7 +15,7 @@ import { embed } from '../lore-api.js';
 import { normalizeSettings } from '../lore-core.js';
 import { captureTransport, probePayload } from './connection-test.js';
 export const info={id:'archive-lore-server',name:'Archive Lore Server',description:'Persistent Archive Lore jobs and server-side embeddings.'};
-export const VERSION='0.3.18';
+export const VERSION='0.3.19';
 export async function init(router) {
     globalThis.crypto ||= webcrypto;
     const require=createRequire(path.join(process.cwd(),'package.json'));
@@ -30,6 +30,7 @@ export async function init(router) {
     registerRoutes(router,service,embed,bridge,completion);
 }
 export function registerRoutes(router,service,embedding=embed,bridge=null,completion=null) {
+    const imports=new WeakMap();
     const route=(url,callback,cancelOnDisconnect=false)=>router.post(url,async(req,res)=>{
         if(!req.user?.profile?.handle||!req.user?.directories?.root)return res.status(401).json({error:'실리태번 로그인이 필요해.'});
         const abort=new AbortController(),closed=()=>{if(!res.writableEnded)abort.abort();};
@@ -37,7 +38,7 @@ export function registerRoutes(router,service,embedding=embed,bridge=null,comple
         try{return res.json(await callback(req.user,req.body || {},abort.signal));}catch(error){if(!abort.signal.aborted)return res.status(400).json({error:error.message});}
         finally{if(cancelOnDisconnect)res.removeListener?.('close',closed);}
     });
-    route('/status',user=>{service.vectors(user);return {version:VERSION,protocol:1,capabilities:['collect','index','recall','prepareMaintenance','applyMaintenance',...(bridge?['backgroundReply']:[])]};});
+    route('/status',user=>{service.vectors(user);return {version:VERSION,protocol:1,capabilities:['sharedEmbeddings','collect','index','recall','prepareMaintenance','applyMaintenance',...(bridge?['backgroundReply']:[])]};});
     route('/embedding',async(_user,body,signal)=>{
         if(typeof body.text!=='string'||body.text.length>50000)throw Error('임베딩 입력 크기를 확인해 줘.');
         const vector=await embedding(normalizeSettings(body.settings),body.text,!!body.query,signal);return {vector};
@@ -67,6 +68,25 @@ export function registerRoutes(router,service,embedding=embed,bridge=null,comple
     });
     route('/vectors/get',async(user,body)=>{if(typeof body.key!=='string'||body.key.length>100000)throw Error('잘못된 벡터 키야.');return {vector:await service.vectors(user).get(body.key)};});
     route('/vectors/put',async(user,body)=>{if(typeof body.key!=='string'||body.key.length>100000||!Array.isArray(body.vector)||!body.vector.length||body.vector.length>16384||!body.vector.every(Number.isFinite)||body.vector.every(v=>v===0))throw Error('잘못된 벡터야.');await service.vectors(user).put(body.key,body.vector);return {ok:true};});
+    route('/vectors/import',async(user,body)=>{
+        if(!Array.isArray(body.entries)||body.entries.length>8||body.entries.some(row=>
+            !row||typeof row.key!=='string'||row.key.length>100000||
+            !Array.isArray(row.vector)||!row.vector.length||row.vector.length>16384||
+            !row.vector.every(Number.isFinite)||row.vector.every(v=>v===0)))throw Error('이전할 임베딩 형식이 올바르지 않아.');
+        const store=service.vectors(user);
+        // Two browsers may migrate the same user simultaneously. Serialize
+        // imports per user so a later import cannot overwrite the first one.
+        const pending=(imports.get(store)||Promise.resolve()).then(async()=>{
+            for(const {key,vector} of body.entries){
+                if(await store.get(key))continue;
+                await store.put(key,vector);
+                if(JSON.stringify(await store.get(key))!==JSON.stringify(vector))throw Error('임베딩 저장 확인에 실패했어. 원본은 유지했어.');
+            }
+            return {confirmed:body.entries.length};
+        });
+        imports.set(store,pending.then(()=>{},()=>{}));
+        return pending;
+    });
     route('/logs/list',(user,body)=>service.logList(user,body.chatKey));
     route('/logs/preview',(user,body)=>service.logPreview(user,body.chatKey));
     route('/debug/recent',(user)=>service.logPreview(user));

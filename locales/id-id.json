@@ -1592,5 +1592,6 @@
   "STMemoryBooks_SortUnsorted": "tidak diurutkan",
   "STMemoryBooks_Jobs_SortTitle": "Judul tugas",
   "STMemoryBooks_Jobs_SortStatus": "Status",
-  "STMemoryBooks_AutoRollback_UnhideUnsafe": "Pesan berubah sejak rollback Memori. Pesan tersembunyi tidak dapat ditampilkan kembali dengan aman. Periksa chat yang tersisa sebelum menampilkannya secara manual."
+  "STMemoryBooks_AutoRollback_UnhideUnsafe": "Pesan berubah sejak rollback Memori. Pesan tersembunyi tidak dapat ditampilkan kembali dengan aman. Periksa chat yang tersisa sebelum menampilkannya secara manual.",
+    "ArchiveLore_SharedEmbeddingHelp": "Dengan plugin server terbaru, embedding otomatis disimpan di folder archive-lore-embeddings setiap pengguna, meskipun eksekusi server dimatikan. Data browser lama disalin saat Anda mengakses dari browser tersebut; data asli tetap disimpan. Pengguna lama tanpa plugin tetap memakai penyimpanan browser."
 }

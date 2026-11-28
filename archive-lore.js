@@ -23,7 +23,8 @@ import { createDiagnostics, createDiagnosticStore } from './lore-diagnostics.js'
 import { linkedTranslation } from './lore-translations.js';
 import { createInjectionRecorder } from './lore-injection-view.js';
 import { proxies } from '../../../openai.js';
-import { createServerClient,serverVectorStore,createServerController,profileTemplate,serverChatSnapshot } from './lore-server.js';
+import { createServerClient,createServerController,profileTemplate,serverChatSnapshot } from './lore-server.js';
+import { sharedVectorStore } from './lore-shared-embeddings.js';
 import { matchesRange } from './lore-core.js';
 import { createLoreUI } from './lore-ui.js';
 import { syncServerBooks } from './lore-automation.js';
@@ -131,7 +132,10 @@ const diagnostics = createDiagnostics({
 });
 let pendingGeneration = null, generationEpoch = 0, generationStopped = false;
 const serverCall=createServerClient({headers:getRequestHeaders});
-const vectorStore=serverVectorStore({local:createVectorStore(),call:serverCall,enabled:()=>!!settings()?.serverEnabled});
+const vectorStore=sharedVectorStore({local:createVectorStore(),call:serverCall,
+    required:()=>!!(settings()?.serverEnabled||settings()?.sharedEmbeddingStorage),
+    onShared:()=>{if(!settings()?.sharedEmbeddingStorage)saveSettings({sharedEmbeddingStorage:true});},
+});
 const searchViewListeners=new Set();
 function notifySearchViews(){for(const listener of searchViewListeners){try{listener();}catch(e){console.warn('[Archive Lore] View refresh failed',e);}}}
 const localController = createLoreController({
@@ -154,6 +158,7 @@ const localController = createLoreController({
 });
 const serverInput=async(kind,options,report=async()=>{})=>{
         const step=async(name,work)=>{const start=Date.now();try{return await work();}finally{await report(name,Date.now()-start);}};
+        await step('embedding-storage',()=>vectorStore.ready());
         if(globalThis.archiveLoreUndoing)throw Error('직전 수집 되돌리기가 끝난 뒤 실행해 줘.');
         const key=chatContext().key;if(!key)throw Error('채팅방에서 실행해 줘.');
         if(kind==='collect')await ensureBook();
@@ -362,6 +367,7 @@ function nativePolicy(lists) {
 }
 function init() {
     saveSettings();
+    void vectorStore.ready().then(()=>controller.invalidateEmbeddingCounts()).catch(error);
     void diagnosticStore.ready().catch(error);
     ui=createLoreUI({settings,saveSettings,controller,context:chatContext,error,diagnostics:diagnosticView,translate,
         retrievalOnly:!!globalThis.archiveLoreFork,openHome:globalThis.archiveLoreFork?()=>globalThis.archiveLoreMemoryBooks.open():null,

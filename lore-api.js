@@ -182,6 +182,17 @@ export function createVectorStore(factory = indexedDB, keyRange = globalThis.IDB
         const identity=embeddingIdentity(key);return identity?(await identities()).get(identity):undefined;
     }
     return {
+        async getMany(keys,{signal}={}) {
+            signal?.throwIfAborted();if(!keys.length)return [];
+            const db=await database();
+            const values=await new Promise((resolve,reject)=>{
+                const tx=db.transaction('vectors'),values=new Array(keys.length),store=tx.objectStore('vectors');
+                keys.forEach((key,i)=>{const request=store.get(key);request.onsuccess=()=>{values[i]=request.result;};});
+                tx.oncomplete=()=>resolve(values);tx.onerror=()=>reject(tx.error);tx.onabort=()=>reject(tx.error || new Error('임베딩 읽기가 중단됐어.'));
+            });
+            for(let i=0;i<keys.length;i++){signal?.throwIfAborted();if(!values[i])values[i]=await this.get(keys[i]);}
+            return values;
+        },
         async keys(after,limit=64) {
             const db=await database();
             return new Promise((resolve,reject)=>{

@@ -37,6 +37,11 @@ export function reusableVectorStore(root,{legacyBooks=()=>[]}={}) {
         const found=await present(candidates);return candidates.find((_,i)=>found[i]) || null;
     }
     return {
+        async getMany(keys,{signal}={}) {
+            const result=[];
+            for(const key of keys){signal?.throwIfAborted();result.push(await this.get(key));}
+            return result;
+        },
         async get(key){
             let vector=await vectors.get(key);
             if(vector){await remember(key);return vector;}

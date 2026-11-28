@@ -15,7 +15,7 @@ import { embed } from '../lore-api.js';
 import { normalizeSettings } from '../lore-core.js';
 import { captureTransport, probePayload } from './connection-test.js';
 export const info={id:'archive-lore-server',name:'Archive Lore Server',description:'Persistent Archive Lore jobs and server-side embeddings.'};
-export const VERSION='0.3.19';
+export const VERSION='0.3.20';
 export async function init(router) {
     globalThis.crypto ||= webcrypto;
     const require=createRequire(path.join(process.cwd(),'package.json'));
@@ -67,6 +67,10 @@ export function registerRoutes(router,service,embedding=embed,bridge=null,comple
         const store=service.vectors(user);return {present:await store.hasMany(body.keys)};
     });
     route('/vectors/get',async(user,body)=>{if(typeof body.key!=='string'||body.key.length>100000)throw Error('잘못된 벡터 키야.');return {vector:await service.vectors(user).get(body.key)};});
+    route('/vectors/get-many',async(user,body,signal)=>{
+        if(!Array.isArray(body.keys)||body.keys.length>32||body.keys.some(key=>typeof key!=='string'||key.length>100000)||body.keys.join('').length>1000000)throw Error('임베딩 묶음 조회 범위를 확인해 줘.');
+        return {vectors:await service.vectors(user).getMany(body.keys,{signal})};
+    },true);
     route('/vectors/put',async(user,body)=>{if(typeof body.key!=='string'||body.key.length>100000||!Array.isArray(body.vector)||!body.vector.length||body.vector.length>16384||!body.vector.every(Number.isFinite)||body.vector.every(v=>v===0))throw Error('잘못된 벡터야.');await service.vectors(user).put(body.key,body.vector);return {ok:true};});
     route('/vectors/import',async(user,body)=>{
         if(!Array.isArray(body.entries)||body.entries.length>8||body.entries.some(row=>

@@ -96,6 +96,13 @@ test('two simultaneous browser imports preserve the first confirmed vector',asyn
     ]);
     assert.deepEqual(await f.service.vectors(f.user).get('same'),[1,2]);
 });
+test('authenticated bulk route preserves missing slots and user isolation, rejecting oversized queries',async t=>{
+    const f=fixture(t),k=await key();await f.service.vectors(f.user).put(k,[1,2]);
+    assert.deepEqual(await f.call('/vectors/get-many',{keys:[k,'absent',k]}),{vectors:[[1,2],null,[1,2]]});
+    await assert.rejects(f.call('/vectors/get-many',{keys:Array(33).fill(k)}),/범위/);
+    await assert.rejects(f.call('/vectors/get-many',{keys:[null]}),/범위/);
+    const other=fixture(t);assert.deepEqual(await other.call('/vectors/get-many',{keys:[k]}),{vectors:[null]});
+});
 test('interrupted disk migration resumes, preserves originals/destination, and retains old book names',async t=>{
     const f=fixture(t),legacy=path.join(f.root,'archive-lore-server');fs.mkdirSync(legacy);
     const k=await key('Source','Old');await privateStore(legacy,'vectors').put(k,[1,2]);

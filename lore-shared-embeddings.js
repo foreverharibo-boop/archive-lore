@@ -44,6 +44,7 @@ export function sharedVectorStore({local,call,required=()=>false,onShared=()=>{}
         ready,
         clear:()=>remote.clear(),
         async get(key){return (await choose()).get(key);},
+        async getMany(keys,options){return (await choose()).getMany(keys,options);},
         async put(key,vector,options){return (await choose()).put(key,vector,options);},
         async hasMany(keys,options){return (await choose()).hasMany(keys,options);},
         async peekMany(keys,options){const store=await choose();return store.peekMany?store.peekMany(keys,options):store.hasMany(keys,options);},

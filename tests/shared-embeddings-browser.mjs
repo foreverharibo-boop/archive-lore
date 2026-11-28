@@ -35,6 +35,8 @@ try{
             const key=await embeddingKey({cacheNamespace:'n',embeddingProvider:'gemini',embeddingModel:'gemini-embedding-001'},'book',`Original ${i}`);keys.push(key);
             await local.put(i===0?await digest(key.slice(13)):i===1?'exact-v1:'+key.slice(13):key,[i+1,1]);
         }
+        const localBulk=await local.getMany([keys[0],keys[1],keys[129],keys[0]]);
+        if(JSON.stringify(localBulk)!==JSON.stringify([[1,1],[2,1],[130,1],[1,1]]))throw Error('Local bulk lookup lost legacy keys or ordering');
         const call=async(route,body={})=>{const res=await fetch(route,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});const data=await res.json();if(!res.ok)throw Error(data.error);return data;};
         let shared=false;const store=sharedVectorStore({local,call,onShared:()=>{shared=true;}});await store.ready();
         let after,originalCount=0;do{const page=await local.keys(after);originalCount+=page.keys.length;after=page.after;}while(after!==undefined);
@@ -46,8 +48,9 @@ try{
         const {createVectorStore}=await import('/lore-api.js');const {sharedVectorStore}=await import('/lore-shared-embeddings.js');
         const local=createVectorStore();const before=await local.keys();
         const call=async(route,body={})=>{const r=await fetch(route,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});return r.json();};
-        const store=sharedVectorStore({local,call});await store.ready();return {localCount:before.keys.length,vector:await store.get(key)};
+        const store=sharedVectorStore({local,call});await store.ready();return {localCount:before.keys.length,vector:await store.get(key),bulk:await store.getMany([key,'missing',key])};
     },migrated.keys.at(-1));
     assert.equal(read.localCount,0);assert.deepEqual(read.vector,[130,1]);
+    assert.deepEqual(read.bulk,[[130,1],null,[130,1]]);
     console.log('PASS: 130 real IndexedDB records paginated and migrated; legacy formats recovered; originals preserved; isolated app context reads the common folder.');
 }finally{await browser.close();await new Promise(r=>server.close(r));fs.rmSync(root,{recursive:true,force:true});}

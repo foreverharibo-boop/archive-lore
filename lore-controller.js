@@ -15,6 +15,7 @@ import { selectionFocusPrompt, focusQuestionPrompt, focusSearchQuery, orderFocus
 import { fitFocusedInjection } from './lore-focus-injection.js';
 import { withAbort } from './lore-cancellation.js';
 import { mapOrdered } from './lore-parallel.js';
+import { queryVectors } from './lore-query-vectors.js';
 import { generousRecall } from './lore-generous-recall.js';
 import { errorInfo, observer } from './lore-telemetry.js';
 import { OUTCOME_QUESTION_PROMPT, OUTCOME_SELECTION_PROMPT } from './lore-outcome-context.js';
@@ -259,7 +260,7 @@ export function createLoreController(host) {
             const askRecall=(profile,system,data,requestSignal,tokens,phase='selectionMs')=>recallOutput(
                 limit=>askTracked(profile,system,data,requestSignal,limit,phase),tokens,requestSignal,log,phase);
             lastRecall=null;
-            const started=Date.now();timings={questionMs:0,embeddingMs:0,selectionMs:0};
+            const started=Date.now();timings={questionMs:0,embeddingMs:0,selectionMs:0,cacheMs:0};
             const snapshot = structuredClone(host.context()), config = settings();
             const rows = (await records(snapshot)).filter(r => entrySearchAllowed(r.entry, config.excludedSidePromptKeys));
             const core = rows.filter(r => isCore(r.entry)).map(r => r.entry.content).join('\n\n');
@@ -270,12 +271,17 @@ export function createLoreController(host) {
             await log('core.records',{records:rows.filter(r=>isCore(r.entry)),text:core});
             if (!recent.text) { lastRecall={text:'',core,units:[],questions:[],pending:0,candidateTotal:0,tokens:0,mode:config.mode,records:rows.filter(r=>isCore(r.entry))};await log('retrieval.empty',{reason:'no dialogue'});return { text: '', core, selected: new Set(), books: host.books() }; }
             const chunks = [], reviewChunks = [], cacheStatus=[]; let pending = 0;
-            for (const row of rows.filter(r => !isCore(r.entry))) for (const chunk of await chunksFor(row, config)) {
-                reviewChunks.push(chunk);
-                const vector = await host.store.get(chunk.cacheKey);
+            const cacheStarted=Date.now();
+            for (const row of rows.filter(r => !isCore(r.entry)))reviewChunks.push(...await chunksFor(row,config));
+            const keys=reviewChunks.map(chunk=>chunk.cacheKey);
+            const cached=host.store.getMany?await host.store.getMany(keys,{signal}):await mapOrdered(keys,1,key=>host.store.get(key),signal);
+            if(!Array.isArray(cached)||cached.length!==keys.length)throw Error('임베딩 묶음 조회 결과가 올바르지 않아.');
+            for (const [i,chunk] of reviewChunks.entries()) {
+                const vector=cached[i];
                 cacheStatus.push({entryId:chunk.id,chunk:chunk.index,hit:!!vector,text:chunk.text,dimensions:vector?.length});
                 if (vector) chunks.push({ ...chunk, vector }); else pending++;
             }
+            timings.cacheMs=Date.now()-cacheStarted;
             await log('retrieval.cache',{chunks:cacheStatus});
             assertCurrent(snapshot, signal);
             if (!chunks.length) await log('retrieval.empty',{reason:pending?'no indexed memories':'no searchable memories',pending});
@@ -312,21 +318,17 @@ export function createLoreController(host) {
             await log('search.queries',{mode:config.mode,emphasisQueries,selectionFocus:config.selectionFocus,queries:config.mode==='questions'?questions:config.mode==='embedding'?[recent.text]:[focus.latestUser,focus.context],latestUser:focus.latestUser,context:focus.context,policy:retrievalPolicy});
             let fitted = { text: '', units: [], tokens: 0 }, candidateTotal = 0;
             if (chunks.length && focus.latestUser) {
-                const queryCache = new Map();
-                const vectors = async texts => {
-                    const result = [];
-                    for (const text of texts) for (const chunk of embeddingChunks({content:text},1000)) {
-                        if (!queryCache.has(chunk.text)) queryCache.set(chunk.text,await embedTracked(config,chunk.text,true,signal));
-                        result.push(queryCache.get(chunk.text));
-                    }
-                    return result;
-                };
                 const plain=config.mode==='embedding';
-                const lanes = plain ? {context:await vectors([recent.text])} : {focus:await vectors([focus.latestUser]),questions:await vectors(directQuestions),context:await vectors([focus.context]),emphasis:await vectors(emphasisQueries)};
+                const queryStarted=Date.now();
+                const {lanes,dimensions}=await queryVectors(plain?{context:[recent.text]}:
+                    {focus:[focus.latestUser],questions:directQuestions,context:[focus.context],emphasis:emphasisQueries},
+                    (text,querySignal)=>embedTracked(config,text,true,querySignal),config.selectionConcurrency,signal);
+                timings.embeddingRequestMs=timings.embeddingMs;
+                timings.embeddingMs=Date.now()-queryStarted;
                 const ranked=plain ? rankChunks(chunks,lanes.context,chunks.length) : rankFocusedChunks(chunks,lanes,directQuestions.length ? directQuestions : [focus.latestUser]);
                 const candidates=plain ? ranked.slice(0,config.candidateCount) : chooseCandidates(ranked,config.candidateCount,config.mode); candidateTotal = candidates.length;
                 const candidateKeys=new Set(candidates.map(c=>JSON.stringify([c.id,c.index])));
-                await log('search.ranking',{indexedChunks:chunks.length,missingChunks:pending,queryDimensions:[...queryCache.values()].map(v=>v.length),policy:retrievalPolicy,ranked:ranked.map(({vector,cacheKey,...item},index)=>({...item,rank:index+1,offered:candidateKeys.has(JSON.stringify([item.id,item.index]))})),notRanked:chunks.filter(c=>!ranked.some(r=>r.id===c.id&&r.index===c.index)).map(c=>({entryId:c.id,chunk:c.index,reason:'non-positive similarity or incompatible vector dimensions'}))});
+                await log('search.ranking',{indexedChunks:chunks.length,missingChunks:pending,queryDimensions:dimensions,policy:retrievalPolicy,ranked:ranked.map(({vector,cacheKey,...item},index)=>({...item,rank:index+1,offered:candidateKeys.has(JSON.stringify([item.id,item.index]))})),notRanked:chunks.filter(c=>!ranked.some(r=>r.id===c.id&&r.index===c.index)).map(c=>({entryId:c.id,chunk:c.index,reason:'non-positive similarity or incompatible vector dimensions'}))});
                 if (plain) {
                     // Whole original chunks, in similarity order. No planner, selector or lexical fallback.
                     const groups=candidates.map(c=>{
@@ -386,7 +388,7 @@ export function createLoreController(host) {
             if (JSON.stringify(snapshot.messages) !== JSON.stringify(host.context().messages)) throw new Error('검색 중 대화가 바뀌었어. 다시 시도해 줘.');
             const current=settings();
             if(current.mode!==config.mode || current.generousRecall!==config.generousRecall || JSON.stringify(current.selectionFocus)!==JSON.stringify(config.selectionFocus) || JSON.stringify(current.excludedSidePromptKeys)!==JSON.stringify(config.excludedSidePromptKeys))throw new Error('검색 중 기억 선별 설정이 바뀌어서 주입하지 않았어. 다시 시도해 줘.');
-            timings.totalMs=Date.now()-started;timings.otherMs=Math.max(0,timings.totalMs-timings.questionMs-timings.embeddingMs-timings.selectionMs);
+            timings.totalMs=Date.now()-started;timings.otherMs=Math.max(0,timings.totalMs-timings.cacheMs-timings.questionMs-timings.embeddingMs-timings.selectionMs);
             await log('recall.timing',timings);
             assertCurrent(snapshot, signal);
             lastRecall = { ...fitted, timings:{...timings}, questions: config.mode === 'questions' ? questions : [], pending,

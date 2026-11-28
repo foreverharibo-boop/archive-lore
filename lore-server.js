@@ -6,6 +6,7 @@ import { automaticReady } from './lore-automation.js';
 import { withAbort } from './lore-cancellation.js';
 import { waitForServerPoll } from './lore-poll-wait.js';
 import {matchesChatSnapshot} from './lore-chat-snapshot.js';
+import {mapOrdered} from './lore-parallel.js';
 export {serverChatSnapshot} from './lore-chat-snapshot.js';
 export async function profileTemplate(context,profileId,proxies=[]) {
     const id=profileId || context.extensionSettings?.connectionManager?.selectedProfile;
@@ -46,6 +47,7 @@ export function createServerClient({headers,request=fetch}) {
     };
 }
 export function serverVectorStore({local,call,enabled}) {
+    let batchSupported=true;
     const cache=new Map();let cacheBytes=0;
     const cost=(key,vector)=>key.length*2+vector.length*8;
     const remember=(key,vector)=>{
@@ -56,6 +58,35 @@ export function serverVectorStore({local,call,enabled}) {
     };
     return {
         clear:()=>{cache.clear();cacheBytes=0;},
+        async getMany(keys,{signal}={}){
+            signal?.throwIfAborted();
+            if(!enabled())return local.getMany?local.getMany(keys,{signal}):mapOrdered(keys,1,key=>local.get(key),signal);
+            const batches=[];let current=[],size=0;
+            for(const key of keys){
+                if(current.length===32||size+key.length>1000000){batches.push(current);current=[];size=0;}
+                current.push(key);size+=key.length;
+            }
+            if(current.length)batches.push(current);
+            const rows=await mapOrdered(batches,2,async(batch,_index,batchSignal)=>{
+                let values,legacy=!batchSupported;
+                if(!legacy){
+                    try{values=(await call('/vectors/get-many',{keys:batch},{signal:batchSignal})).vectors;}
+                    catch(error){if(error.status!==404)throw error;batchSupported=false;legacy=true;}
+                    if(!legacy&&(!Array.isArray(values)||values.length!==batch.length||values.some(v=>v!==null&&(!Array.isArray(v)||!v.length||v.length>16384||!v.every(Number.isFinite)||v.every(n=>n===0)))))throw Error('임베딩 묶음 응답이 올바르지 않아.');
+                }
+                if(legacy){
+                    values=[];
+                    for(const key of batch){batchSignal.throwIfAborted();values.push((await call('/vectors/get',{key},{signal:batchSignal})).vector);}
+                }
+                for(let i=0;i<batch.length;i++){
+                    batchSignal.throwIfAborted();
+                    if(!values[i]){values[i]=(await local.get(batch[i]))??null;if(values[i])await call('/vectors/put',{key:batch[i],vector:values[i]},{signal:batchSignal});}
+                    if(values[i])remember(batch[i],values[i]);
+                }
+                return values;
+            },signal);
+            return rows.flat();
+        },
         async peekMany(keys,{signal}={}){
             if(!enabled())return local.hasMany?local.hasMany(keys):Promise.all(keys.map(async key=>!!await local.get(key)));
             const found=[];

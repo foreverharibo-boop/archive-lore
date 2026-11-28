@@ -24,6 +24,26 @@ function fixture() {
         set key(v){key=v;},set failSave(v){failSave=v;},set failEmbed(v){failEmbed=v;},set config(v){config={...config,...v};}};
 }
 const memory=()=>JSON.stringify({entries:[{title:'병원 약속',content:'두 사람은 병원에 함께 가기로 약속했다.',keywords:['병원']}],sideChanges:[]});
+test('bulk cache reads and parallel queries retain the same reviewed sources and selected original text',async()=>{
+    const runs=[];
+    for(const parallel of [false,true]){
+        const f=fixture();f.config={mode:'questions',selectionConcurrency:parallel?2:1,cacheNamespace:'speed-test'};
+        f.book={entries:{0:{uid:0,comment:'Visit',content:'They visited the hospital. The treatment ended.'},1:{uid:1,comment:'Trip',content:'They visited the beach. They returned home.'}}};
+        let bulk=0;const review=[],queryTexts=[];
+        if(parallel)f.host.store.getMany=async keys=>{bulk++;return keys.map(key=>f.cache.get(key));};
+        f.host.embed=async(_config,text,query)=>{if(query)queryTexts.push(text);await new Promise(r=>setImmediate(r));return [1,0];};
+        f.host.ask=async(_profile,_system,data)=>{
+            if(!data.memories)return JSON.stringify({questions:['Did the treatment end?','Did the treatment end?','What happened at the hospital?']});
+            review.push(data.memories);
+            return JSON.stringify({selections:[{id:data.memories[0].id,priority:3,reason:'Prior context',contextIds:data.memories.slice(1).map(m=>m.id)}]});
+        };
+        await f.controller.index();const result=await f.controller.recall();
+        assert.equal(bulk,parallel?1:0);assert.equal(new Set(queryTexts).size,queryTexts.length);
+        assert(f.controller.state().lastRecall.timings.cacheMs>=0);
+        runs.push({text:result.text,review,queryTexts});
+    }
+    assert.deepEqual(runs[0],runs[1]);
+});
 for(const mode of ['dialogue','questions','embedding'])for(const generousRecall of [false,true])test(`recall diagnostics inspect the real pipeline without extra model calls: ${mode}, generous=${generousRecall}`,async()=>{
     const f=fixture(),diagnostics=createDiagnostics();f.host.diagnostics=diagnostics;
     f.config={mode,generousRecall,injectionTokens:3000};

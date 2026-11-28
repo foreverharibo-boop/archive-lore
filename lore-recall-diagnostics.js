@@ -41,7 +41,9 @@ export function createRecallAudit(sanitize=value=>value){
                         (Number.isFinite(data.reviewTokenLimit)?`\n기억 원문 검토: ${data.reviewSourceTokens} / ${data.reviewTokenLimit} 추정 토큰 (묶음 간 중복 포함) · 후보 ${data.reviewedCandidates}개 검토 / ${data.skippedCandidates}개 제외 · 범위 ${data.reviewScope}`:'')+
                         (data.reviewOrderPolicy?`\n검토 예산 배분 순서: ${data.reviewOrderPolicy}`:''),1000);
                     if(Array.isArray(data.reviewOrder))detail('review-order','[후보별 검토 예산 배분 · AI 선택 결과 아님]\n'+data.reviewOrder.map((u,i)=>
-                        `${i+1}. ${u.entryId} #${u.index} · ${u.title??''} · 검색 점수 ${Number.isFinite(u.score)?u.score:'없음'} · ${({'reviewed':'검토 포함','budget':'검토 예산 부족','missing-source':'검토 원문 없음'})[u.status]??u.status}`).join('\n'));
+                        `${i+1}. ${u.entryId} #${u.index} · ${u.title??''} · 검색 점수 ${Number.isFinite(u.score)?u.score:'없음'} · ${({'reviewed':'검토 포함','budget':'검토 예산 부족','missing-source':'검토 원문 없음'})[u.status]??u.status}`+
+                        (u.question?` · 질문 ${u.question} 우선 배분`:'')+
+                        (u.questionRanks?`\n   질문별 순위: ${u.questionRanks.map((rank,q)=>`${q+1}번=${rank??'없음'}`).join(', ')}`:'')).join('\n'));
                     break;
                 }
                 case 'selection.output-schema':{

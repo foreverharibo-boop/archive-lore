@@ -42,15 +42,20 @@ export function rankAnchors(chunks, queries) {
 }
 
 // Reciprocal ranks combine separate searches without letting any one long older message win by max similarity.
-export function rankFocusedChunks(chunks, { focus = [], context = [], questions = [], emphasis = [] }, queryTexts = []) {
-    const lanes = (emphasis.length ? [['focus',focus,.5],['questions',questions,.2],['context',context,.1],['emphasis',emphasis,.2]] : [['focus',focus,.65],['questions',questions,.25],['context',context,.1]]).filter(([,q])=>q.length);
+export function rankFocusedChunks(chunks, { focus = [], context = [], questions = [], emphasis = [] }, queryTexts = [], {questionGroups=[]} = {}) {
+    const questionFirst=questionGroups.some(group=>group.length);
+    const lanes = (questionFirst
+        ? (emphasis.length ? [['focus',focus,.2],['questions',questions,.65],['context',context,.05],['emphasis',emphasis,.1]] : [['focus',focus,.2],['questions',questions,.7],['context',context,.1]])
+        : (emphasis.length ? [['focus',focus,.5],['questions',questions,.2],['context',context,.1],['emphasis',emphasis,.2]] : [['focus',focus,.65],['questions',questions,.25],['context',context,.1]])).filter(([,q])=>q.length);
     const rows = new Map();
     for (const [lane, vectors, weight] of lanes) {
         const ranked = rankChunks(chunks, vectors, chunks.length);
         ranked.forEach((chunk,index)=>{
             const key = chunkKey(chunk);
             const row = rows.get(key) || {...chunk,score:0};
-            row.score += weight * 60 / (60 + index + 1);
+            // Question mode also retains similarity strength: rank #2 must not
+            // look almost identical to #1 when their actual matches are far apart.
+            row.score += weight * 60 / (60 + index + 1) * (questionFirst?chunk.score:1);
             row[`${lane}Rank`] = index+1;
             row[`${lane}Score`] = chunk.score;
             rows.set(key,row);
@@ -60,10 +65,61 @@ export function rankFocusedChunks(chunks, { focus = [], context = [], questions 
         const key=chunkKey(chunk),row=rows.get(key)||{...chunk,score:0};
         row.anchorRank=index+1;row.anchorScore=chunk.anchorScore;rows.set(key,row);
     });
+    // Keep each original question separate, including questions split into
+    // multiple embedding inputs. No extra provider calls are needed here.
+    if(questionFirst)questionGroups.forEach((vectors,q)=>{
+        rankChunks(chunks,vectors,chunks.length).forEach((chunk,index)=>{
+            const row=rows.get(chunkKey(chunk));
+            if(!row)return;
+            row.questionRanks ||= Array(questionGroups.length).fill(null);
+            row.questionScores ||= Array(questionGroups.length).fill(null);
+            row.questionRanks[q]=index+1;row.questionScores[q]=chunk.score;
+        });
+    });
     return [...rows.values()].sort((a,b)=>b.score-a.score);
 }
 
+export function questionCandidateLists(candidates) {
+    const count=Math.max(0,...candidates.map(c=>c.questionRanks?.length||0));
+    return Array.from({length:count},(_,q)=>candidates.filter(c=>Number.isFinite(c.questionRanks?.[q])&&c.questionRanks[q]>0)
+        .sort((a,b)=>a.questionRanks[q]-b.questionRanks[q]));
+}
+
+export function roundRobinCandidates(lists) {
+    const result=[],seen=new Set(),positions=lists.map(()=>0);
+    let added;
+    do{
+        added=false;
+        lists.forEach((list,q)=>{
+            while(positions[q]<list.length&&seen.has(chunkKey(list[positions[q]])))positions[q]++;
+            const row=list[positions[q]++];
+            if(row){seen.add(chunkKey(row));result.push(row);added=true;}
+        });
+    }while(added);
+    return result;
+}
+
 export function chooseCandidates(ranked, limit, mode = 'dialogue') {
+    if(limit<=0)return [];
+    const questionLists=mode==='questions'?questionCandidateLists(ranked):[];
+    if(questionLists.some(list=>list.length)){
+        const selected=[],seen=new Set();
+        const add=row=>{if(selected.length<limit&&!seen.has(chunkKey(row))){selected.push(row);seen.add(chunkKey(row));}};
+        const fair=roundRobinCandidates(questionLists);
+        for(const row of fair.slice(0,Math.ceil(limit*.75)))add(row);
+        // Lexical/aspect rescues supplement the question pool rather than
+        // displacing its first candidates. Remaining slots follow fused scores.
+        for(const field of ['anchorRank','emphasisRank']){
+            let added=0;const entries=new Set();
+            for(const row of ranked.filter(r=>r[field]).sort((a,b)=>a[field]-b[field])){
+                if(added>=Math.max(1,Math.floor(limit/8))||selected.length>=limit)break;
+                if(seen.has(chunkKey(row))||entries.has(row.id))continue;
+                const before=selected.length;add(row);added+=selected.length-before;entries.add(row.id);
+            }
+        }
+        for(const row of ranked)add(row);
+        return selected;
+    }
     const selected = [], seen = new Set(), counts = new Map();
     const add = (row, diverse) => {
         const key = chunkKey(row);

@@ -301,7 +301,7 @@ export function createLoreController(host) {
                         const raw=parseJson(response);
                         if(!Array.isArray(raw?.questions) || raw.questions.length<1 || raw.questions.length>6 || raw.questions.some(q=>typeof q!=='string' || !q.trim() || q.length>2000))
                             throw Error('검색 질문 형식이 올바르지 않아.');
-                        questions=raw.questions.map(q=>q.trim());break;
+                        questions=[...new Set(raw.questions.map(q=>q.trim()))];break;
                     }catch(error){
                         signal.throwIfAborted();
                         await log('question.invalid',{attempt:attempt+1,message:error.message,response});
@@ -313,19 +313,20 @@ export function createLoreController(host) {
             const emphasisQueries=config.mode==='embedding'||!config.selectionFocus.length ? [] : config.mode==='questions' ?
                 (questions.length>1 ? questions.slice(1) : questions.length ? [focusSearchQuery(config.selectionFocus,boundedText(questions[0],600))] : []) :
                 [focusSearchQuery(config.selectionFocus,boundedText(focus.latestUser+'\n'+focus.context,600))].filter(Boolean);
-            const directQuestions=emphasisQueries.length&&config.mode==='questions'?questions.slice(0,1):questions;
-            const retrievalPolicy=emphasisQueries.length?'focus-aspects-v1':config.mode==='embedding'?'cosine-similarity':config.mode==='questions'?'event-anchors-v3':'latest-user-reserved-v1';
+            const directQuestions=config.mode==='questions'?[...new Set(questions)]:questions;
+            const retrievalPolicy=config.mode==='questions'?'question-first-balanced-v1':emphasisQueries.length?'focus-aspects-v1':config.mode==='embedding'?'cosine-similarity':'latest-user-reserved-v1';
             await log('search.queries',{mode:config.mode,emphasisQueries,selectionFocus:config.selectionFocus,queries:config.mode==='questions'?questions:config.mode==='embedding'?[recent.text]:[focus.latestUser,focus.context],latestUser:focus.latestUser,context:focus.context,policy:retrievalPolicy});
             let fitted = { text: '', units: [], tokens: 0 }, candidateTotal = 0;
             if (chunks.length && focus.latestUser) {
                 const plain=config.mode==='embedding';
                 const queryStarted=Date.now();
-                const {lanes,dimensions}=await queryVectors(plain?{context:[recent.text]}:
+                const {lanes,groups,dimensions}=await queryVectors(plain?{context:[recent.text]}:
                     {focus:[focus.latestUser],questions:directQuestions,context:[focus.context],emphasis:emphasisQueries},
                     (text,querySignal)=>embedTracked(config,text,true,querySignal),config.selectionConcurrency,signal);
                 timings.embeddingRequestMs=timings.embeddingMs;
                 timings.embeddingMs=Date.now()-queryStarted;
-                const ranked=plain ? rankChunks(chunks,lanes.context,chunks.length) : rankFocusedChunks(chunks,lanes,directQuestions.length ? directQuestions : [focus.latestUser]);
+                const ranked=plain ? rankChunks(chunks,lanes.context,chunks.length) : rankFocusedChunks(chunks,lanes,directQuestions.length ? directQuestions : [focus.latestUser],
+                    {questionGroups:config.mode==='questions'?groups.questions:[]});
                 const candidates=plain ? ranked.slice(0,config.candidateCount) : chooseCandidates(ranked,config.candidateCount,config.mode); candidateTotal = candidates.length;
                 const candidateKeys=new Set(candidates.map(c=>JSON.stringify([c.id,c.index])));
                 await log('search.ranking',{indexedChunks:chunks.length,missingChunks:pending,queryDimensions:dimensions,policy:retrievalPolicy,ranked:ranked.map(({vector,cacheKey,...item},index)=>({...item,rank:index+1,offered:candidateKeys.has(JSON.stringify([item.id,item.index]))})),notRanked:chunks.filter(c=>!ranked.some(r=>r.id===c.id&&r.index===c.index)).map(c=>({entryId:c.id,chunk:c.index,reason:'non-positive similarity or incompatible vector dimensions'}))});

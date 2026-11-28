@@ -795,3 +795,34 @@ test('plain embedding bypasses review input limits and never invokes a selector'
     const low=await f.controller.recall();f.config={reviewTokens:64000};const high=await f.controller.recall();
     assert(low.text);assert.equal(low.text,high.text);assert.equal(low.tokens,high.tokens);
 });
+
+for(const generousRecall of [false,true])for(const selectionFocus of [[],['affection']])test(`question-first recall sends evidence for all questions to the real selector: generous=${generousRecall}, focus=${selectionFocus.length}`,async()=>{
+    const f=fixture(),diagnostics=createDiagnostics();f.host.diagnostics=diagnostics;
+    f.config={mode:'questions',generousRecall,selectionFocus,reviewTokens:2000,injectionTokens:3000,candidateCount:24};
+    f.messages.splice(0,f.messages.length,{is_user:true,mes:'I am resting on the sofa in the living room.'});
+    const content=id=>id+'. '+('This is the original recorded agreement, with its conditions and outcome intact. '.repeat(15));
+    f.book={entries:Object.fromEntries(Array.from({length:20},(_,i)=>[i,{uid:i,comment:'Evening',content:content('sofa-'+i)}]))};
+    for(const [i,id] of ['camera-policy','audio-policy','filming-plan'].entries())f.book.entries[20+i]={uid:20+i,comment:id,content:content(id)};
+    const questions=['What camera-policy was agreed?','What audio-policy was agreed?','What filming-plan was recorded?'];
+    const queryInputs=[],seen=[];let questionCalls=0,selectionCalls=0;
+    f.host.embed=async(_s,text,query)=>{
+        if(query)queryInputs.push(text);
+        if(text.includes('camera-policy'))return [.02,1,0,0];
+        if(text.includes('audio-policy'))return [.02,0,1,0];
+        if(text.includes('filming-plan'))return [.02,0,0,1];
+        return [1,.01,.01,.01];
+    };
+    f.host.ask=async(_p,_system,data)=>{
+        if(!data.memories){questionCalls++;return JSON.stringify({questions:[...questions,questions[0]]});}
+        selectionCalls++;seen.push(...data.memories);
+        return JSON.stringify({selections:data.memories.filter(u=>['camera-policy.','audio-policy.','filming-plan.'].includes(u.text))
+            .map(u=>({id:u.id,priority:3,reason:'Direct recorded answer to a search question',contextIds:[]}))});
+    };
+    await f.controller.index();const before=structuredClone(f.book);const result=await f.controller.recall();
+    for(const id of ['camera-policy','audio-policy','filming-plan']){
+        assert(seen.some(u=>u.text===id+'.'),id+' must reach the selector');assert(result.text.includes(id));
+    }
+    assert.equal(questionCalls,1);assert.equal(selectionCalls,1);assert.equal(queryInputs.length,new Set(queryInputs).size);
+    assert.equal(f.controller.state().lastRecall.questions.length,3);assert.deepEqual(f.book,before);
+    const report=await diagnostics.preview();assert.match(report,/question-balanced-v1/);assert.match(report,/질문 3 우선 배분/);
+});

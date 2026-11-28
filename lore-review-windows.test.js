@@ -72,7 +72,7 @@ test('global overlap and batch limits still apply when focused windows overlap',
 test('revision ten migrates only exact old defaults and preserves user prompts, collection and limits',()=>{
     const saved={promptRevision:9,prompts:{questions:PREVIOUS_FOCUSED_QUESTIONS,select:PREVIOUS_CONTEXT_SELECT,collect:'My collector'},reviewTokens:5000,injectionTokens:3000};
     const before=structuredClone(saved),next=normalizeSettings(saved);
-    assert.equal(next.promptRevision,11);assert.equal(next.prompts.questions,DEFAULT_PROMPTS.questions);assert.equal(next.prompts.select,DEFAULT_PROMPTS.select);
+    assert.equal(next.promptRevision,12);assert.equal(next.prompts.questions,DEFAULT_PROMPTS.questions);assert.equal(next.prompts.select,DEFAULT_PROMPTS.select);
     assert.equal(next.prompts.collect,'My collector');assert.equal(next.reviewTokens,5000);assert.equal(next.injectionTokens,3000);assert.deepEqual(saved,before);
     const custom=normalizeSettings({...saved,prompts:{questions:PREVIOUS_FOCUSED_QUESTIONS+'\nMy rule',select:'Custom selection'}});
     assert.equal(custom.prompts.questions,PREVIOUS_FOCUSED_QUESTIONS+'\nMy rule');assert.equal(custom.prompts.select,'Custom selection');

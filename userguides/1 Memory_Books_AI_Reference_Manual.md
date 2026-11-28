@@ -3772,6 +3772,8 @@ Review now uses the bounded retrieved-neighborhood policy described below; the f
 
 Prompt revision 8 migrates only the exact previous built-in selection default; custom prompts are preserved. Runtime event-context rules consistently apply to normal and generous AI selectors while retaining explicit exclusions. Diagnostic retention and UI are unchanged in this update.
 
+Runtime prompt cleanup (2026-11-28) consolidates repeated event-context, focus and outcome guidance. Reference validation remains the authority for exact IDs and the 32-context/8-outcome limits; outcome guidance covers later status, and generous mode explicitly overrides the normal reason-output requirement. Saved custom prompts, collection instructions, source text, candidate/review/injection limits and retry counts are unchanged. With the built-in selector, first-attempt system instructions are approximately 22–31% shorter by character count across normal/generous modes with zero or all five focus categories. This excludes dialogue and memory payloads and is not a measured token or latency reduction. Both browser and server selectors use the shared modules; update both installations and restart SillyTavern when using the server plugin.
+
 
 ### Cross-entry recall context and truncated-output recovery (2026-11-20)
 
